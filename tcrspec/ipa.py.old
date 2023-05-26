@@ -1,0 +1,189 @@
+from typing import Tuple
+from math import sqrt
+import logging
+
+import torch
+import torch.nn
+
+
+_log = logging.getLogger(__name__)
+
+
+def _inverse_transform_points(transformations: torch.Tensor, points: torch.Tensor) -> torch.Tensor:
+    """
+    Args:
+        transformations: [s, r, 3, 4] fourth matrix column is used for translation
+        points: [s, r, h, p, 3]
+    Returns:
+        [s, r, h, p, 3] inversely transformed points
+
+    Careful, Matrices with determinant 0 are not invertible!
+    """
+
+    points_output_shape = points.shape
+    s, r, h, p, v = points_output_shape
+
+    st, rt, vt, tt = transformations.shape
+
+    # [s * r, h * p, 3, 4]
+    ts = torch.unsqueeze(transformations.view(s * r, 3, 4), 1).expand(-1, h * p, -1, -1)
+
+    # [s * r, h * p, 3]
+    translations = torch.stack([ts[..., 0, 3], ts[..., 1, 3], ts[..., 2, 3]], dim=2)
+
+    # [s * r, h * p, 3, 3]
+    inverse_matrices = torch.inverse(ts[...,:,:3])
+
+    # [s * r, h * p]
+    xs, ys, zs = torch.unbind(points.view(s * r, h * p, 3) - translations, 2)
+
+    return torch.stack(
+        [
+            inverse_matrices[..., 0, 0] * xs + inverse_matrices[..., 0, 1] * ys + inverse_matrices[..., 0, 2] * zs,
+            inverse_matrices[..., 1, 0] * xs + inverse_matrices[..., 1, 1] * ys + inverse_matrices[..., 1, 2] * zs,
+            inverse_matrices[..., 2, 0] * xs + inverse_matrices[..., 2, 1] * ys + inverse_matrices[..., 2, 2] * zs,
+        ],
+        dim=2
+    ).view(points_output_shape)
+
+
+def _transform_points(transformations: torch.Tensor, points: torch.Tensor) -> torch.Tensor:
+    """
+    Args:
+        transformations: [s, r, 3, 4] fourth matrix column is used for translation
+        points: [s, r, h, p, 3]
+    Returns:
+        [s, r, h, p, 3] transformed points
+    """
+
+    points_output_shape = points.shape
+
+    s, r, h, p, v = points_output_shape
+
+    st, rt, vt, tt = transformations.shape
+
+    # [s * r, h * p, 3, 4]
+    ts = torch.unsqueeze(transformations.view(s * r, 3, 4), 1).expand(-1, h * p, -1, -1)
+
+    # [s * r, h * p]
+    xs, ys, zs = torch.unbind(points.view(s * r, h * p, 3), 2)
+
+    return torch.stack(
+        [
+            ts[..., 0, 0] * xs + ts[..., 0, 1] * ys + ts[..., 0, 2] * zs + ts[..., 0, 3],
+            ts[..., 1, 0] * xs + ts[..., 1, 1] * ys + ts[..., 1, 2] * zs + ts[..., 1, 3],
+            ts[..., 2, 0] * xs + ts[..., 2, 1] * ys + ts[..., 2, 2] * zs + ts[..., 2, 3],
+        ],
+        dim=2
+    ).view(points_output_shape)
+
+
+class IPA(torch.nn.Module):
+
+    def __init__(self,
+                 n_sequence_channels,
+                 n_head: int = 12,
+                 n_hidden_channels: int = 16,
+                 n_query_points: int = 4,
+                 n_point_values: int = 8):
+
+        super(IPA, self).__init__()
+
+        self._n_head = n_head
+        self._n_hidden_channels = n_hidden_channels
+        self._n_query_points = n_query_points
+        self._n_point_values = n_point_values
+
+        self._linear_q = torch.nn.Linear(n_sequence_channels, n_head * n_hidden_channels)
+        self._linear_k = torch.nn.Linear(n_sequence_channels, n_head * n_hidden_channels)
+        self._linear_v = torch.nn.Linear(n_sequence_channels, n_head * n_hidden_channels)
+
+        self._linear_q_points = torch.nn.Linear(n_sequence_channels, n_head * n_query_points * 3)
+        self._linear_k_points = torch.nn.Linear(n_sequence_channels, n_head * n_query_points * 3)
+        self._linear_v_points = torch.nn.Linear(n_sequence_channels, n_head * n_point_values * 3)
+
+        self._linear_result = torch.nn.Linear(n_head * (n_point_values * 4 + n_hidden_channels), n_sequence_channels)
+
+        self._inv_sqrt_hidden = 1.0 / sqrt(n_hidden_channels)
+        self._w_c = sqrt(2.0 / (9 * n_query_points))
+        self._w_l = sqrt(1.0 / 3.0)
+
+        self._head_weights = torch.nn.Parameter(torch.ones(n_head))
+
+    def forward(self,
+                s: torch.Tensor,
+                t: torch.Tensor) -> torch.Tensor:
+
+        """
+        Args:
+            s: [n_sequences, n_residues, n_sequence_channels]
+            t: [n_sequences, n_residues, 3, 4]
+        Returns:
+            [n_sequences, n_residues, n_sequence_channels]
+        """
+
+        n_sequences = s.shape[0]
+        n_residues = s.shape[1]
+
+        # [n_sequences, n_residues, n_head, n_hidden_channels]
+        qkv_shape = (n_sequences, n_residues, self._n_head, self._n_hidden_channels)
+        q = self._linear_q(s).view(*qkv_shape)
+        k = self._linear_k(s).view(*qkv_shape)
+        v = self._linear_v(s).view(*qkv_shape)
+
+        # [n_sequences, n_residues, n_head, n_query_points, 3]
+        qk_points_shape = (n_sequences, n_residues, self._n_head, self._n_query_points, 3)
+        q_points = self._linear_q_points(s).view(*qk_points_shape)
+        k_points = self._linear_k_points(s).view(*qk_points_shape)
+
+        # [n_sequences, n_residues, n_head, n_point_values, 3]
+        v_points = self._linear_v_points(s).view(n_sequences, n_residues, self._n_head, self._n_point_values, 3)
+
+        # [n_sequences, n_residues, n_residues, n_head]
+        a_term1 = (
+            self._inv_sqrt_hidden * torch.matmul(q.permute((0, 2, 1, 3)),  # [n_sequences, n_head, n_residues, n_hidden_channels]
+                                                 k.permute((0, 2, 3, 1)))  # [n_sequences, n_head, n_hidden_channels, n_residues]
+        ).permute((0, 2, 3, 1))
+
+        # [n_sequences, n_residues, n_residues, n_head, n_query_points, 3]
+        kq_directions = (_transform_points(t, q_points).unsqueeze(2) -  # [n_sequences, n_residues, 1, n_head, n_query_points, 3]
+                         _transform_points(t, k_points).unsqueeze(1))   # [n_sequences, 1, n_residues, n_head, n_query_points, 3]
+
+        # [n_sequences, n_residues, n_residues, n_head, n_query_points]
+        kq_squared_distances_per_two_points = torch.sum(torch.square(kq_directions), dim=5)
+
+        # [n_sequences, n_residues, n_residues, n_head]
+        sum_of_squares_per_residue_pair = torch.sum(kq_squared_distances_per_two_points, dim=4)
+
+        # [n_sequences, n_residues, n_residues, n_head]
+        a_term2 = (self._head_weights * self._w_c / 2.0) * sum_of_squares_per_residue_pair
+
+        # [n_sequences, n_residues, n_residues, n_head]
+        a = torch.softmax(self._w_l * (a_term1 - a_term2), 2)
+
+        # [n_sequences, n_residues, n_head, n_hidden_channels]
+        o_values = torch.sum(a.unsqueeze(4) * v.unsqueeze(2).expand(-1, -1, n_residues, -1, -1), dim=2)
+
+        # [n_sequences, n_residues, n_residues, n_head, n_point_values, 3]
+        transformed_v_points_per_pair = _transform_points(t, v_points).unsqueeze(2).expand(-1, -1, n_residues, -1, -1, -1)
+
+        # [n_sequences, n_residues, n_residues, n_head, 1, 1]
+        a_per_point = a.unsqueeze(4).unsqueeze(5)
+
+        # [n_sequences, n_residues, n_head, n_point_values, 3]
+        o_points = _inverse_transform_points(t, torch.sum(a_per_point * transformed_v_points_per_pair, dim=2))
+
+        # [n_sequences, n_residues, n_head, n_point_values]
+        o_lengths = torch.sqrt(torch.sum(torch.square(o_points), dim=4))
+
+        # [n_sequences, n_residues, n_head, n_point_values, 4]
+        o_xyzl = torch.cat((o_points, o_lengths.unsqueeze(4)), dim=4)
+
+        # [n_sequences, n_residues, n_head * n_point_values * 4]
+        o_xyzl_flat = torch.flatten(o_xyzl, start_dim=2, end_dim=4)
+
+        # [n_sequences, n_residues, n_head * n_hidden_channels]
+        o_values_flat = torch.flatten(o_values, start_dim=2)
+
+        # [n_sequences, n_residues, n_sequence_channels], [n_sequences, n_residues, n_residues, n_head]
+        return (self._linear_result(torch.cat((o_values_flat, o_xyzl_flat), dim=2)), a)

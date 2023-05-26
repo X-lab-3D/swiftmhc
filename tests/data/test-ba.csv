@@ -1,0 +1,3 @@
+allele,peptide,measurement_value,measurement_inequality,measurement_type,measurement_kind,measurement_source,original_allele,ID,db2_folder,cluster,anchors,cristal,gibbs_cluster
+HLA-A*02:01,GVNNLEHGL,6441.2,=,quantitative,affinity,K.Nair - purified MHC/competitive/fluorescence,HLA-A*02:01,BA-67447,/projects/0/einf2380/data/pMHCI/models/BA/67001_68000,4.0,"[2, 9]",False,neg_0
+HLA-A*02:01,SLRNVLAAV,5.4,=,quantitative,affinity,BenMohamed - purified MHC/competitive/radioactivity,HLA-A*02:01,BA-85466,/projects/0/einf2380/data/pMHCI/models/BA/85001_86000,4.0,"[2, 9]",False,pos_3
