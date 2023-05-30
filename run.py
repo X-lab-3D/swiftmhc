@@ -65,6 +65,7 @@ arg_parser.add_argument("--test-only", "-t", help="skip training and test on a p
 arg_parser.add_argument("--batch-size", "-b", help="batch size to use during training/validation/testing", type=int, default=8)
 arg_parser.add_argument("--epoch-count", "-e", help="how many epochs to run during training", type=int, default=100)
 arg_parser.add_argument("--fine-tune-count", "-u", help="how many epochs to run during fine-tuning", type=int, default=10)
+arg_parser.add_argument("--animate", "-a", help="id of a data point to generate intermediary pdb for")
 arg_parser.add_argument("data_path", help="path to the train, validation & test hdf5", nargs="+")
 
 
@@ -153,11 +154,20 @@ class Trainer:
                optimizer: Optimizer,
                model: Predictor,
                data: TensorDict,
-               fine_tune: bool) -> Tuple[TensorDict, TensorDict]:
+               fine_tune: bool,
+               pdb_output_directory: Optional[str] = None,
+               animated_complex_id: Optional[str] = None
+
+    ) -> Tuple[TensorDict, TensorDict]:
 
         optimizer.zero_grad()
 
         output = model(data)
+
+        # save the animation steps
+        if pdb_output_directory is not None and animated_complex_id is not None:
+            self._save_results_as_pdbs(pdb_output_directory, data, output,
+                                       animated_complex_id, epoch_index)
 
         losses = get_loss(output, data, fine_tune)
 
@@ -166,7 +176,7 @@ class Trainer:
         loss.backward()
 
         # only do this if necessary, when the training isn't stable
-        clip_grad_norm_(model.parameters(), 0.5)
+        #clip_grad_norm_(model.parameters(), 0.5)
 
         optimizer.step()
 
@@ -228,7 +238,10 @@ class Trainer:
                optimizer: Optimizer,
                model: Predictor,
                data_loader: DataLoader,
-               fine_tune: bool) -> Tuple[TensorDict, TensorDict, TensorDict]:
+               fine_tune: bool,
+               pdb_output_directory: Optional[str] = None,
+               animated_complex_id: Optional[str] = None
+    ) -> Tuple[TensorDict, TensorDict, TensorDict]:
 
         epoch_loss = TensorDict()
         epoch_data = TensorDict()
@@ -245,7 +258,8 @@ class Trainer:
             batch_loss, batch_output, batch_truth = self._batch(epoch_index,
                                                                 batch_index, optimizer, model,
                                                                 batch_data,
-                                                                fine_tune)
+                                                                fine_tune,
+                                                                pdb_output_directory, animated_complex_id)
 
             epoch_loss += batch_loss * batch_size
             total_data_size += batch_size
@@ -255,10 +269,12 @@ class Trainer:
         return (epoch_loss / total_data_size, epoch_data, epoch_output)
 
     def _validate(self,
+                  epoch_index: int,
                   model: Predictor,
                   data_loader: DataLoader,
                   fine_tune: bool,
-                  pdb_output_directory: Optional[str] = None
+                  pdb_output_directory: Optional[str] = None,
+                  animated_complex_id: Optional[str] = None
     ) -> Tuple[TensorDict, TensorDict, TensorDict]:
 
         valid_loss = TensorDict()
@@ -292,10 +308,11 @@ class Trainer:
 
                 valid_output.append(TensorDict({"affinity": batch_output["affinity"]}))
 
-                if pdb_output_directory is not None:
-                    self._save_results_as_pdbs(pdb_output_directory, batch_data, batch_output)
-                    self._save_outputs_as_csv(outputs_path,
-                                              batch_data, batch_output)
+                # save the animation steps
+                if pdb_output_directory and animated_complex_id is not None:
+                    self._save_results_as_pdbs(pdb_output_directory, batch_data, batch_output,
+                                               animated_complex_id, epoch_index)
+
 
         return (valid_loss / total_data_size, valid_data, valid_output)
 
@@ -333,21 +350,38 @@ class Trainer:
         table.to_csv(output_path, index=False)
 
     @staticmethod
-    def _save_results_as_pdbs(output_directory: str, input_data: TensorDict, output_data: TensorDict):
+    def _save_results_as_pdbs(output_directory: str,
+                              input_data: TensorDict,
+                              output_data: TensorDict,
+                              animated_complex_id: Optional[str] = None,
+                              epoch_index: Optional[int] = None):
 
         batch_size = input_data["loop_sequence_embedding"].shape[0]
 
         for index in range(batch_size):
 
-            # only save the structure of binders
-            if input_data["kd"][index] < 500.0:
+            complex_id = input_data["ids"][index]
 
-                structure = recreate_structure(input_data["ids"][index],
-                                               [("P", input_data["loop_sequence_embedding"][index], output_data["final_positions"][index]),
-                                                ("M", input_data["protein_sequence_embedding"][index], input_data["protein_atom14_gt_positions"][index])])
-                io = PDBIO()
-                io.set_structure(structure)
-                io.save(f"{output_directory}/{structure.id}.pdb")
+            if animated_complex_id is not None:
+
+                # filter out the complex with this id
+                if complex_id != animated_complex_id:
+                    continue
+
+            # only save the structure of binders
+            elif input_data["kd"][index] >= 500.0:
+                continue
+
+            name = complex_id
+            if epoch_index is not None:
+                name += f"-e{epoch_index}"
+
+            structure = recreate_structure(name,
+                                           [("P", input_data["loop_sequence_embedding"][index], output_data["final_positions"][index]),
+                                            ("M", input_data["protein_sequence_embedding"][index], input_data["protein_atom14_gt_positions"][index])])
+            io = PDBIO()
+            io.set_structure(structure)
+            io.save(f"{output_directory}/{structure.id}.pdb")
 
     def test(self, test_loader: DataLoader, run_id: str):
 
@@ -357,7 +391,7 @@ class Trainer:
         model.eval()
         model.load_state_dict(torch.load(model_path))
 
-        test_loss, test_data, test_output = self._validate(model, test_loader, True, run_id)
+        test_loss, test_data, test_output = self._validate(-1, model, test_loader, True, run_id)
 
         self._output_metrics(run_id, "test", -1, test_loss, test_data, test_output)
 
@@ -367,7 +401,8 @@ class Trainer:
               test_loader: DataLoader,
               epoch_count: int, fine_tune_count: int,
               run_id: Optional[str] = None,
-              pretrained_model_path: Optional[str] = None):
+              pretrained_model_path: Optional[str] = None,
+              animated_complex_id: Optional[str] = None):
 
         # get train data affinities
         train_affinities = torch.cat([batch_data["affinity"] for batch_data in train_loader])
@@ -381,7 +416,7 @@ class Trainer:
             model.load_state_dict(torch.load(pretrained_model_path,
                                              map_location=self._device))
 
-        optimizer = Adam(model.parameters(), lr=0.01)
+        optimizer = Adam(model.parameters(), lr=0.001)
         # scheduler = StepLR(optimizer, step_size=10, gamma=0.1)
 
         # define model path
@@ -398,22 +433,21 @@ class Trainer:
 
             # train during epoch
             with Timer(f"train epoch {epoch_index}") as t:
-                train_loss, train_data, train_output = self._epoch(epoch_index, optimizer, model, train_loader, fine_tune)
+                train_loss, train_data, train_output = self._epoch(epoch_index, optimizer, model, train_loader, fine_tune,
+                                                                   run_id, animated_complex_id)
                 t.add_to_title(f"on {train_data.size()} data points")
 
             # validate
             with Timer(f"valid epoch {epoch_index}") as t:
-                valid_loss, valid_data, valid_output = self._validate(model, valid_loader, fine_tune)
+                valid_loss, valid_data, valid_output = self._validate(epoch_index, model, valid_loader, fine_tune,
+                                                                      run_id, animated_complex_id)
                 t.add_to_title(f"on {valid_data.size()} data points")
 
             # test
             with Timer(f"test epoch {epoch_index}") as t:
 
-                pdb_directory = None
-                if (epoch_index + 1) == total_epochs:  # final epoch?
-                    pdb_directory = run_id
-
-                test_loss, test_data, test_output = self._validate(model, test_loader, fine_tune, pdb_directory)
+                test_loss, test_data, test_output = self._validate(epoch_index, model, test_loader, fine_tune,
+                                                                   run_id, animated_complex_id)
                 t.add_to_title(f"on {test_output.size()} data points")
 
             # write the metrics
@@ -437,6 +471,9 @@ class Trainer:
             #    model.load_state_dict(torch.load(model_path))
 
             # scheduler.step()
+
+        # write the final test output
+        self._save_outputs_as_csv(os.path.join(run_id, "outputs.csv"), test_data, test_output)
 
     @staticmethod
     def _init_metrics_dataframe():
@@ -541,4 +578,4 @@ if __name__ == "__main__":
 
         trainer.train(train_loader, valid_loader, test_loader,
                       args.epoch_count, args.fine_tune_count,
-                      run_id, args.pretrained_model)
+                      run_id, args.pretrained_model, args.animate)
