@@ -60,6 +60,7 @@ from tcrspec.domain.amino_acid import amino_acids_by_one_hot_index
 arg_parser = ArgumentParser(description="run a TCR-spec network model")
 arg_parser.add_argument("--run-id", "-r", help="name of the run and the directory to store it")
 arg_parser.add_argument("--debug", "-d", help="generate debug files", action='store_const', const=True, default=False)
+arg_parser.add_argument("--log-stdout", "-l", help="log to stdout", action='store_const', const=True, default=False)
 arg_parser.add_argument("--pretrained-model", "-p", help="use a given pretrained model")
 arg_parser.add_argument("--test-only", "-t", help="skip training and test on a pretrained model", action='store_const', const=True, default=False)
 arg_parser.add_argument("--batch-size", "-b", help="batch size to use during training/validation/testing", type=int, default=8)
@@ -141,8 +142,6 @@ class Trainer:
     def __init__(self,
                  device: torch.device):
 
-
-        self._affinity_loss_function = MSELoss(reduction="mean").to(device=device)
 
         self._device = device
 
@@ -537,8 +536,12 @@ if __name__ == "__main__":
 
     args = arg_parser.parse_args()
 
-    logging.basicConfig(filename="tcrspec.log", filemode="a",
-                        level=logging.DEBUG if args.debug else logging.INFO)
+    if args.log_stdout:
+        logging.basicConfig(stream=sys.stdout,
+                            level=logging.DEBUG if args.debug else logging.INFO)
+    else:
+        logging.basicConfig(filename="tcrspec.log", filemode="a",
+                            level=logging.DEBUG if args.debug else logging.INFO)
 
     if torch.cuda.is_available():
         device = torch.device("cuda")
