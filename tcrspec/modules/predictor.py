@@ -20,6 +20,7 @@ from .position_encoding import PositionalEncoding
 from .cross_structure_module import CrossStructureModule
 from ..domain.amino_acid import AMINO_ACID_DIMENSION
 from ..models.data import TensorDict
+from ..tools.amino_acid import one_hot_decode_sequence
 
 
 _log = logging.getLogger(__name__)
@@ -64,17 +65,17 @@ class Predictor(torch.nn.Module):
 
         self.cross = CrossStructureModule(**structure_module_config)
 
-        c_affinity = 200
+        c_affinity = 128
 
         #self.aff_norm = LayerNorm(structure_module_config.c_s)
 
-        self.aff_trans = torch.nn.Sequential(
-            torch.nn.Linear(structure_module_config.c_s, 10),
-            torch.nn.GELU(),
-            torch.nn.Linear(10, structure_module_config.c_s),
-            torch.nn.Dropout(0.1),
-            torch.nn.LayerNorm(structure_module_config.c_s)
-        )
+        #self.aff_trans = torch.nn.Sequential(
+        #    torch.nn.Linear(structure_module_config.c_s, 10),
+        #    torch.nn.GELU(),
+        #    torch.nn.Linear(10, structure_module_config.c_s),
+        #    torch.nn.Dropout(0.1),
+        #    torch.nn.LayerNorm(structure_module_config.c_s)
+        #)
 
         mlp_input_size = self.loop_maxlen * structure_module_config.c_s
         #mlp_input_size = self.loop_maxlen * self.protein_maxlen * structure_module_config.no_heads_ipa
@@ -104,20 +105,20 @@ class Predictor(torch.nn.Module):
         """
 
         # [batch_size, loop_len, c_s]
-        loop_embd = batch["loop_sequence_embedding"].clone()
-        batch_size = loop_embd.shape[0]
+        loop_seq = batch["loop_sequence_embedding"]
+        batch_size = loop_seq.shape[0]
 
         # positional encoding
-        loop_embd = self.pos_enc(loop_embd)
+        loop_pos_enc = self.pos_enc(loop_seq)
 
         # self-attention on the loop
-        loop_embd = self.loop_enc(loop_embd, src_key_padding_mask=batch["loop_len_mask"])
+        loop_embd = self.loop_enc(loop_pos_enc, src_key_padding_mask=batch["loop_len_mask"])
 
         # structure-based self-attention on the protein
         protein_T = Rigid.from_tensor_4x4(batch["protein_backbone_rigid_tensor"])
 
         # [batch_size, protein_len, c_s]
-        protein_embd = batch["protein_sequence_embedding"].clone()
+        protein_embd = batch["protein_sequence_embedding"]
 
         for _ in range(self.n_ipa_repeat):
             protein_embd = self.protein_ipa(protein_embd,
@@ -129,7 +130,7 @@ class Predictor(torch.nn.Module):
 
         # cross attention and loop structure prediction
         output = self.cross(batch["loop_aatype"],
-                            loop_embd,
+                            loop_embd.clone(),
                             batch["loop_len_mask"],
                             protein_embd,
                             batch["protein_len_mask"],
@@ -157,10 +158,10 @@ class Predictor(torch.nn.Module):
         output["final_atom_positions"] = atom14_to_atom37(output["final_positions"], output)
 
         # [batch_size, n_heads, loop_len, protein_len]
-        cross_att = output["cross_attention"]
+        #cross_att = output["cross_attention"]
 
         # transition on s_loop before prediction BA
-        updated_s_loop = self.aff_trans(output["single"])
+        updated_s_loop = output["single"]
 
         # [batch_size, loop_maxlen]
         #output["affinity"] = self.aff_mlp(cross_att.reshape(batch_size, -1)).reshape(batch_size)
@@ -168,7 +169,21 @@ class Predictor(torch.nn.Module):
 
         return output
 
+def _get_loop_s_batch_s(loop_sequence_embedding: torch.Tensor) -> str:
 
+    loop_embd_s = ""
+    for seq in loop_sequence_embedding:
+        for aa in one_hot_decode_sequence(seq):
+            if aa is not None:
+                loop_embd_s += aa.one_letter_code
+            else:
+                loop_embd_s += "-"
+        loop_embd_s += "\n"
 
+        for aa in seq:
+            loop_embd_s += str(aa.tolist()) + "\n"
+        loop_embd_s += "\nend of seq\n\n"
+
+    return loop_embd_s
 
 

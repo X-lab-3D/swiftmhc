@@ -35,14 +35,19 @@ proline = AminoAcid("proline", "PRO", "P")
 unknown_amino_acid = AminoAcid("unknown", "UNK", "X")
 
 
-amino_acids = [alanine, cysteine, aspartate, glutamate, phenylalanine,
-               glycine, histidine, isoleucine, lysine, leucine, methionine,
-               asparagine, pyrolysine, glutamine, arginine, serine, threonine,
-               selenocysteine, valine, tyrosine, tryptophan, lysine, proline]
+canonical_amino_acids = [alanine, cysteine, aspartate, glutamate, phenylalanine,
+                         glycine, histidine, isoleucine, lysine, leucine, methionine,
+                         asparagine, glutamine, arginine, serine, threonine,
+                         valine, tyrosine, tryptophan, lysine, proline]
 
-amino_acids_by_name = {amino_acid.name: amino_acid for amino_acid in amino_acids}
-amino_acids_by_code = {amino_acid.three_letter_code: amino_acid for amino_acid in amino_acids}
-amino_acids_by_letter = {amino_acid.one_letter_code: amino_acid for amino_acid in amino_acids}
+all_amino_acids = [alanine, cysteine, aspartate, glutamate, phenylalanine,
+                   glycine, histidine, isoleucine, lysine, leucine, methionine,
+                   asparagine, pyrolysine, glutamine, arginine, serine, threonine,
+                   selenocysteine, valine, tyrosine, tryptophan, lysine, proline]
+
+amino_acids_by_name = {amino_acid.name: amino_acid for amino_acid in all_amino_acids}
+amino_acids_by_code = {amino_acid.three_letter_code: amino_acid for amino_acid in all_amino_acids}
+amino_acids_by_letter = {amino_acid.one_letter_code: amino_acid for amino_acid in all_amino_acids}
 
 # Encode the amino acids in the same way as openfold does:
 amino_acids_by_one_hot_index = {}

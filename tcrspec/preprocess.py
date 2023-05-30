@@ -1,6 +1,7 @@
 from typing import List, Tuple, Union, Optional, Dict
 import os
 import logging
+from math import isinf
 
 import h5py
 import pandas
@@ -10,6 +11,7 @@ import torch
 from Bio.PDB.PDBParser import PDBParser
 from Bio.PDB.Chain import Chain
 from Bio.PDB.Residue import Residue
+from blosum import BLOSUM
 
 from openfold.np.residue_constants import restype_atom37_mask
 from openfold.data.data_transforms import (atom37_to_frames,
@@ -23,7 +25,7 @@ from .tools.pdb import (get_residue_transformations,
                         get_atom14_positions,
                         generate_symmetry_alternative,
                         get_residue_proximities)
-from .domain.amino_acid import amino_acids_by_code
+from .domain.amino_acid import amino_acids_by_code, canonical_amino_acids
 from .models.amino_acid import AminoAcid
 
 
@@ -119,6 +121,34 @@ def _get_masked_residues(residues: List[Residue],
     return passed
 
 
+def _get_blosum_encoding(amino_acid_indexes: List[int], blosum_index: int) -> List[int]:
+    """
+    Arguments:
+        amino_acid_indexes: order of numbers 0 to 19, coding for the amino acids
+        blosum_index: identifies the type of BLOSUM matrix to use
+    Returns:
+        the amino acids encoded by their BLOSUM rows
+    """
+
+    matrix = BLOSUM(blosum_index)
+    encoding = []
+    for amino_acid_index in amino_acid_indexes:
+        amino_acid = canonical_amino_acids[amino_acid_index]
+
+        row = []
+        for other_amino_acid in canonical_amino_acids:
+
+            if isinf(matrix[amino_acid.one_letter_code][other_amino_acid.one_letter_code]):
+
+                raise ValueError(f"not found in blosum matrix: {amino_acid.one_letter_code} & {other_amino_acid.one_letter_code}")
+            else:
+                row.append(matrix[amino_acid.one_letter_code][other_amino_acid.one_letter_code])
+
+        encoding.append(row)
+
+    return encoding
+
+
 def _read_residue_data(chain: Chain,
                        residue_mask: Optional[List[Tuple[str, int, AminoAcid]]] = None,
                        ) -> Union[Tuple[torch.tensor, torch.tensor, torch.tensor],
@@ -160,9 +190,12 @@ def _read_residue_data(chain: Chain,
     atom14_positions = torch.stack(atom14_positions)
     atom14_mask = torch.stack(atom14_mask)
 
+    blosum62 = _get_blosum_encoding(aatype, 62)
+
     # convert to atom 37 format, for the frames and torsion angles
     protein = {"aatype": aatype,
-               "sequence_embedding": sequence_embedding}
+               "sequence_embedding": sequence_embedding,
+               "blosum62": blosum62}
     protein = make_atom14_masks(protein)
 
     atom37_positions = atom14_to_atom37(atom14_positions, protein)
