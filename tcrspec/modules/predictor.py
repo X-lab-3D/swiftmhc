@@ -81,11 +81,13 @@ class Predictor(torch.nn.Module):
         #mlp_input_size = self.loop_maxlen * self.protein_maxlen * structure_module_config.no_heads_ipa
 
         self.aff_mlp = torch.nn.Sequential(
+            torch.nn.LayerNorm(mlp_input_size),
             torch.nn.Linear(mlp_input_size, c_affinity),
             torch.nn.GELU(),
             torch.nn.Linear(c_affinity, c_affinity),
             torch.nn.GELU(),
-            torch.nn.Linear(c_affinity, 1)
+            torch.nn.Linear(c_affinity, 1),
+            torch.nn.LayerNorm(1),
         )
 
     def forward(self, batch: TensorDict) -> TensorDict:
@@ -168,22 +170,3 @@ class Predictor(torch.nn.Module):
         output["affinity"] = self.aff_mlp(updated_s_loop.reshape(batch_size, -1)).reshape(batch_size)
 
         return output
-
-def _get_loop_s_batch_s(loop_sequence_embedding: torch.Tensor) -> str:
-
-    loop_embd_s = ""
-    for seq in loop_sequence_embedding:
-        for aa in one_hot_decode_sequence(seq):
-            if aa is not None:
-                loop_embd_s += aa.one_letter_code
-            else:
-                loop_embd_s += "-"
-        loop_embd_s += "\n"
-
-        for aa in seq:
-            loop_embd_s += str(aa.tolist()) + "\n"
-        loop_embd_s += "\nend of seq\n\n"
-
-    return loop_embd_s
-
-
