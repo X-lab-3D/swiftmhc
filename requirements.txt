@@ -3,3 +3,8 @@ pandas==1.5.3
 pdb2sql==0.5.3
 openfold2==0.0.1
 blosum==2.0.2
+scipy==1.10.1
+scikit-learn==1.2.2
+biopython==1.81
+ml-collections==0.1.1
+h5py==3.8.0
