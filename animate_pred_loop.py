@@ -59,6 +59,7 @@ def to_frame(structure: Structure, id_: str, epoch_index: int) -> str:
 
         pymol_cmd.hide("cartoon", "chain P")
         pymol_cmd.show("stick", "chain P")
+        pymol_cmd.show("stick", "name CA or sidechain")
 
         pymol_cmd.color("blue", "chain M")
         pymol_cmd.color("red", "chain P")
