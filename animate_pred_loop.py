@@ -42,13 +42,13 @@ def combine_with(m_path: str, p_path: str) -> Structure:
     return output_struct
 
 
-def to_frame(structure: Structure, id_: str, epoch_index: int) -> str:
+def to_frame(structure: Structure, id_: str, epoch_index: int, batch_index: int) -> str:
 
     work_dir = mkdtemp()
 
     try:
-        pdb_path = f"combined-{id_}-e{epoch_index}.pdb"
-        png_path = f"{id_}-e{epoch_index}.png"
+        pdb_path = f"combined-{id_}-{epoch_index}.{batch_index}.pdb"
+        png_path = f"{id_}-{epoch_index}.{batch_index}.png"
 
         pdbio = PDBIO()
         pdbio.set_structure(structure)
@@ -90,7 +90,7 @@ if __name__ == "__main__":
 
             structure = combine_with(args.template_path, snapshot_path)
 
-            png_paths.append(to_frame(structure, args.id, epoch_index))
+            png_paths.append(to_frame(structure, args.id, epoch_index, batch_index))
 
             batch_index += 1
 
