@@ -327,7 +327,7 @@ class Trainer:
     @staticmethod
     def _save_outputs_as_csv(output_path: str, batch_data: TensorDict, output_data: TensorDict):
 
-        batch_size = batch_data["loop_sequence_embedding"].shape[0]
+        batch_size = batch_data["ids"].shape[0]
 
         if os.path.isfile(output_path):
             table = pandas.read_csv(output_path)
@@ -339,14 +339,7 @@ class Trainer:
 
             id_ = batch_data["ids"][batch_index]
 
-            loop_amino_acids = []
-            for residue_index in range(len(batch_data["loop_sequence_embedding"][batch_index])):
-                if batch_data["loop_len_mask"][batch_index][residue_index].item():
-                    one_hot_code = batch_data["loop_sequence_embedding"][batch_index][residue_index]
-                    amino_acid = amino_acids_by_one_hot_index[torch.nonzero(one_hot_code).item()]
-
-                    loop_amino_acids.append(amino_acid)
-            loop_sequence = "".join([amino_acid.one_letter_code for amino_acid in loop_amino_acids])
+            loop_sequence = batch_data["loop_sequence"][batch_index]
 
             row = pandas.DataFrame({"id": [id_], "loop": [loop_sequence],
                                     "output affinity": [output_data["affinity"][batch_index].item()],
