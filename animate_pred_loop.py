@@ -14,12 +14,12 @@ from Bio.PDB.PDBIO import PDBIO
 import pymol.cmd as pymol_cmd
 
 arg_parser = ArgumentParser(description="combine multiple snapshot structures into an animation")
-arg_parser.add_argument("--id", "-i", help="id in the name of the structure files")
-arg_parser.add_argument("--template-path", "-t", help="template pdb file to use")
+arg_parser.add_argument("id", help="id in the name of the structure files")
+arg_parser.add_argument("template_path", help="template pdb file to use")
 
 
-def get_snapshot_name(id_: str, epoch_index: int) -> str:
-    return f"{id_}-e{epoch_index}.pdb"
+def get_snapshot_name(id_: str, epoch_index: int, batch_index: int) -> str:
+    return f"{id_}-{epoch_index}.{batch_index}.pdb"
 
 
 def combine_with(m_path: str, p_path: str) -> Structure:
@@ -62,7 +62,6 @@ def to_frame(structure: Structure, id_: str, epoch_index: int) -> str:
         pymol_cmd.show("stick", "name CA or sidechain")
 
         pymol_cmd.color("blue", "chain M")
-        pymol_cmd.color("red", "chain P")
 
         pymol_cmd.rotate("x", -90)
 
@@ -83,13 +82,19 @@ if __name__ == "__main__":
     png_paths = []
 
     epoch_index = 0
-    while os.path.isfile(get_snapshot_name(args.id, epoch_index)):
-        snapshot_path = get_snapshot_name(args.id, epoch_index)
+    batch_index = 0
 
-        structure = combine_with(args.template_path, snapshot_path)
+    while os.path.isfile(get_snapshot_name(args.id, epoch_index, batch_index)):
+        while os.path.isfile(get_snapshot_name(args.id, epoch_index, batch_index)):
+            snapshot_path = get_snapshot_name(args.id, epoch_index, batch_index)
 
-        png_paths.append(to_frame(structure, args.id, epoch_index))
+            structure = combine_with(args.template_path, snapshot_path)
 
+            png_paths.append(to_frame(structure, args.id, epoch_index))
+
+            batch_index += 1
+
+        batch_index = 0
         epoch_index += 1
 
     clip = ImageSequenceClip(png_paths, 10)
