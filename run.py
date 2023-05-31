@@ -262,8 +262,13 @@ class Trainer:
 
             epoch_loss += batch_loss * batch_size
             total_data_size += batch_size
-            epoch_data.append(batch_truth)
-            epoch_output.append(batch_output)
+
+            # store only the data we need to generate the output files:
+            epoch_data.append(TensorDict({"affinity": batch_data["affinity"],
+                                          "ids": batch_data["ids"],
+                                          "loop_sequence": [one_hot_decode_sequence(embd)
+                                                            for embd in batch_data["loop_sequence_embedding"]]}))
+            epoch_output.append(TensorDict({"affinity": batch_output["affinity"]}))
 
         return (epoch_loss / total_data_size, epoch_data, epoch_output)
 
@@ -303,8 +308,11 @@ class Trainer:
                 valid_loss += batch_loss * batch_size
                 total_data_size += batch_size
 
-                valid_data.append(TensorDict({"affinity": batch_data["affinity"]}))
-
+                # store only the data we need to generate the output files:
+                valid_data.append(TensorDict({"affinity": batch_data["affinity"],
+                                              "ids": batch_data["ids"],
+                                              "loop_sequence": [one_hot_decode_sequence(embd)
+                                                                for embd in batch_data["loop_sequence_embedding"]]}))
                 valid_output.append(TensorDict({"affinity": batch_output["affinity"]}))
 
                 # save the animation steps
