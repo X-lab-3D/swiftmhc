@@ -224,6 +224,23 @@ class Trainer:
             for loop_index in range(loop_positions.shape[0]):
                 table_file.write(f"loop residue {loop_index} is predicted at {loop_positions[loop_index]}\n")
 
+    def _snapshot_pdb(self,
+                      frame_id: str,
+                      model: Predictor,
+                      output_directory: str,
+                      data: Dict[str, torch.Tensor]):
+
+        with torch.no_grad():
+            output = model(data)
+
+        name = data["ids"][0] + "-" + frame_id
+
+        structure = recreate_structure(name,
+                                       [("P", data["loop_sequence_embedding"][0], output["final_positions"][0]),
+                                        ("M", data["protein_sequence_embedding"][0], data["protein_atom14_gt_positions"][0])])
+        io = PDBIO()
+        io.set_structure(structure)
+        io.save(f"{output_directory}/{structure.id}.pdb")
 
     def _epoch(self,
                epoch_index: int,
@@ -253,18 +270,10 @@ class Trainer:
                                                    fine_tune)
 
             if pdb_output_directory is not None and animated_data is not None:
-                # create a snapshot structure using the current model
 
-                anim_loss, anim_output = self._batch(epoch_index, batch_index,
-                                                     optimizer, model,
-                                                     animated_data, fine_tune)
-                name = animated_data["ids"][0] + f"-{epoch_index}.{batch_index}"
-                structure = recreate_structure(name,
-                                               [("P", animated_data["loop_sequence_embedding"][0], anim_output["final_positions"][0]),
-                                                ("M", animated_data["protein_sequence_embedding"][0], animated_data["protein_atom14_gt_positions"][0])])
-                io = PDBIO()
-                io.set_structure(structure)
-                io.save(f"{pdb_output_directory}/{structure.id}.pdb")
+                self._snapshot_pdb(f"{epoch_index + 1}.{batch_index}",
+                                   model,
+                                   pdb_output_directory, animated_data)
 
             epoch_loss += batch_loss * batch_size
             total_data_size += batch_size
@@ -433,9 +442,16 @@ class Trainer:
         # Keep track of the lowest loss value.
         lowest_loss = float("inf")
 
-        animated_data = self._get_single_data_batch([train_loader.dataset,
-                                                     valid_loader.dataset,
-                                                     test_loader.dataset], animated_complex_id)
+        animated_data = None
+        if animated_complex_id is not None:
+            # make snapshots for animation
+            animated_data = self._get_single_data_batch([train_loader.dataset,
+                                                         valid_loader.dataset,
+                                                         test_loader.dataset], animated_complex_id)
+
+            self._snapshot_pdb("0.0",
+                               model,
+                               run_id, animated_data)
 
         total_epochs = epoch_count + fine_tune_count
         for epoch_index in range(total_epochs):
