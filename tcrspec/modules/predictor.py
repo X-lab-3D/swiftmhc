@@ -160,11 +160,12 @@ class Predictor(torch.nn.Module):
         # [batch_size, n_heads, loop_len, protein_len]
         #cross_att = output["cross_attention"]
 
-        # transition on s_loop before prediction BA
+        # [batch_size, loop_maxlen]
         updated_s_loop = torch.cat((output["single"], batch["loop_sequence_embedding"]), dim=2)
 
-        # [batch_size, loop_maxlen]
         #output["affinity"] = self.aff_mlp(cross_att.reshape(batch_size, -1)).reshape(batch_size)
-        output["affinity"] = self.aff_mlp(updated_s_loop.reshape(batch_size, -1)).reshape(batch_size)
+        output["affinity"] = self.aff_mlp(s_loop.reshape(batch_size, -1)).reshape(batch_size)
 
         return output
+
+
