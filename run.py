@@ -4,11 +4,12 @@ from time import time
 from argparse import ArgumentParser
 import logging
 from uuid import uuid4
-from typing import Tuple, Union, Optional, List, Dict, Set
+from typing import Tuple, Union, Optional, List, Dict, Set, Any
 import random
 from math import log, sqrt
 from multiprocessing import set_start_method
 
+from scipy.stats import pearsonr
 import ml_collections
 import pandas
 import torch
@@ -119,23 +120,6 @@ def _calc_accuracy(probabilities: torch.Tensor, targets: torch.Tensor) -> float:
     tn = torch.count_nonzero(torch.logical_and(torch.logical_not(predictions), torch.logical_not(targets))).item()
 
     return (tp + tn) / predictions.shape[0]
-
-
-def _calc_pearson_correlation_coefficient(x: torch.Tensor, y: torch.Tensor) -> float:
-
-    x_mean = x.mean().item()
-    y_mean = y.mean().item()
-
-    nom = torch.sum((x - x_mean) * (y - y_mean)).item()
-    den = sqrt(torch.sum(torch.square(x - x_mean)).item()) * sqrt(torch.sum(torch.square(y - y_mean)).item())
-
-    if nom == 0.0:
-        return 0.0
-
-    if den == 0.0:
-        return None
-
-    return nom / den
 
 
 class Trainer:
@@ -250,18 +234,14 @@ class Trainer:
                fine_tune: bool,
                pdb_output_directory: Optional[str] = None,
                animated_data: Optional[Dict[str, torch.Tensor]] = None
-    ) -> Tuple[TensorDict, TensorDict, TensorDict]:
+    ) -> Dict[str, Any]:
 
-        epoch_loss = TensorDict()
-        epoch_data = TensorDict()
-        epoch_output = TensorDict()
+        epoch_data = {}
 
         model.train()
 
         total_data_size = 0
         for batch_index, batch_data in enumerate(data_loader):
-
-            batch_size = batch_data["loop_sequence_embedding"].shape[0]
 
             # Do the training step.
             batch_loss, batch_output = self._batch(epoch_index,
@@ -275,29 +255,18 @@ class Trainer:
                                    model,
                                    pdb_output_directory, animated_data)
 
-            epoch_loss += batch_loss * batch_size
-            total_data_size += batch_size
+            epoch_data = self._store_required_data(epoch_data, batch_loss, batch_output, batch_data)
 
-            # store only the data we need to generate the output files:
-            epoch_data.append(TensorDict({"affinity": batch_data["affinity"],
-                                          "ids": batch_data["ids"],
-                                          "loop_sequence": [one_hot_decode_sequence(embd)
-                                                            for embd in batch_data["loop_sequence_embedding"]]}))
-            epoch_output.append(TensorDict({"affinity": batch_output["affinity"]}))
-
-        return (epoch_loss / total_data_size, epoch_data, epoch_output)
+        return epoch_data
 
     def _validate(self,
                   epoch_index: int,
                   model: Predictor,
                   data_loader: DataLoader,
                   fine_tune: bool,
-    ) -> Tuple[TensorDict, TensorDict, TensorDict]:
+    ) -> Dict[str, Any]:
 
-        valid_loss = TensorDict()
-        valid_data = TensorDict()
-        valid_output = TensorDict()
-        total_data_size = 0
+        valid_data = {}
 
         model.eval()
 
@@ -311,39 +280,73 @@ class Trainer:
 
                 batch_loss = get_loss(batch_output, batch_data, fine_tune)
 
-                valid_loss += batch_loss * batch_size
-                total_data_size += batch_size
+                valid_data = self._store_required_data(valid_data, batch_loss, batch_output, batch_data)
 
-                # store only the data we need to generate the output files:
-                valid_data.append(TensorDict({"affinity": batch_data["affinity"],
-                                              "ids": batch_data["ids"],
-                                              "loop_sequence": [one_hot_decode_sequence(embd)
-                                                                for embd in batch_data["loop_sequence_embedding"]]}))
-                valid_output.append(TensorDict({"affinity": batch_output["affinity"]}))
-
-
-        return (valid_loss / total_data_size, valid_data, valid_output)
+        return valid_data
 
     @staticmethod
-    def _save_outputs_as_csv(output_path: str, batch_data: TensorDict, output_data: TensorDict):
+    def _store_required_data(old_data: Dict[str, Any],
+                             losses: Dict[str, Any],
+                             output: Dict[str, Any],
+                             truth: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        Stores the data needed to generate output files.
+        """
 
-        batch_size = batch_data["ids"].shape[0]
+        output_data = {}
+        for key in old_data:
+            output_data[key] = old_data[key]
+
+        batch_size = len(truth["ids"])
+
+        for loss_name, loss_value in losses.items():
+            loss_name += " loss"
+
+            if loss_name not in output_data:
+                output_data[loss_name] = loss_value.item() * batch_size
+            else:
+                output_data[loss_name] += loss_value.item() * batch_size
+
+        if "affinity" not in output_data:
+            output_data["affinity"] = []
+        output_data["affinity"] += truth["affinity"].tolist()
+
+        if "output affinity" not in output_data:
+            output_data["output affinity"] = []
+        output_data["output affinity"] += output["affinity"].tolist()
+
+        if "ids" not in output_data:
+            output_data["ids"] = []
+        output_data["ids"] += truth["ids"]
+
+        if "loop_sequence" not in output_data:
+            output_data["loop_sequence"] = []
+        output_data["loop_sequence"] += [one_hot_decode_sequence(embd)
+                                         for embd in truth["loop_sequence_embedding"]]
+
+        return output_data
+
+    @staticmethod
+    def _save_outputs_as_csv(output_path: str, data: Dict[str, Any]):
+
+        batch_size = len(data["ids"])
 
         if os.path.isfile(output_path):
             table = pandas.read_csv(output_path)
         else:
-            table = pandas.DataFrame(data={"id": [], "loop": [], "output affinity": [], "true affinity": []})
+            table = pandas.DataFrame(data={"id": [], "loop": [], "true affinity": [], "output affinity": []})
             table.set_index("id")
 
         for batch_index in range(batch_size):
 
-            id_ = batch_data["ids"][batch_index]
+            id_ = data["ids"][batch_index]
 
-            loop_sequence = batch_data["loop_sequence"][batch_index]
+            loop_sequence = data["loop_sequence"][batch_index]
 
             row = pandas.DataFrame({"id": [id_], "loop": [loop_sequence],
-                                    "output affinity": [output_data["affinity"][batch_index].item()],
-                                    "true affinity": [batch_data["affinity"][batch_index].item()]})
+                                    "output affinity": [data["output affinity"][batch_index]],
+                                    "true affinity": [data["affinity"][batch_index]]})
             row.set_index("id")
 
             table = pandas.concat((table, row))
@@ -454,36 +457,35 @@ class Trainer:
 
             # train during epoch
             with Timer(f"train epoch {epoch_index}") as t:
-                train_loss, train_data, train_output = self._epoch(epoch_index, optimizer, model, train_loader, fine_tune,
-                                                                   run_id, animated_data)
-                t.add_to_title(f"on {train_data.size()} data points")
+                train_data = self._epoch(epoch_index, optimizer, model, train_loader, fine_tune,
+                                         run_id, animated_data)
+                t.add_to_title(f"on {len(train_loader.dataset)} data points")
 
             # validate
             with Timer(f"valid epoch {epoch_index}") as t:
-                valid_loss, valid_data, valid_output = self._validate(epoch_index, model, valid_loader, fine_tune)
-                t.add_to_title(f"on {valid_data.size()} data points")
+                valid_data = self._validate(epoch_index, model, valid_loader, fine_tune)
+                t.add_to_title(f"on {len(valid_loader.dataset)} data points")
 
             # test
             with Timer(f"test epoch {epoch_index}") as t:
-
-                test_loss, test_data, test_output = self._validate(epoch_index, model, test_loader, fine_tune)
-                t.add_to_title(f"on {test_output.size()} data points")
+                test_data = self._validate(epoch_index, model, test_loader, fine_tune)
+                t.add_to_title(f"on {len(test_loader.dataset)} data points")
 
             # write the metrics
-            self._output_metrics(run_id, "train", epoch_index, train_loss, train_data, train_output)
-            self._output_metrics(run_id, "valid", epoch_index, valid_loss, valid_data, valid_output)
-            self._output_metrics(run_id, "test", epoch_index, test_loss, test_data, test_output)
+            self._output_metrics(run_id, "train", epoch_index, train_data)
+            self._output_metrics(run_id, "valid", epoch_index, valid_data)
+            self._output_metrics(run_id, "test", epoch_index, test_data)
 
             # early stopping, if no more improvement
-            if abs(valid_loss["total"] - lowest_loss) < self._early_stop_epsilon:
+            if abs(valid_data["total loss"] - lowest_loss) < self._early_stop_epsilon:
                 if fine_tune:
                     break
                 else:
                     epoch_index = epoch_count
 
             # If the loss improves, save the model.
-            if valid_loss["total"] < lowest_loss:
-                lowest_loss = valid_loss["total"]
+            if valid_data["total loss"] < lowest_loss:
+                lowest_loss = valid_data["total loss"]
 
                 torch.save(model.state_dict(), model_path)
             # else:
@@ -492,7 +494,7 @@ class Trainer:
             # scheduler.step()
 
         # write the final test output
-        self._save_outputs_as_csv(os.path.join(run_id, "outputs.csv"), test_data, test_output)
+        self._save_outputs_as_csv(os.path.join(run_id, "outputs.csv"), test_data)
 
     @staticmethod
     def _init_metrics_dataframe():
@@ -510,9 +512,7 @@ class Trainer:
     def _output_metrics(self, run_id: str,
                         pass_name: str,
                         epoch_index: int,
-                        losses: TensorDict,
-                        data: TensorDict,
-                        output: TensorDict):
+                        data: Dict[str, Any]):
 
         metrics_path = f"{run_id}/metrics.csv"
         if os.path.isfile(metrics_path):
@@ -527,10 +527,12 @@ class Trainer:
 
         metrics_dataframe.at[epoch_index, "epoch"] = int(epoch_index)
 
-        for loss_name in losses:
-            metrics_dataframe.at[epoch_index, f"{pass_name} {loss_name} loss"] = round(losses[loss_name].item(), 3)
+        for loss_name in ("affinity loss", "fape loss", "chi loss", "violation loss", "total loss"):
+            normalized_loss = data[loss_name] / len(data["ids"])
 
-        pcc = _calc_pearson_correlation_coefficient(output["affinity"], data["affinity"])
+            metrics_dataframe.at[epoch_index, f"{pass_name} {loss_name}"] = round(normalized_loss, 3)
+
+        pcc = pearsonr(data["output affinity"], data["affinity"]).statistic
         if pcc is not None:
             metrics_dataframe.at[epoch_index, f"{pass_name} affinity correlation"] = round(pcc, 3)
 
@@ -556,11 +558,19 @@ if __name__ == "__main__":
 
     args = arg_parser.parse_args()
 
+    if args.run_id is not None:
+        run_id = args.run_id
+    else:
+        run_id = str(uuid4())
+
+    if not os.path.isdir(run_id):
+        os.mkdir(run_id)
+
     if args.log_stdout:
         logging.basicConfig(stream=sys.stdout,
                             level=logging.DEBUG if args.debug else logging.INFO)
     else:
-        logging.basicConfig(filename="tcrspec.log", filemode="a",
+        logging.basicConfig(filename=f"{run_id}/tcrspec.log", filemode="a",
                             level=logging.DEBUG if args.debug else logging.INFO)
 
     if torch.cuda.is_available():
@@ -572,14 +582,6 @@ if __name__ == "__main__":
 
     set_start_method('spawn')
 
-    if args.run_id is not None:
-        run_id = args.run_id
-    else:
-        run_id = str(uuid4())
-
-    if not os.path.isdir(run_id):
-        os.mkdir(run_id)
-
     trainer = Trainer(device)
     if args.test_only:
 
@@ -590,8 +592,6 @@ if __name__ == "__main__":
         trainer.test(test_loader, run_id=run_id)
 
     else:  # train & test
-        if len(os.listdir(run_id)) > 0:
-            raise ValueError(f"Already exists: {run_id}")
 
         train_path, valid_path, test_path = args.data_path
 

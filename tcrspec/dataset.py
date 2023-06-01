@@ -26,7 +26,7 @@ from .preprocess import PREPROCESS_KD_NAME, PREPROCESS_PROTEIN_NAME, PREPROCESS_
 _log = logging.getLogger(__name__)
 
 
-class ProteinLoopDataset:
+class ProteinLoopDataset(Dataset):
     def __init__(self, hdf5_path: str, device: torch.device, loop_maxlen: int, protein_maxlen: int):
         self._hdf5_path = hdf5_path
         self._device = device
@@ -115,7 +115,7 @@ class ProteinLoopDataset:
 
         result = {}
         for key in keys:
-            if isinstance(e[key], torch.Tensor):
+            if isinstance(e[key], torch.Tensor) or isinstance(e[key], float) or isinstance(e[key], int):
                 result[key] = torch.stack([e[key] for e in data_entries])
             else:
                 result[key] = [e[key] for e in data_entries]
