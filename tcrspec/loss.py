@@ -386,7 +386,7 @@ def get_loss(output: TensorDict, batch: TensorDict,
     violation_loss = _compute_cross_violation_loss(output, batch, openfold_config.loss.violation)
 
     # combine the loss terms
-    total_loss = 10.0 * affinity_loss + \
+    total_loss = 1.0 * affinity_loss + \
                  1.0 * chi_loss + \
                  1.0 * fape_loss
 
@@ -395,7 +395,7 @@ def get_loss(output: TensorDict, batch: TensorDict,
 
     # for true non-binders, the total loss is simply affinity-based
     non_binders_index = batch["affinity"] < _affinity_binding_treshold
-    total_loss[non_binders_index] = 10.0 * affinity_loss[non_binders_index]
+    total_loss[non_binders_index] = 1.0 * affinity_loss[non_binders_index]
 
     # average losses over batch dimension
     return TensorDict({
