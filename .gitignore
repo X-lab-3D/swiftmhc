@@ -1,2 +1,5 @@
 # python compiled
 *.pyc
+
+# vim
+*.swp
