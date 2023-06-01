@@ -322,7 +322,7 @@ class Trainer:
 
         if "loop_sequence" not in output_data:
             output_data["loop_sequence"] = []
-        output_data["loop_sequence"] += [one_hot_decode_sequence(embd)
+        output_data["loop_sequence"] += [["".join([aa.one_letter_code for aa in one_hot_decode_sequence(embd)])
                                          for embd in truth["loop_sequence_embedding"]]
 
         return output_data
