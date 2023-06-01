@@ -208,17 +208,25 @@ class Trainer:
             for loop_index in range(loop_positions.shape[0]):
                 table_file.write(f"loop residue {loop_index} is predicted at {loop_positions[loop_index]}\n")
 
-    def _snapshot_pdb(self,
-                      frame_id: str,
-                      model: Predictor,
-                      output_directory: str,
-                      data: Dict[str, torch.Tensor]):
+    def _snapshot(self,
+                  frame_id: str,
+                  model: Predictor,
+                  output_directory: str,
+                  data: Dict[str, torch.Tensor]):
 
         with torch.no_grad():
             output = model(data)
 
         name = data["ids"][0] + "-" + frame_id
 
+        # save cross attentions heatmap
+        cross_attention = output["cross_attention"]
+        batch_size, n_heads, loop_len, protein_len = cross_attention.shape
+        for head_index in range(n_heads):
+            path = f"{output_directory}/{name}_h{head_index}.csv"
+            pandas.DataFrame(cross_attention[0][head_index].numpy()).to_csv(path)
+
+        # save pdb
         structure = recreate_structure(name,
                                        [("P", data["loop_sequence_embedding"][0], output["final_positions"][0]),
                                         ("M", data["protein_sequence_embedding"][0], data["protein_atom14_gt_positions"][0])])
@@ -251,9 +259,9 @@ class Trainer:
 
             if pdb_output_directory is not None and animated_data is not None:
 
-                self._snapshot_pdb(f"{epoch_index + 1}.{batch_index}",
-                                   model,
-                                   pdb_output_directory, animated_data)
+                self._snapshot(f"{epoch_index + 1}.{batch_index}",
+                               model,
+                               pdb_output_directory, animated_data)
 
             epoch_data = self._store_required_data(epoch_data, batch_loss, batch_output, batch_data)
 
@@ -447,9 +455,9 @@ class Trainer:
                                                          valid_loader.dataset,
                                                          test_loader.dataset], animated_complex_id)
 
-            self._snapshot_pdb("0.0",
-                               model,
-                               run_id, animated_data)
+            self._snapshot("0.0",
+                           model,
+                           run_id, animated_data)
 
         total_epochs = epoch_count + fine_tune_count
         for epoch_index in range(total_epochs):
