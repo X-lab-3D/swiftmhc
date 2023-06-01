@@ -81,13 +81,11 @@ class Predictor(torch.nn.Module):
         #mlp_input_size = self.loop_maxlen * self.protein_maxlen * structure_module_config.no_heads_ipa
 
         self.aff_mlp = torch.nn.Sequential(
-            torch.nn.LayerNorm(mlp_input_size),
             torch.nn.Linear(mlp_input_size, c_affinity),
             torch.nn.GELU(),
             torch.nn.Linear(c_affinity, c_affinity),
             torch.nn.GELU(),
             torch.nn.Linear(c_affinity, 1),
-            torch.nn.LayerNorm(1),
         )
 
     def forward(self, batch: TensorDict) -> TensorDict:
@@ -163,10 +161,12 @@ class Predictor(torch.nn.Module):
         #cross_att = output["cross_attention"]
 
         # transition on s_loop before prediction BA
-        updated_s_loop = output["single"]
+        s_loop = output["single"]
 
         # [batch_size, loop_maxlen]
         #output["affinity"] = self.aff_mlp(cross_att.reshape(batch_size, -1)).reshape(batch_size)
-        output["affinity"] = self.aff_mlp(updated_s_loop.reshape(batch_size, -1)).reshape(batch_size)
+        output["affinity"] = self.aff_mlp(s_loop.reshape(batch_size, -1)).reshape(batch_size)
 
         return output
+
+
