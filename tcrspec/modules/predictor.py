@@ -77,17 +77,15 @@ class Predictor(torch.nn.Module):
         #    torch.nn.LayerNorm(structure_module_config.c_s)
         #)
 
-        mlp_input_size = self.loop_maxlen * structure_module_config.c_s
+        mlp_input_size = self.loop_maxlen * structure_module_config.c_s * 2
         #mlp_input_size = self.loop_maxlen * self.protein_maxlen * structure_module_config.no_heads_ipa
 
         self.aff_mlp = torch.nn.Sequential(
-            torch.nn.LayerNorm(mlp_input_size),
             torch.nn.Linear(mlp_input_size, c_affinity),
             torch.nn.GELU(),
             torch.nn.Linear(c_affinity, c_affinity),
             torch.nn.GELU(),
             torch.nn.Linear(c_affinity, 1),
-            torch.nn.LayerNorm(1),
         )
 
     def forward(self, batch: TensorDict) -> TensorDict:
@@ -107,7 +105,7 @@ class Predictor(torch.nn.Module):
         """
 
         # [batch_size, loop_len, c_s]
-        loop_seq = batch["loop_sequence_embedding"]
+        loop_seq = batch["loop_sequence_embedding"].clone()
         batch_size = loop_seq.shape[0]
 
         # positional encoding
@@ -132,7 +130,7 @@ class Predictor(torch.nn.Module):
 
         # cross attention and loop structure prediction
         output = self.cross(batch["loop_aatype"],
-                            loop_embd.clone(),
+                            loop_embd,
                             batch["loop_len_mask"],
                             protein_embd,
                             batch["protein_len_mask"],
@@ -163,7 +161,7 @@ class Predictor(torch.nn.Module):
         #cross_att = output["cross_attention"]
 
         # transition on s_loop before prediction BA
-        updated_s_loop = output["single"]
+        updated_s_loop = torch.cat((output["single"], batch["loop_sequence_embedding"]), dim=2)
 
         # [batch_size, loop_maxlen]
         #output["affinity"] = self.aff_mlp(cross_att.reshape(batch_size, -1)).reshape(batch_size)
