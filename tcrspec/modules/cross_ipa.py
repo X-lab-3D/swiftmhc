@@ -150,7 +150,7 @@ class CrossInvariantPointAttention(torch.nn.Module):
         )
 
         ##########################
-        # Compute attention scores
+        # Compute attention scores : line #7 in alphafold
         ##########################
 
         if(is_fp16_enabled()):
@@ -179,8 +179,10 @@ class CrossInvariantPointAttention(torch.nn.Module):
         head_weights = self.softplus(self.head_weights).view(
             *((1,) * len(pt_att.shape[:-2]) + (-1, 1))
         )
+
+        # only two terms in attention weight, so divide by two
         head_weights = head_weights * math.sqrt(
-            1.0 / (3 * (self.no_qk_points * 9.0 / 2))
+            1.0 / (2 * (self.no_qk_points * 9.0 / 2))
         )
         if(inplace_safe):
             pt_att *= head_weights
