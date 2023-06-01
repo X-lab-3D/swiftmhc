@@ -164,7 +164,7 @@ class Predictor(torch.nn.Module):
         updated_s_loop = torch.cat((output["single"], batch["loop_sequence_embedding"]), dim=2)
 
         #output["affinity"] = self.aff_mlp(cross_att.reshape(batch_size, -1)).reshape(batch_size)
-        output["affinity"] = self.aff_mlp(s_loop.reshape(batch_size, -1)).reshape(batch_size)
+        output["affinity"] = self.aff_mlp(updated_s_loop.reshape(batch_size, -1)).reshape(batch_size)
 
         return output
 
