@@ -8,3 +8,6 @@ scikit-learn==1.2.2
 biopython==1.81
 ml-collections==0.1.1
 h5py==3.8.0
+scripts==2.0
+dm-tree==0.1.8
+numpy==1.23.4
