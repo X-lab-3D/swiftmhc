@@ -8,10 +8,14 @@ from tempfile import mkdtemp
 from shutil import rmtree
 from argparse import ArgumentParser
 
+import logging
 import numpy
 import pandas
 from matplotlib import pyplot
 from moviepy.editor import ImageSequenceClip
+
+
+_log = logging.getLogger(__name__)
 
 
 arg_parser = ArgumentParser(description="combine tcrspec csv tables into a heatmap animation")
@@ -36,6 +40,7 @@ def get_epoch_number(path: str) -> float:
 if __name__ == "__main__":
 
     args = arg_parser.parse_args()
+    logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
 
     table_paths = glob(f"{args.complex_id}-*.*_h{args.head_id}.csv")
     table_paths = sorted(table_paths, key=get_epoch_number)
@@ -58,6 +63,8 @@ if __name__ == "__main__":
 
         figure.savefig(png_path, format="png")
         png_files.append(png_path)
+
+        _log.debug(f"created {png_path}")
 
     clip = ImageSequenceClip(png_files, fps=10)
     clip.write_videofile(f"{args.complex_id}_{args.head_id}.mp4", fps=15)
