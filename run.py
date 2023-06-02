@@ -131,6 +131,8 @@ class Trainer:
 
         self._early_stop_epsilon = 1e-6
 
+        self._snap_period = 5
+
     def _batch(self,
                epoch_index: int,
                batch_index: int,
@@ -223,8 +225,9 @@ class Trainer:
         cross_attention = output["cross_attention"]
         batch_size, n_heads, loop_len, protein_len = cross_attention.shape
         for head_index in range(n_heads):
+            matrix = cross_attention[0][head_index].transpose(0, 1)
             path = f"{output_directory}/{name}_h{head_index}.csv"
-            pandas.DataFrame(cross_attention[0][head_index].numpy()).to_csv(path)
+            pandas.DataFrame(matrix.numpy(force=True)).to_csv(path)
 
         # save pdb
         structure = recreate_structure(name,
@@ -257,7 +260,7 @@ class Trainer:
                                                    batch_data,
                                                    fine_tune)
 
-            if pdb_output_directory is not None and animated_data is not None:
+            if pdb_output_directory is not None and animated_data is not None and batch_index % self._snap_period == 0:
 
                 self._snapshot(f"{epoch_index + 1}.{batch_index}",
                                model,
