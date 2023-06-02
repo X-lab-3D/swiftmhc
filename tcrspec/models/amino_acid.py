@@ -8,3 +8,6 @@ class AminoAcid:
         self.one_letter_code = one_letter_code
 
         self.one_hot_code = None
+
+    def __repr__(self):
+        return self.three_letter_code

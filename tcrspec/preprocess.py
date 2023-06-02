@@ -101,7 +101,8 @@ def _read_mask_data(path: str) -> List[Tuple[str, int, AminoAcid]]:
     return mask_data
 
 
-def _get_masked_residues(residues: List[Residue],
+def _get_masked_residues(id_: str,
+                         residues: List[Residue],
                          mask: List[Tuple[str, int, AminoAcid]]) -> List[Residue]:
     passed = []
     for residue in residues:
@@ -111,12 +112,20 @@ def _get_masked_residues(residues: List[Residue],
         else:
             chain_id, residue_id = full_id
 
-        t = (chain_id,
-             residue_id[1],
-             amino_acids_by_code[residue.get_resname()])
+        residue_number = residue_id[1]
+        amino_acid = amino_acids_by_code[residue.get_resname()]
 
-        if mask is None or t in mask:
-            passed.append(residue)
+        t = (chain_id,
+             residue_number,
+             amino_acid)
+
+        for mask_chain, mask_resnum, mask_aa in mask:
+            if mask_chain == chain_id and mask_resnum == residue_number:
+
+                if mask_aa != amino_acid:
+                    raise ValueError(f"at {id_} {chain_id} {residue_number}: expected {mask_aa}, but found {amino_acid}")
+
+                passed.append(residue)
 
     return passed
 
@@ -149,7 +158,8 @@ def _get_blosum_encoding(amino_acid_indexes: List[int], blosum_index: int) -> Li
     return encoding
 
 
-def _read_residue_data(chain: Chain,
+def _read_residue_data(id_: str,
+                       chain: Chain,
                        residue_mask: Optional[List[Tuple[str, int, AminoAcid]]] = None,
                        ) -> Union[Tuple[torch.tensor, torch.tensor, torch.tensor],
                                   Tuple[torch.tensor, torch.tensor, torch.tensor, torch.tensor, torch.tensor]]:
@@ -173,7 +183,10 @@ def _read_residue_data(chain: Chain,
     # take the residues of the chain, that are mentioned in the mask (if any)
     residues = list(chain.get_residues())
     if residue_mask is not None:
-        residues = _get_masked_residues(residues, residue_mask)
+        residues = _get_masked_residues(id_, residues, residue_mask)
+
+    if len(residues) < 3:
+        raise ValueError(f"found only residues {residues} in {chain.id}, using mask {residue_mask}")
 
     # embed the sequence
     amino_acids = [amino_acids_by_code[r.get_resname()] for r in residues]
@@ -220,17 +233,18 @@ def _create_symmetry_alternative(chain: Chain) -> Chain:
     return alt_chain
 
 
-def _create_proximities(chain1: Chain, chain2: Chain,
+def _create_proximities(id_: str,
+                        chain1: Chain, chain2: Chain,
                         chain1_mask: Optional[List[Tuple[str, int, AminoAcid]]] = None,
                         chain2_mask: Optional[List[Tuple[str, int, AminoAcid]]] = None) -> torch.Tensor:
 
     residues1 = list(chain1.get_residues())
     if chain1_mask is not None:
-        residues1 = _get_masked_residues(residues1, chain1_mask)
+        residues1 = _get_masked_residues(id_, residues1, chain1_mask)
 
     residues2 = list(chain2.get_residues())
     if chain2_mask is not None:
-        residues2 = _get_masked_residues(residues2, chain2_mask)
+        residues2 = _get_masked_residues(id_, residues2, chain2_mask)
 
     residue_proximities = torch.empty((len(residues1), len(residues2), 1), dtype=torch.float32)
 
@@ -264,8 +278,6 @@ def preprocess(table_path: str, models_path: str, mask_path: str, output_path: s
 
     for id_, kd in affinities_by_id:
 
-        _log.info(f"preprocessing {id_}")
-
         model_path = os.path.join(models_path, f"{id_}.pdb")
 
         pdb_parser = PDBParser()
@@ -273,13 +285,13 @@ def preprocess(table_path: str, models_path: str, mask_path: str, output_path: s
         structure = pdb_parser.get_structure(id_, model_path)
 
         protein_chain = list(filter(lambda c: c.id == "M", structure.get_chains()))[0]
-        protein_data = _read_residue_data(protein_chain, residue_mask=protein_mask)
+        protein_data = _read_residue_data(id_, protein_chain, residue_mask=protein_mask)
 
         loop_chain = list(filter(lambda c: c.id == "P", structure.get_chains()))[0]
-        loop_data = _read_residue_data(loop_chain)
+        loop_data = _read_residue_data(id_, loop_chain)
 
-        proximities = _create_proximities(loop_chain, protein_chain, None, protein_mask)
-        protein_data["proximities"] = _create_proximities(protein_chain, protein_chain, protein_mask, protein_mask)
+        proximities = _create_proximities(id_, loop_chain, protein_chain, None, protein_mask)
+        protein_data["proximities"] = _create_proximities(id_, protein_chain, protein_chain, protein_mask, protein_mask)
 
         _write_preprocessed_data(output_path, id_,
                                  protein_data,

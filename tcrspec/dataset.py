@@ -66,6 +66,9 @@ class ProteinLoopDataset(Dataset):
 
                 aatype_data = entry_group[prefix]["aatype"]
                 length = aatype_data.shape[0]
+                if length < 3:
+                    raise ValueError(f"{entry_name} {prefix} length is {length}")
+
                 result[f"{prefix}_aatype"] = torch.zeros(max_length, device=self._device, dtype=torch.long)
                 result[f"{prefix}_aatype"][:length] = torch.tensor(aatype_data, device=self._device, dtype=torch.long)
 
