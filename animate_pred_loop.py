@@ -28,7 +28,7 @@ arg_parser.add_argument("id", help="id in the name of the structure files")
 arg_parser.add_argument("template_path", help="template pdb file to use")
 
 
-font = ImageFont.truetype("DejaVuSans.ttf", 16)
+font = ImageFont.truetype("DejaVuSans.ttf", 48)
 
 
 def get_snapshot_name(id_: str, epoch_index: int, batch_index: int) -> str:
@@ -88,11 +88,13 @@ def get_rmsd(p_path1: str, p_path2: str) -> float:
 
         for atom1 in residue1.get_atoms():
 
-            atom2 = find_atom(residue2, atom1.name)
+            if atom1.name == "CA":
 
-            sum_ += sum((atom1.coord - atom2.coord) ** 2)
+                atom2 = find_atom(residue2, atom1.name)
 
-            count += 1
+                sum_ += sum((atom1.coord - atom2.coord) ** 2)
+
+                count += 1
 
     return sqrt(sum_ / count)
 
@@ -159,7 +161,7 @@ if __name__ == "__main__":
     png_paths = []
 
     rotation_y_min = -20.0
-    rotation_y_max = 20.0
+    rotation_y_max = 80.0
 
     snapshot_paths = sorted(glob(f"{args.id}-*.*.pdb"), key=get_snapshot_number)
     if len(snapshot_paths) == 0:
@@ -177,11 +179,11 @@ if __name__ == "__main__":
         rmsd = get_rmsd(snapshot_path, args.template_path)
 
         to_frame(structure, png_path, rotation_y)
-        add_text(png_path, f"rmsd: {rmsd:.3f}, epoch: {get_snapshot_number(snapshot_path)}")
+        add_text(png_path, f"rmsd: {rmsd:.3f}, epoch: {get_snapshot_number(snapshot_path):.3f}")
 
         png_paths.append(png_path)
 
         _log.debug(f"created {png_path}")
 
-    clip = ImageSequenceClip(png_paths, 15)
+    clip = ImageSequenceClip(png_paths, 25)
     clip.write_videofile(f"{args.id}.mp4")
