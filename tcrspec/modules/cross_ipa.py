@@ -1,4 +1,5 @@
 import math
+import logging
 
 import torch
 
@@ -9,6 +10,9 @@ from openfold.utils.tensor_utils import (
     permute_final_dims,
     flatten_final_dims,
 )
+
+
+_log = logging.getLogger(__name__)
 
 
 class CrossInvariantPointAttention(torch.nn.Module):
@@ -69,7 +73,7 @@ class CrossInvariantPointAttention(torch.nn.Module):
         self.softmax = torch.nn.Softmax(dim=-1)
         self.softplus = torch.nn.Softplus()
 
-        self.inf = 1e5
+        self.inf = 1e22
 
     def forward(
         self,
