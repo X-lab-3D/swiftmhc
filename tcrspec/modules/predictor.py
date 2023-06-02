@@ -57,6 +57,7 @@ class Predictor(torch.nn.Module):
                                structure_module_config.no_heads_ipa,
                                structure_module_config.no_qk_points,
                                structure_module_config.no_v_points)
+        self.protein_ipa.inf = 1e22
 
         self.protein_norm = torch.nn.Sequential(
             LayerNorm(structure_module_config.c_s),
@@ -135,6 +136,8 @@ class Predictor(torch.nn.Module):
                             protein_embd,
                             batch["protein_len_mask"],
                             protein_T)
+
+        output["protein_sequence_embedding"] = protein_embd
 
         # amino acid sequence: [1, 0, 2, ... ] meaning : Ala, Met, Cys
         # [batch_size, loop_len]

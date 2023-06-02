@@ -226,8 +226,15 @@ class Trainer:
         batch_size, n_heads, loop_len, protein_len = cross_attention.shape
         for head_index in range(n_heads):
             matrix = cross_attention[0][head_index].transpose(0, 1)
-            path = f"{output_directory}/{name}_h{head_index}.csv"
+            path = f"{output_directory}/crossatt{head_index}_{name}.csv"
             pandas.DataFrame(matrix.numpy(force=True)).to_csv(path)
+
+        # save final protein sequence embedding, used in cross ipa
+        protein_embd = output["protein_sequence_embedding"]
+        batch_size, protein_len, protein_depth = protein_embd.shape
+        matrix = protein_embd[0].transpose(0, 1)
+        path = f"{output_directory}/protein_{name}.csv"
+        pandas.DataFrame(matrix.numpy(force=True)).to_csv(path)
 
         # save pdb
         structure = recreate_structure(name,

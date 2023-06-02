@@ -19,8 +19,7 @@ _log = logging.getLogger(__name__)
 
 
 arg_parser = ArgumentParser(description="combine tcrspec csv tables into a heatmap animation")
-arg_parser.add_argument("complex_id", help="identifier for the complex, used in the csv filenames")
-arg_parser.add_argument("--head-id", "-H", help="identifier of the head, usually an integer", default="0")
+arg_parser.add_argument("prefix", help="prefix used in the csv filenames")
 
 
 def get_epoch_number(path: str) -> float:
@@ -28,7 +27,7 @@ def get_epoch_number(path: str) -> float:
     # BA-55224-20.160_h0.csv
     filename = os.path.basename(path)
 
-    word = filename.split('-')[-1].split('_h')[0]
+    word = filename.split('-')[-1]
     numbers = word.split('.')
 
     epoch_number = int(numbers[0])
@@ -42,8 +41,10 @@ if __name__ == "__main__":
     args = arg_parser.parse_args()
     logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
 
-    table_paths = glob(f"{args.complex_id}-*.*_h{args.head_id}.csv")
+    table_paths = glob(f"{args.prefix}-*.*.csv")
     table_paths = sorted(table_paths, key=get_epoch_number)
+    if len(table_paths) == 0:
+        raise FileNotFoundError(f"no csv files for prefix {args.prefix}")
 
     storage_directory_path = mkdtemp()
     png_files = []
@@ -55,9 +56,9 @@ if __name__ == "__main__":
 
         figure = pyplot.figure()
         plot = figure.add_subplot()
-        heatmap = plot.imshow(data, cmap="Greys", aspect="auto", vmin=0.0, vmax=0.3)
+        heatmap = plot.imshow(data, cmap="Greys", aspect="auto", vmin=0.0, vmax=1.0)
         figure.colorbar(heatmap)
-        pyplot.title(f"{args.complex_id}, head:{args.head_id}, epoch:{epoch_number:.3f}")
+        pyplot.title(f"{args.prefix}, epoch:{epoch_number:.3f}")
 
         png_path = table_path.replace(".csv", ".png")
 
@@ -67,4 +68,4 @@ if __name__ == "__main__":
         _log.debug(f"created {png_path}")
 
     clip = ImageSequenceClip(png_files, fps=10)
-    clip.write_videofile(f"{args.complex_id}_{args.head_id}.mp4", fps=15)
+    clip.write_videofile(f"{args.prefix}.mp4", fps=15)
