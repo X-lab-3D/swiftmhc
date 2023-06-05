@@ -131,12 +131,13 @@ class Predictor(torch.nn.Module):
 
         # cross attention and loop structure prediction
         output = self.cross(batch["loop_aatype"],
-                            loop_embd,
+                            loop_embd.clone(),
                             batch["loop_len_mask"],
                             protein_embd,
                             batch["protein_len_mask"],
                             protein_T)
 
+        output["loop_sequence_embedding"] = loop_embd
         output["protein_sequence_embedding"] = protein_embd
 
         # amino acid sequence: [1, 0, 2, ... ] meaning : Ala, Met, Cys

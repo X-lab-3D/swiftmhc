@@ -229,6 +229,13 @@ class Trainer:
             path = f"{output_directory}/crossatt{head_index}_{name}.csv"
             pandas.DataFrame(matrix.numpy(force=True)).to_csv(path)
 
+        # save final loop sequence embedding, used by the encoder
+        loop_embd = output["loop_sequence_embedding"]
+        batch_size, loop_len, loop_depth = loop_embd.shape
+        matrix = loop_embd[0].transpose(0, 1)
+        path = f"{output_directory}/loop_{name}.csv"
+        pandas.DataFrame(matrix.numpy(force=True)).to_csv(path)
+
         # save final protein sequence embedding, used in cross ipa
         protein_embd = output["protein_sequence_embedding"]
         batch_size, protein_len, protein_depth = protein_embd.shape
