@@ -229,11 +229,25 @@ class Trainer:
             path = f"{output_directory}/crossatt{head_index}_{name}.csv"
             pandas.DataFrame(matrix.numpy(force=True)).to_csv(path)
 
+        # save input loop data
+        loop_enc = data["loop_sequence_embedding"]
+        batch_size, loop_len, loop_depth = loop_enc.shape
+        matrix = loop_enc.transpose(0, 1)
+        path = f"{output_directory}/loop_enc_{name}.csv"
+        pandas.DataFrame(matrix.numpy(force=True)).to_csv(path)
+
+        # save position encoded loop
+        loop_pos_enc = output["loop_pos_encoded"]
+        batch_size, loop_len, loop_depth = loop_pos_enc.shape
+        matrix = loop_pos_enc.transpose(0, 1)
+        path = f"{output_directory}/loop_posenc_{name}.csv"
+        pandas.DataFrame(matrix.numpy(force=True)).to_csv(path)
+
         # save final loop sequence embedding, used by the encoder
         loop_embd = output["loop_sequence_embedding"]
         batch_size, loop_len, loop_depth = loop_embd.shape
         matrix = loop_embd[0].transpose(0, 1)
-        path = f"{output_directory}/loop_{name}.csv"
+        path = f"{output_directory}/loop_embd_{name}.csv"
         pandas.DataFrame(matrix.numpy(force=True)).to_csv(path)
 
         # save final protein sequence embedding, used in cross ipa
@@ -274,7 +288,7 @@ class Trainer:
                                                    batch_data,
                                                    fine_tune)
 
-            if pdb_output_directory is not None and animated_data is not None and batch_index % self._snap_period == 0:
+            if pdb_output_directory is not None and animated_data is not None and (batch_index + 1) % self._snap_period == 0:
 
                 self._snapshot(f"{epoch_index}.{batch_index + 1}",
                                model,
