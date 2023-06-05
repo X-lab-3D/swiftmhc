@@ -274,7 +274,7 @@ class Trainer:
                                                    batch_data,
                                                    fine_tune)
 
-            if pdb_output_directory is not None and animated_data is not None and batch_index % self._snap_period == 0:
+            if pdb_output_directory is not None and animated_data is not None and (batch_index + 1) % self._snap_period == 0:
 
                 self._snapshot(f"{epoch_index}.{batch_index + 1}",
                                model,
