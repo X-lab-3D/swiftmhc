@@ -24,8 +24,8 @@ import pymol.cmd as pymol_cmd
 _log = logging.getLogger(__name__)
 
 arg_parser = ArgumentParser(description="combine multiple snapshot structures into an animation")
-arg_parser.add_argument("id", help="id in the name of the structure files")
-arg_parser.add_argument("template_path", help="template pdb file to use")
+arg_parser.add_argument("id", help="id in the name of the structure files n the current working directory, containing changing chain P")
+arg_parser.add_argument("template_path", help="template pdb file to use, containing unchanging chain M")
 
 
 font = ImageFont.truetype("DejaVuSans.ttf", 48)
