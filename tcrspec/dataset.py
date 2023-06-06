@@ -97,15 +97,15 @@ class ProteinLoopDataset(Dataset):
 
                     result[f"{prefix}_{field_name}"] = t
 
-            proximity_data = entry_group[PREPROCESS_PROTEIN_NAME]["proximities"][:]
-            result["protein_proximities"] = torch.zeros(self._protein_maxlen, self._protein_maxlen, 1,
+            distance_data = entry_group[PREPROCESS_PROTEIN_NAME]["distances"][:]
+            result["protein_distances"] = torch.zeros(self._protein_maxlen, self._protein_maxlen, 1,
                                                         device=self._device, dtype=torch.float)
-            result["protein_proximities"][:proximity_data.shape[0], :proximity_data.shape[0], :] = torch.tensor(proximity_data, device=self._device, dtype=torch.float)
+            result["protein_distances"][:distance_data.shape[0], :distance_data.shape[0], :] = torch.tensor(distance_data, device=self._device, dtype=torch.float)
 
-            proximity_data = entry_group["proximities"][:]
-            result["proximities"] = torch.zeros(self._loop_maxlen, self._protein_maxlen, 1,
+            distance_data = entry_group["distances"][:]
+            result["distances"] = torch.zeros(self._loop_maxlen, self._protein_maxlen, 1,
                                                 device=self._device, dtype=torch.float)
-            result["proximities"][:proximity_data.shape[0], :proximity_data.shape[1], :] = torch.tensor(proximity_data, device=self._device, dtype=torch.float)
+            result["distances"][:distance_data.shape[0], :distance_data.shape[1], :] = torch.tensor(distance_data, device=self._device, dtype=torch.float)
 
             return result
 

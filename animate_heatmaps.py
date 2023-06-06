@@ -2,7 +2,6 @@
 
 import os
 import sys
-import csv
 from glob import glob
 from tempfile import mkdtemp
 from shutil import rmtree
@@ -18,13 +17,13 @@ from moviepy.editor import ImageSequenceClip
 _log = logging.getLogger(__name__)
 
 
-arg_parser = ArgumentParser(description="combine tcrspec csv tables into a heatmap animation")
-arg_parser.add_argument("prefix", help="prefix used in the csv filenames")
+arg_parser = ArgumentParser(description="combine tcrspec csv.xz tables into a heatmap animation")
+arg_parser.add_argument("prefix", help="prefix used in the csv.xz filenames")
 
 
 def get_epoch_number(path: str) -> float:
 
-    # BA-55224-20.160_h0.csv
+    # BA-55224-20.160_h0.csv.xz
     filename = os.path.basename(path)
 
     word = filename.split('-')[-1]
@@ -41,7 +40,7 @@ if __name__ == "__main__":
     args = arg_parser.parse_args()
     logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
 
-    table_paths = glob(f"{args.prefix}-*.*.csv")
+    table_paths = glob(f"{args.prefix}-*.*.csv.xz")
     table_paths = sorted(table_paths, key=get_epoch_number)
     if len(table_paths) == 0:
         raise FileNotFoundError(f"no csv files for prefix {args.prefix}")
@@ -52,7 +51,7 @@ if __name__ == "__main__":
     for table_path in table_paths:
         epoch_number = get_epoch_number(table_path)
 
-        data = pandas.read_csv(table_path, sep=',', index_col=0, header=0)
+        data = pandas.read_csv(table_path, compression="xz", sep=',', index_col=0, header=0)
 
         figure = pyplot.figure()
         plot = figure.add_subplot()
@@ -62,7 +61,7 @@ if __name__ == "__main__":
         figure.colorbar(heatmap)
         pyplot.title(f"{args.prefix}, epoch:{epoch_number:.3f}")
 
-        png_path = table_path.replace(".csv", ".png")
+        png_path = table_path.replace(".csv.xz", ".png")
 
         figure.savefig(png_path, format="png")
         png_files.append(png_path)

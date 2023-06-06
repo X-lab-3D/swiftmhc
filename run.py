@@ -8,6 +8,7 @@ from typing import Tuple, Union, Optional, List, Dict, Set, Any
 import random
 from math import log, sqrt
 from multiprocessing import set_start_method
+import lzma
 
 from scipy.stats import pearsonr
 import ml_collections
@@ -227,8 +228,8 @@ class Trainer:
         for layer_index in range(n_layers):
             for head_index in range(n_heads):
                 matrix = loop_self_attention[layer_index][0][head_index]
-                path = f"{output_directory}/loopatt{layer_index}_{head_index}_{name}.csv"
-                pandas.DataFrame(matrix.numpy(force=True)).to_csv(path)
+                path = f"{output_directory}/loopatt{layer_index}_{head_index}_{name}.csv.xz"
+                pandas.DataFrame(matrix.numpy(force=True)).to_csv(path, compression="xz")
 
         # save protein attentions heatmaps
         protein_self_attention = output["protein_self_attention"]
@@ -236,8 +237,8 @@ class Trainer:
         for layer_index in range(n_layers):
             for head_index in range(n_heads):
                 matrix = protein_self_attention[layer_index][0][head_index]
-                path = f"{output_directory}/protatt{layer_index}_{head_index}_{name}.csv"
-                pandas.DataFrame(matrix.numpy(force=True)).to_csv(path)
+                path = f"{output_directory}/protatt{layer_index}_{head_index}_{name}.csv.xz"
+                pandas.DataFrame(matrix.numpy(force=True)).to_csv(path, compression="xz")
 
         # save cross attentions heatmaps
         cross_attention = output["cross_attention"]
@@ -245,16 +246,18 @@ class Trainer:
         for layer_index in range(n_layers):
             for head_index in range(n_heads):
                 matrix = cross_attention[layer_index][0][head_index].transpose(0, 1)
-                path = f"{output_directory}/crossatt{layer_index}_{head_index}_{name}.csv"
-                pandas.DataFrame(matrix.numpy(force=True)).to_csv(path)
+                path = f"{output_directory}/crossatt{layer_index}_{head_index}_{name}.csv.xz"
+                pandas.DataFrame(matrix.numpy(force=True)).to_csv(path, compression="xz")
 
         # save pdb
         structure = recreate_structure(name,
                                        [("P", data["loop_sequence_embedding"][0], output["final_positions"][0]),
                                         ("M", data["protein_sequence_embedding"][0], data["protein_atom14_gt_positions"][0])])
-        io = PDBIO()
-        io.set_structure(structure)
-        io.save(f"{output_directory}/{structure.id}.pdb")
+
+        with lzma.open(f"{output_directory}/{structure.id}.pdb.xz", "wt") as pdb_file:
+            io = PDBIO()
+            io.set_structure(structure)
+            io.save(pdb_file)
 
     def _epoch(self,
                epoch_index: int,

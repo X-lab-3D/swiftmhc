@@ -32,7 +32,7 @@ font = ImageFont.truetype("DejaVuSans.ttf", 48)
 
 
 def get_snapshot_name(id_: str, epoch_index: int, batch_index: int) -> str:
-    return f"{id_}-{epoch_index}.{batch_index}.pdb"
+    return f"{id_}-{epoch_index}.{batch_index}.pdb.xz"
 
 
 def combine_with(m_path: str, p_path: str) -> Structure:
@@ -163,7 +163,7 @@ if __name__ == "__main__":
     rotation_y_min = -20.0
     rotation_y_max = 80.0
 
-    snapshot_paths = sorted(glob(f"{args.id}-*.*.pdb"), key=get_snapshot_number)
+    snapshot_paths = sorted(glob(f"{args.id}-*.*.pdb.xz"), key=get_snapshot_number)
     if len(snapshot_paths) == 0:
         raise FileNotFoundError(f"no pdbs found matching {args.id}")
 
@@ -173,7 +173,7 @@ if __name__ == "__main__":
         rotation_y = rotation_y_min + (rotation_y_max - rotation_y_min) * frac
 
         snapshot_path = snapshot_paths[snapshot_index]
-        png_path = snapshot_path.replace(".pdb", ".png")
+        png_path = snapshot_path.replace(".pdb.xz", ".png")
 
         structure = combine_with(args.template_path, snapshot_path)
         rmsd = get_rmsd(snapshot_path, args.template_path)

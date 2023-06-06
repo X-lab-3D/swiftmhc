@@ -40,7 +40,7 @@ PREPROCESS_LOOP_NAME = "loop"
 def _write_preprocessed_data(hdf5_path: str, storage_id: str,
                              protein_data: Dict[str, torch.Tensor],
                              loop_data: Dict[str, torch.Tensor],
-                             proximities: torch.Tensor,
+                             distances: torch.Tensor,
                              kd: Optional[float] = None):
     """
     Args:
@@ -55,7 +55,7 @@ def _write_preprocessed_data(hdf5_path: str, storage_id: str,
         if kd is not None:
             storage_group.create_dataset(PREPROCESS_KD_NAME, data=kd)
 
-        storage_group.create_dataset("proximities", data=proximities, compression="lzf")
+        storage_group.create_dataset("distances", data=distances, compression="lzf")
 
         protein_group = storage_group.require_group(PREPROCESS_PROTEIN_NAME)
         for field_name, field_data in protein_data.items():
@@ -233,10 +233,10 @@ def _create_symmetry_alternative(chain: Chain) -> Chain:
     return alt_chain
 
 
-def _create_proximities(id_: str,
-                        chain1: Chain, chain2: Chain,
-                        chain1_mask: Optional[List[Tuple[str, int, AminoAcid]]] = None,
-                        chain2_mask: Optional[List[Tuple[str, int, AminoAcid]]] = None) -> torch.Tensor:
+def _create_distances(id_: str,
+                      chain1: Chain, chain2: Chain,
+                      chain1_mask: Optional[List[Tuple[str, int, AminoAcid]]] = None,
+                      chain2_mask: Optional[List[Tuple[str, int, AminoAcid]]] = None) -> torch.Tensor:
 
     residues1 = list(chain1.get_residues())
     if chain1_mask is not None:
@@ -246,7 +246,7 @@ def _create_proximities(id_: str,
     if chain2_mask is not None:
         residues2 = _get_masked_residues(id_, residues2, chain2_mask)
 
-    residue_proximities = torch.empty((len(residues1), len(residues2), 1), dtype=torch.float32)
+    residue_distances = torch.empty((len(residues1), len(residues2), 1), dtype=torch.float32)
 
     for i in range(len(residues1)):
 
@@ -263,11 +263,10 @@ def _create_proximities(id_: str,
             atomic_distances_ij = torch.cdist(atom_positions_i, atom_positions_j, p=2)
 
             min_distance = torch.min(atomic_distances_ij).item()
-            proximity = 1.0 / (1.0 + min_distance)
 
-            residue_proximities[i, j, 0] = proximity
+            residue_distances[i, j, 0] = min_distance
 
-    return residue_proximities
+    return residue_distances
 
 
 def preprocess(table_path: str, models_path: str, mask_path: str, output_path: str):
@@ -278,22 +277,25 @@ def preprocess(table_path: str, models_path: str, mask_path: str, output_path: s
 
     for id_, kd in affinities_by_id:
 
-        model_path = os.path.join(models_path, f"{id_}.pdb")
+        try:
+            model_path = os.path.join(models_path, f"{id_}.pdb")
 
-        pdb_parser = PDBParser()
+            pdb_parser = PDBParser()
 
-        structure = pdb_parser.get_structure(id_, model_path)
+            structure = pdb_parser.get_structure(id_, model_path)
 
-        protein_chain = list(filter(lambda c: c.id == "M", structure.get_chains()))[0]
-        protein_data = _read_residue_data(id_, protein_chain, residue_mask=protein_mask)
+            protein_chain = list(filter(lambda c: c.id == "M", structure.get_chains()))[0]
+            protein_data = _read_residue_data(id_, protein_chain, residue_mask=protein_mask)
 
-        loop_chain = list(filter(lambda c: c.id == "P", structure.get_chains()))[0]
-        loop_data = _read_residue_data(id_, loop_chain)
+            loop_chain = list(filter(lambda c: c.id == "P", structure.get_chains()))[0]
+            loop_data = _read_residue_data(id_, loop_chain)
 
-        proximities = _create_proximities(id_, loop_chain, protein_chain, None, protein_mask)
-        protein_data["proximities"] = _create_proximities(id_, protein_chain, protein_chain, protein_mask, protein_mask)
+            distances = _create_distances(id_, loop_chain, protein_chain, None, protein_mask)
+            protein_data["distances"] = _create_distances(id_, protein_chain, protein_chain, protein_mask, protein_mask)
 
-        _write_preprocessed_data(output_path, id_,
-                                 protein_data,
-                                 loop_data,
-                                 proximities, kd)
+            _write_preprocessed_data(output_path, id_,
+                                     protein_data,
+                                     loop_data,
+                                     distances, kd)
+        except:
+            _log.exception(f"cannot preprocess {id_}")
