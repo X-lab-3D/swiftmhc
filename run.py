@@ -232,14 +232,14 @@ class Trainer:
         # save input loop data
         loop_enc = data["loop_sequence_embedding"]
         batch_size, loop_len, loop_depth = loop_enc.shape
-        matrix = loop_enc.transpose(0, 1)
+        matrix = loop_enc[0].transpose(0, 1)
         path = f"{output_directory}/loop_enc_{name}.csv"
         pandas.DataFrame(matrix.numpy(force=True)).to_csv(path)
 
         # save position encoded loop
         loop_pos_enc = output["loop_pos_encoded"]
         batch_size, loop_len, loop_depth = loop_pos_enc.shape
-        matrix = loop_pos_enc.transpose(0, 1)
+        matrix = loop_pos_enc[0].transpose(0, 1)
         path = f"{output_directory}/loop_posenc_{name}.csv"
         pandas.DataFrame(matrix.numpy(force=True)).to_csv(path)
 
