@@ -180,6 +180,7 @@ class CrossStructureModule(torch.nn.Module):
         )
 
         outputs = []
+        atts = []
         for i in range(self.n_blocks):
 
             s_loop, T_loop, preds, att = self._block(s_loop_initial,
@@ -189,12 +190,16 @@ class CrossStructureModule(torch.nn.Module):
                                                      loop_mask, protein_mask)
 
             outputs.append(preds)
+            atts.append(att.clone().detach())
 
         outputs = dict_multimap(torch.stack, outputs)
 
         r = {}
         r["single"] = s_loop
-        r["cross_attention"] = att
+
+        # [n_layer, batch_size, n_head, dst_len, src_len]
+        r["cross_attention"] = torch.stack(atts)
+
         r["final_frames"] = outputs["frames"][-1]
         r["final_sidechain_frames"] = outputs["sidechain_frames"][-1]
         r["final_angles"] = outputs["angles"][-1]

@@ -3,11 +3,10 @@ from copy import deepcopy as copy
 import logging
 
 from torch.nn import Embedding
-from torch.nn.modules.transformer import TransformerEncoderLayer, TransformerEncoder
+from torch.nn.modules.transformer import TransformerEncoder
 import torch
 import ml_collections
 
-from openfold.model.structure_module import InvariantPointAttention as IPA
 from openfold.utils.rigid_utils import Rigid, Rotation
 from openfold.utils.loss import compute_plddt
 from openfold.data.data_transforms import make_atom14_masks
@@ -21,6 +20,8 @@ from .cross_structure_module import CrossStructureModule
 from ..domain.amino_acid import AMINO_ACID_DIMENSION
 from ..models.data import TensorDict
 from ..tools.amino_acid import one_hot_decode_sequence
+from .transform import DebuggableTransformerEncoderLayer
+from .ipa import DebuggableInvariantPointAttention as IPA
 
 
 _log = logging.getLogger(__name__)
@@ -43,9 +44,9 @@ class Predictor(torch.nn.Module):
         self.pos_enc = PositionalEncoding(structure_module_config.c_s, self.loop_maxlen)
 
         self.loop_enc = TransformerEncoder(
-            TransformerEncoderLayer(structure_module_config.c_s,
-                                    structure_module_config.no_heads_ipa,
-                                    batch_first=True),
+            DebuggableTransformerEncoderLayer(structure_module_config.c_s,
+                                              structure_module_config.no_heads_ipa,
+                                              batch_first=True),
             structure_module_config.no_blocks
         )
 
@@ -106,7 +107,7 @@ class Predictor(torch.nn.Module):
         """
 
         # [batch_size, loop_len, c_s]
-        loop_seq = batch["loop_sequence_embedding"].clone()
+        loop_seq = batch["loop_sequence_embedding"]
         batch_size = loop_seq.shape[0]
 
         # positional encoding
@@ -115,30 +116,43 @@ class Predictor(torch.nn.Module):
         # self-attention on the loop
         loop_embd = self.loop_enc(loop_pos_enc, src_key_padding_mask=batch["loop_len_mask"])
 
+        # store the attention weights, for debugging
+        loop_enc_atts = []
+        for layer in self.loop_enc.layers:
+            loop_enc_atts.append(layer.last_att)
+        # [n_layer, batch_size, n_head, loop_len, loop_len]
+        loop_enc_atts = torch.stack(loop_enc_atts)
+
         # structure-based self-attention on the protein
         protein_T = Rigid.from_tensor_4x4(batch["protein_backbone_rigid_tensor"])
 
         # [batch_size, protein_len, c_s]
         protein_embd = batch["protein_sequence_embedding"]
 
+        protein_atts = []
         for _ in range(self.n_ipa_repeat):
-            protein_embd = self.protein_ipa(protein_embd,
-                                            batch["protein_proximities"],
-                                            protein_T,
-                                            batch["protein_len_mask"].float())
+            protein_embd, protein_att = self.protein_ipa(protein_embd,
+                                                         batch["protein_proximities"],
+                                                         protein_T,
+                                                         batch["protein_len_mask"].float())
+            protein_atts.append(protein_att.clone().detach())
+
+        # store the attention weights, for debugging
+        # [n_layer, batch_size, n_head, protein_len, protein_len]
+        protein_atts = torch.stack(protein_atts)
 
         protein_embd = self.protein_norm(protein_embd)
 
         # cross attention and loop structure prediction
         output = self.cross(batch["loop_aatype"],
-                            loop_embd.clone(),
+                            loop_embd,
                             batch["loop_len_mask"],
                             protein_embd,
                             batch["protein_len_mask"],
                             protein_T)
 
-        output["loop_sequence_embedding"] = loop_embd
-        output["protein_sequence_embedding"] = protein_embd
+        output["loop_self_attention"] = loop_enc_atts
+        output["protein_self_attention"] = protein_atts
 
         # amino acid sequence: [1, 0, 2, ... ] meaning : Ala, Met, Cys
         # [batch_size, loop_len]

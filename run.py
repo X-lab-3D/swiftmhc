@@ -221,41 +221,32 @@ class Trainer:
 
         name = data["ids"][0] + "-" + frame_id
 
-        # save cross attentions heatmap
+        # save loop attentions heatmaps
+        loop_self_attention = output["loop_self_attention"]
+        n_layers, batch_size, n_heads, loop_len, loop_len_ = loop_self_attention.shape
+        for layer_index in range(n_layers):
+            for head_index in range(n_heads):
+                matrix = loop_self_attention[layer_index][0][head_index]
+                path = f"{output_directory}/loopatt{layer_index}_{head_index}_{name}.csv"
+                pandas.DataFrame(matrix.numpy(force=True)).to_csv(path)
+
+        # save protein attentions heatmaps
+        protein_self_attention = output["protein_self_attention"]
+        n_layers, batch_size, n_heads, protein_len, protein_len_ = protein_self_attention.shape
+        for layer_index in range(n_layers):
+            for head_index in range(n_heads):
+                matrix = protein_self_attention[layer_index][0][head_index]
+                path = f"{output_directory}/protatt{layer_index}_{head_index}_{name}.csv"
+                pandas.DataFrame(matrix.numpy(force=True)).to_csv(path)
+
+        # save cross attentions heatmaps
         cross_attention = output["cross_attention"]
-        batch_size, n_heads, loop_len, protein_len = cross_attention.shape
-        for head_index in range(n_heads):
-            matrix = cross_attention[0][head_index].transpose(0, 1)
-            path = f"{output_directory}/crossatt{head_index}_{name}.csv"
-            pandas.DataFrame(matrix.numpy(force=True)).to_csv(path)
-
-        # save input loop data
-        loop_enc = data["loop_sequence_embedding"]
-        batch_size, loop_len, loop_depth = loop_enc.shape
-        matrix = loop_enc.transpose(0, 1)
-        path = f"{output_directory}/loop_enc_{name}.csv"
-        pandas.DataFrame(matrix.numpy(force=True)).to_csv(path)
-
-        # save position encoded loop
-        loop_pos_enc = output["loop_pos_encoded"]
-        batch_size, loop_len, loop_depth = loop_pos_enc.shape
-        matrix = loop_pos_enc.transpose(0, 1)
-        path = f"{output_directory}/loop_posenc_{name}.csv"
-        pandas.DataFrame(matrix.numpy(force=True)).to_csv(path)
-
-        # save final loop sequence embedding, used by the encoder
-        loop_embd = output["loop_sequence_embedding"]
-        batch_size, loop_len, loop_depth = loop_embd.shape
-        matrix = loop_embd[0].transpose(0, 1)
-        path = f"{output_directory}/loop_embd_{name}.csv"
-        pandas.DataFrame(matrix.numpy(force=True)).to_csv(path)
-
-        # save final protein sequence embedding, used in cross ipa
-        protein_embd = output["protein_sequence_embedding"]
-        batch_size, protein_len, protein_depth = protein_embd.shape
-        matrix = protein_embd[0].transpose(0, 1)
-        path = f"{output_directory}/protein_{name}.csv"
-        pandas.DataFrame(matrix.numpy(force=True)).to_csv(path)
+        n_layers, batch_size, n_heads, loop_len, protein_len = cross_attention.shape
+        for layer_index in range(n_layers):
+            for head_index in range(n_heads):
+                matrix = cross_attention[layer_index][0][head_index].transpose(0, 1)
+                path = f"{output_directory}/crossatt{layer_index}_{head_index}_{name}.csv"
+                pandas.DataFrame(matrix.numpy(force=True)).to_csv(path)
 
         # save pdb
         structure = recreate_structure(name,
