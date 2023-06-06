@@ -241,12 +241,11 @@ class Trainer:
 
         # save cross attentions heatmaps
         cross_attention = output["cross_attention"]
-        n_layers, batch_size, n_heads, loop_len, protein_len = cross_attention.shape
-        for layer_index in range(n_layers):
-            for head_index in range(n_heads):
-                matrix = cross_attention[layer_index][0][head_index].transpose(0, 1)
-                path = f"{output_directory}/crossatt{layer_index}_{head_index}_{name}.csv"
-                pandas.DataFrame(matrix.numpy(force=True)).to_csv(path)
+        batch_size, n_heads, loop_len, protein_len = cross_attention.shape
+        for head_index in range(n_heads):
+            matrix = cross_attention[0][head_index].transpose(0, 1)
+            path = f"{output_directory}/crossatt{head_index}_{name}.csv"
+            pandas.DataFrame(matrix.numpy(force=True)).to_csv(path)
 
         # save pdb
         structure = recreate_structure(name,
