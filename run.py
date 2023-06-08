@@ -8,7 +8,8 @@ from typing import Tuple, Union, Optional, List, Dict, Set, Any
 import random
 from math import log, sqrt
 from multiprocessing import set_start_method
-import lzma
+import h5py
+from io import BytesIO
 
 from scipy.stats import pearsonr
 import ml_collections
@@ -220,44 +221,35 @@ class Trainer:
         with torch.no_grad():
             output = model(data)
 
-        name = data["ids"][0] + "-" + frame_id
+        id_ = data["ids"][0]
+        debug_path = f"{output_directory}/{id_}-debug.hdf5"
 
-        # save loop attentions heatmaps
-        loop_self_attention = output["loop_self_attention"]
-        n_layers, batch_size, n_heads, loop_len, loop_len_ = loop_self_attention.shape
-        for layer_index in range(n_layers):
-            for head_index in range(n_heads):
-                matrix = loop_self_attention[layer_index][0][head_index]
-                path = f"{output_directory}/loopatt{layer_index}_{head_index}_{name}.csv.xz"
-                pandas.DataFrame(matrix.numpy(force=True)).to_csv(path, compression="xz")
+        with h5py.File(debug_path, "a") as debug_file:
 
-        # save protein attentions heatmaps
-        protein_self_attention = output["protein_self_attention"]
-        n_layers, batch_size, n_heads, protein_len, protein_len_ = protein_self_attention.shape
-        for layer_index in range(n_layers):
-            for head_index in range(n_heads):
-                matrix = protein_self_attention[layer_index][0][head_index]
-                path = f"{output_directory}/protatt{layer_index}_{head_index}_{name}.csv.xz"
-                pandas.DataFrame(matrix.numpy(force=True)).to_csv(path, compression="xz")
+            frame_group = debug_file.require_group(frame_id)
 
-        # save cross attentions heatmaps
-        cross_attention = output["cross_attention"]
-        n_layers, batch_size, n_heads, loop_len, protein_len = cross_attention.shape
-        for layer_index in range(n_layers):
-            for head_index in range(n_heads):
-                matrix = cross_attention[layer_index][0][head_index].transpose(0, 1)
-                path = f"{output_directory}/crossatt{layer_index}_{head_index}_{name}.csv.xz"
-                pandas.DataFrame(matrix.numpy(force=True)).to_csv(path, compression="xz")
+            # save loop attentions heatmaps
+            loop_self_attention = output["loop_self_attention"]
+            frame_group.create_dataset("loop_attention", data=loop_self_attention[:, 0, ...], compression="lzma")
 
-        # save pdb
-        structure = recreate_structure(name,
-                                       [("P", data["loop_sequence_onehot"][0], output["final_positions"][0]),
-                                        ("M", data["protein_sequence_onehot"][0], data["protein_atom14_gt_positions"][0])])
+            # save protein attentions heatmaps
+            protein_self_attention = output["protein_self_attention"]
+            frame_group.create_dataset("protein_attention", data=protein_self_attention[:, 0, ...], compression="lzma")
 
-        with lzma.open(f"{output_directory}/{structure.id}.pdb.xz", "wt") as pdb_file:
-            io = PDBIO()
-            io.set_structure(structure)
-            io.save(pdb_file)
+            # save cross attentions heatmaps
+            cross_attention = output["cross_attention"]
+            frame_group.create_dataset("cross_attention", data=cross_attention[:, 0, ...], compression="lzma")
+
+            # save pdb
+            structure = recreate_structure(id_,
+                                           [("P", data["loop_sequence_onehot"][0], output["final_positions"][0]),
+                                            ("M", data["protein_sequence_onehot"][0], data["protein_atom14_gt_positions"][0])])
+            pdbio = PDBIO()
+            pdbio.set_structure(structure)
+            bytesio = BytesIO()
+            pdbio.save(bytesio)
+            bytesio.flush()
+            frame_group.create_dataset("structure", data=bytesio.read(), compression="lzma")
 
     def _epoch(self,
                epoch_index: int,
