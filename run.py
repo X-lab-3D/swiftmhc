@@ -578,7 +578,7 @@ def get_data_loader(data_path: str,
                     batch_size: int,
                     device: torch.device) -> DataLoader:
 
-    protein_maxlen = 40
+    protein_maxlen = 260
     loop_maxlen = 16
 
     dataset = ProteinLoopDataset(data_path, device, loop_maxlen=loop_maxlen, protein_maxlen=protein_maxlen)

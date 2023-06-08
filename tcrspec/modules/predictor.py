@@ -66,8 +66,8 @@ class Predictor(torch.nn.Module):
         self.protein_ipa.inf = 1e22
 
         self.protein_norm = torch.nn.Sequential(
-            LayerNorm(structure_module_config.c_s),
-            torch.nn.Dropout(p=0.1)
+            torch.nn.Dropout(p=0.1),
+            LayerNorm(structure_module_config.c_s)
         )
 
         self.cross = CrossStructureModule(**structure_module_config)
@@ -112,7 +112,7 @@ class Predictor(torch.nn.Module):
         """
 
         # [batch_size, loop_len, c_s]
-        loop_seq = batch["loop_sequence_embedding"]
+        loop_seq = batch["loop_sequence_onehot"]
         batch_size = loop_seq.shape[0]
 
         # positional encoding
@@ -120,7 +120,7 @@ class Predictor(torch.nn.Module):
 
         # self-attention on the loop
         loop_embd = self.loop_enc(loop_pos_enc,
-                                  src_key_padding_mask=torch.logical_not(batch["loop_len_mask"]))
+                                  src_key_padding_mask=torch.logical_not(batch["loop_self_mask"]))
 
         # store the attention weights, for debugging
         loop_enc_atts = []
@@ -133,7 +133,7 @@ class Predictor(torch.nn.Module):
         protein_T = Rigid.from_tensor_4x4(batch["protein_backbone_rigid_tensor"])
 
         # [batch_size, protein_len, c_s]
-        protein_embd = batch["protein_sequence_embedding"]
+        protein_embd = batch["protein_sequence_onehot"]
         protein_norm_dist = self.protein_dist_norm(batch["protein_distances"])
 
         protein_atts = []
@@ -141,7 +141,7 @@ class Predictor(torch.nn.Module):
             protein_embd, protein_att = self.protein_ipa(protein_embd,
                                                          protein_norm_dist,
                                                          protein_T,
-                                                         batch["protein_len_mask"].float())
+                                                         batch["protein_self_mask"].float())
             protein_atts.append(protein_att.clone().detach())
 
         # store the attention weights, for debugging
@@ -153,9 +153,9 @@ class Predictor(torch.nn.Module):
         # cross attention and loop structure prediction
         output = self.cross(batch["loop_aatype"],
                             loop_embd,
-                            batch["loop_len_mask"],
+                            batch["loop_cross_mask"],
                             protein_embd,
-                            batch["protein_len_mask"],
+                            batch["protein_cross_mask"],
                             protein_T)
 
         output["loop_self_attention"] = loop_enc_atts
@@ -168,9 +168,9 @@ class Predictor(torch.nn.Module):
         # amino acid sequence index: [0, 1, 2, 3, 4, ... ], representing the order of amino acids
         # [batch_size, loop_len]
         output["residue_index"] = torch.arange(0,
-                                               batch["loop_sequence_embedding"].shape[1], 1,
+                                               loop_seq.shape[1], 1,
                                                dtype=torch.int64,
-                                               device=batch["loop_sequence_embedding"].device
+                                               device=loop_seq.device
         ).unsqueeze(dim=0).expand(batch_size, -1)
 
         # whether the heavy atoms exists or not

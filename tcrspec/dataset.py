@@ -64,7 +64,7 @@ class ProteinLoopDataset(Dataset):
             for prefix, max_length in [(PREPROCESS_PROTEIN_NAME, self._protein_maxlen),
                                        (PREPROCESS_LOOP_NAME, self._loop_maxlen)]:
 
-                aatype_data = entry_group[prefix]["aatype"]
+                aatype_data = entry_group[prefix]["aatype"][:]
                 length = aatype_data.shape[0]
                 if length < 3:
                     raise ValueError(f"{entry_name} {prefix} length is {length}")
@@ -72,8 +72,13 @@ class ProteinLoopDataset(Dataset):
                 result[f"{prefix}_aatype"] = torch.zeros(max_length, device=self._device, dtype=torch.long)
                 result[f"{prefix}_aatype"][:length] = torch.tensor(aatype_data, device=self._device, dtype=torch.long)
 
-                result[f"{prefix}_len_mask"] = torch.zeros(max_length, device=self._device, dtype=torch.bool)
-                result[f"{prefix}_len_mask"][:length] = 1
+                self_mask_data = entry_group[prefix]["self_mask"][:]
+                result[f"{prefix}_self_mask"] = torch.zeros(max_length, device=self._device, dtype=torch.bool)
+                result[f"{prefix}_self_mask"][:length] = torch.tensor(self_mask_data, device=self._device, dtype=torch.bool)
+
+                cross_mask_data = entry_group[prefix]["cross_mask"][:]
+                result[f"{prefix}_cross_mask"] = torch.zeros(max_length, device=self._device, dtype=torch.bool)
+                result[f"{prefix}_cross_mask"][:length] = torch.tensor(cross_mask_data, device=self._device, dtype=torch.bool)
 
                 result[f"{prefix}_residue_index"] = torch.arange(0, max_length, 1, device=self._device, dtype=torch.long)
 
@@ -81,9 +86,9 @@ class ProteinLoopDataset(Dataset):
                 result[f"{prefix}_residx_atom14_to_atom37"] = torch.zeros((max_length, residx_atom14_to_atom37_data.shape[1]), device=self._device, dtype=torch.long)
                 result[f"{prefix}_residx_atom14_to_atom37"][:length] = torch.tensor(residx_atom14_to_atom37_data, device=self._device, dtype=torch.long)
 
-                result[f"{prefix}_sequence_embedding"] = torch.zeros((max_length, 32), device=self._device, dtype=torch.float)
-                t = torch.tensor(entry_group[prefix]["sequence_embedding"][:], device=self._device, dtype=torch.float)
-                result[f"{prefix}_sequence_embedding"][:t.shape[0], :t.shape[1]] = t
+                result[f"{prefix}_sequence_onehot"] = torch.zeros((max_length, 32), device=self._device, dtype=torch.float)
+                t = torch.tensor(entry_group[prefix]["sequence_onehot"][:], device=self._device, dtype=torch.float)
+                result[f"{prefix}_sequence_onehot"][:t.shape[0], :t.shape[1]] = t
 
                 for field_name in ["backbone_rigid_tensor",
                                    "torsion_angles_sin_cos", "alt_torsion_angles_sin_cos", "torsion_angles_mask",
