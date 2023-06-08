@@ -33,6 +33,9 @@ class DebuggableTransformerEncoderLayer(TransformerEncoderLayer):
                 is_causal: bool = False) -> torch.Tensor:
 
         x = src
+
+        x = self.dropout(x)
+
         if self.norm_first:
             x = x + self._sa_block(self.norm1(x), src_mask, src_key_padding_mask)
             x = x + self._ff_block(self.norm2(x))
