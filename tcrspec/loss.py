@@ -61,10 +61,10 @@ def _compute_fape_loss(output: TensorDict, batch: TensorDict,
     """
 
     # compute backbone loss
-    batch_size, loop_len = batch["loop_len_mask"].shape
-    batch_size, protein_len = batch["protein_len_mask"].shape
+    batch_size, loop_len = batch["loop_cross_mask"].shape
+    batch_size, protein_len = batch["protein_cross_mask"].shape
 
-    bb_mask = torch.cat((batch["protein_len_mask"], batch["loop_len_mask"]), dim=1)
+    bb_mask = torch.cat((batch["protein_cross_mask"], batch["loop_cross_mask"]), dim=1)
     bb_true_frames = torch.cat((batch["protein_backbone_rigid_tensor"], batch["loop_backbone_rigid_tensor"]), dim=1)
     bb_output_frames = torch.cat((Rigid.from_tensor_4x4(batch["protein_backbone_rigid_tensor"]).to_tensor_7(),
                                   output["final_frames"]), dim=1)
@@ -373,7 +373,7 @@ def get_loss(output: TensorDict, batch: TensorDict,
     chi_loss = _supervised_chi_loss(output["final_angles"],
                                     output["final_unnormalized_angles"],
                                     batch["loop_aatype"],
-                                    batch["loop_len_mask"],
+                                    batch["loop_self_mask"],
                                     batch["loop_torsion_angles_mask"][..., 3:],
                                     batch["loop_torsion_angles_sin_cos"][..., 3:, :],
                                     **openfold_config.loss.supervised_chi)

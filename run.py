@@ -251,8 +251,8 @@ class Trainer:
 
         # save pdb
         structure = recreate_structure(name,
-                                       [("P", data["loop_sequence_embedding"][0], output["final_positions"][0]),
-                                        ("M", data["protein_sequence_embedding"][0], data["protein_atom14_gt_positions"][0])])
+                                       [("P", data["loop_sequence_onehot"][0], output["final_positions"][0]),
+                                        ("M", data["protein_sequence_onehot"][0], data["protein_atom14_gt_positions"][0])])
 
         with lzma.open(f"{output_directory}/{structure.id}.pdb.xz", "wt") as pdb_file:
             io = PDBIO()
@@ -387,40 +387,6 @@ class Trainer:
             table = pandas.concat((table, row))
 
         table.to_csv(output_path, index=False)
-
-    @staticmethod
-    def _save_results_as_pdbs(output_directory: str,
-                              input_data: TensorDict,
-                              output_data: TensorDict,
-                              animated_complex_id: Optional[str] = None,
-                              epoch_index: Optional[int] = None):
-
-        batch_size = input_data["loop_sequence_embedding"].shape[0]
-
-        for index in range(batch_size):
-
-            complex_id = input_data["ids"][index]
-
-            if animated_complex_id is not None:
-
-                # filter out the complex with this id
-                if complex_id != animated_complex_id:
-                    continue
-
-            # only save the structure of binders
-            elif input_data["kd"][index] >= 500.0:
-                continue
-
-            name = complex_id
-            if epoch_index is not None:
-                name += f"-e{epoch_index}"
-
-            structure = recreate_structure(name,
-                                           [("P", input_data["loop_sequence_embedding"][index], output_data["final_positions"][index]),
-                                            ("M", input_data["protein_sequence_embedding"][index], input_data["protein_atom14_gt_positions"][index])])
-            io = PDBIO()
-            io.set_structure(structure)
-            io.save(f"{output_directory}/{structure.id}.pdb")
 
     def test(self, test_loader: DataLoader, run_id: str):
 
