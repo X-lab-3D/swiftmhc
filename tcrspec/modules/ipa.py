@@ -55,8 +55,8 @@ class DebuggableInvariantPointAttention(torch.nn.Module):
         # Here as in the official source, they have bias and use the default
         # Lecun initialization.
         hc = self.c_hidden * self.no_heads
-        self.linear_q = Linear(self.c_s, hc) 
-        self.linear_kv = Linear(self.c_s, 2 * hc) 
+        self.linear_q = Linear(self.c_s, hc)
+        self.linear_kv = Linear(self.c_s, 2 * hc)
 
         hpq = self.no_heads * self.no_qk_points * 3
         self.linear_q_points = Linear(self.c_s, hpq)
