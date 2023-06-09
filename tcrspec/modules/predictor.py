@@ -125,7 +125,7 @@ class Predictor(torch.nn.Module):
 
         # self-attention on the loop
         loop_embd = self.loop_enc(loop_pos_enc,
-                                  src_key_padding_mask=torch.logical_not(batch["loop_self_mask"]))
+                                  src_key_padding_mask=torch.logical_not(batch["loop_len_mask"]))
 
         # store the attention weights, for debugging
         loop_enc_atts = []
@@ -146,7 +146,7 @@ class Predictor(torch.nn.Module):
             protein_embd, protein_att = self.protein_ipa(protein_embd,
                                                          protein_norm_dist,
                                                          protein_T,
-                                                         batch["protein_self_mask"].float())
+                                                         batch["protein_len_mask"].float())
             protein_atts.append(protein_att.clone().detach())
 
         # store the attention weights, for debugging
@@ -158,9 +158,9 @@ class Predictor(torch.nn.Module):
         # cross attention and loop structure prediction
         output = self.cross(batch["loop_aatype"],
                             loop_embd,
-                            batch["loop_cross_mask"],
+                            batch["loop_len_mask"],
                             protein_embd,
-                            batch["protein_cross_mask"],
+                            batch["protein_len_mask"],
                             protein_T)
 
         output["loop_self_attention"] = loop_enc_atts
