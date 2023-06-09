@@ -51,7 +51,7 @@ def get_rmsd(struct1: Structure, struct2: Structure) -> float:
     residues2 = list(chain2.get_residues())
 
     if len(residues1) != len(residues2):
-        raise ValueError("not the same length")
+        raise ValueError(f"not the same length: {struct1.id} chain P has {len(residues1)} residues, while {struct2.id} chain P has {len(residues2)}")
 
     sum_ = 0.0
     count = 0
@@ -150,10 +150,10 @@ if __name__ == "__main__":
             frac = float(frame_index) / len(frame_ids)
             rotation_y = rotation_y_min + (rotation_y_max - rotation_y_min) * frac
 
-            snapshot_path = snapshot_paths[snapshot_index]
             png_path = f"{output_name}-{frame_id}.png"
 
             snapshot_structure_s = "".join([b.decode("utf-8") for b in hdf5_file[f"{frame_id}/structure"][:].tolist()])
+
             snapshot_structure = parser.get_structure(frame_id, StringIO(snapshot_structure_s))
 
             rmsd = get_rmsd(snapshot_structure, true_structure)

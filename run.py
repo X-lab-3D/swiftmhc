@@ -252,8 +252,9 @@ class Trainer:
             pdbio.set_structure(structure)
             with StringIO() as sio:
                 pdbio.save(sio)
-                structure_data = numpy.array([bytes(line, encoding="utf-8")
-                                              for line in sio.getvalue().split('\n')],
+                structure_data = numpy.array([bytes(line + "\n", encoding="utf-8")
+                                              for line in sio.getvalue().split('\n')
+                                              if len(line.strip()) > 0],
                                              dtype=numpy.dtype("bytes"))
             frame_group.create_dataset("structure",
                                        data=structure_data,
