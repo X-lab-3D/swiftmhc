@@ -43,7 +43,7 @@ class SequenceDataset(Dataset):
         entry_name = self._entry_names[index]
 
         with h5py.File(self._hdf5_path, 'r') as hdf5_file:
-            seq_embd = hdf5_file[entry_name]["loop/sequence_embedding"][:]
+            seq_embd = hdf5_file[entry_name]["loop/sequence_onehot"][:]
             affinity = 1.0 - log(hdf5_file[entry_name]["kd"][()]) / log(50000)
 
         return seq_embd, affinity
