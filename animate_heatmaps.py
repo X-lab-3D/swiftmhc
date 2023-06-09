@@ -20,7 +20,7 @@ _log = logging.getLogger(__name__)
 
 arg_parser = ArgumentParser(description="combine tcrspec csv.xz tables into a heatmap animation")
 arg_parser.add_argument("hdf5_path", help="path to the hdf5 file, containing the data")
-arg_parser.add_argument("data_type", help="type of data to take from hdf5 file: (loop_self_attention/protein_self_attention/cross_attention/other)")
+arg_parser.add_argument("data_type", help="type of data to take from hdf5 file: (loop_attention/protein_attention/cross_attention/other)")
 arg_parser.add_argument("block", type=int, help="number of the block: (0/1/2/...)")
 arg_parser.add_argument("head", type=int, help="number of the head: (0/1/2/...)")
 
@@ -47,9 +47,9 @@ if __name__ == "__main__":
 
         png_files = []
 
-        for frame_id in frame_ids
+        for frame_id in frame_ids:
 
-            epoch_number = get_epoch_number(table_path)
+            epoch_number = get_epoch_number(frame_id)
 
             data = hdf5_file[f"{frame_id}/{args.data_type}"][args.block, args.head, ...]
 
@@ -61,7 +61,7 @@ if __name__ == "__main__":
             figure.colorbar(heatmap)
             pyplot.title(f"{output_name}, epoch:{epoch_number:.3f}")
 
-            png_path = f"{output_name}.png"
+            png_path = f"{output_name}-{frame_id}.png"
 
             figure.savefig(png_path, format="png")
             png_files.append(png_path)
