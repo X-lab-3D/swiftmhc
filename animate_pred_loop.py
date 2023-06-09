@@ -8,6 +8,8 @@ from glob import glob
 from tempfile import mkdtemp
 import shutil
 from math import sqrt
+import h5py
+from io import StringIO
 
 from PIL import ImageFont, ImageDraw, Image
 from moviepy.video.io.ImageSequenceClip import ImageSequenceClip
@@ -24,35 +26,11 @@ import pymol.cmd as pymol_cmd
 _log = logging.getLogger(__name__)
 
 arg_parser = ArgumentParser(description="combine multiple snapshot structures into an animation")
-arg_parser.add_argument("id", help="id in the name of the structure files n the current working directory, containing changing chain P")
-arg_parser.add_argument("template_path", help="template pdb file to use, containing unchanging chain M")
+arg_parser.add_argument("hdf5_path", help="path to the hdf5 data file")
+arg_parser.add_argument("true_path", help="path to the true pdb file")
 
 
 font = ImageFont.truetype("DejaVuSans.ttf", 48)
-
-
-def get_snapshot_name(id_: str, epoch_index: int, batch_index: int) -> str:
-    return f"{id_}-{epoch_index}.{batch_index}.pdb.xz"
-
-
-def combine_with(m_path: str, p_path: str) -> Structure:
-    parser = PDBParser()
-
-    m_struct = parser.get_structure(m_path, m_path)
-    p_struct = parser.get_structure(p_path, p_path)
-
-    m_chain = [chain for chain in m_struct.get_chains() if chain.id == "M"][0]
-    p_chain = [chain for chain in p_struct.get_chains() if chain.id == "P"][0]
-
-    output_id = os.path.splitext(os.path.basename(p_path))[0]
-
-    output_struct = Structure(output_id)
-    output_model = Model("1")
-    output_struct.add(output_model)
-    output_model.add(m_chain)
-    output_model.add(p_chain)
-
-    return output_struct
 
 
 def find_atom(residue: Residue, name: str) -> Atom:
@@ -64,11 +42,7 @@ def find_atom(residue: Residue, name: str) -> Atom:
     raise ValueError(f"not found: {name}")
 
 
-def get_rmsd(p_path1: str, p_path2: str) -> float:
-    parser = PDBParser()
-
-    struct1 = parser.get_structure(p_path1, p_path1)
-    struct2 = parser.get_structure(p_path2, p_path2)
+def get_rmsd(struct1: Structure, struct2: Structure) -> float:
 
     chain1 = [chain for chain in struct1.get_chains() if chain.id == "P"][0]
     chain2 = [chain for chain in struct2.get_chains() if chain.id == "P"][0]
@@ -144,10 +118,9 @@ def to_frame(structure: Structure, png_path: str, rotation_y: float):
         shutil.rmtree(work_dir)
 
 
-def get_snapshot_number(filename: str) -> float:
+def get_frame_number(frame_id: str) -> float:
 
-    name = os.path.splitext(filename)[0]
-    epoch_s, batch_s = name.split("-")[-1].split('.')
+    epoch_s, batch_s = frame_id.split('.')
 
     return float(epoch_s) + 0.001 * float(batch_s)
 
@@ -161,29 +134,36 @@ if __name__ == "__main__":
     png_paths = []
 
     rotation_y_min = -20.0
-    rotation_y_max = 80.0
+    rotation_y_max = 20.0
 
-    snapshot_paths = sorted(glob(f"{args.id}-*.*.pdb.xz"), key=get_snapshot_number)
-    if len(snapshot_paths) == 0:
-        raise FileNotFoundError(f"no pdbs found matching {args.id}")
+    output_name = os.path.basename(args.hdf5_path).replace(".hdf5", "").replace("-animation", "")
 
-    for snapshot_index in range(len(snapshot_paths)):
+    parser = PDBParser()
+    true_structure = parser.get_structure("true", args.true_path)
 
-        frac = float(snapshot_index) / len(snapshot_paths)
-        rotation_y = rotation_y_min + (rotation_y_max - rotation_y_min) * frac
+    with h5py.File(args.hdf5_path, 'r') as hdf5_file:
 
-        snapshot_path = snapshot_paths[snapshot_index]
-        png_path = snapshot_path.replace(".pdb.xz", ".png")
+        frame_ids = sorted(hdf5_file.keys(), key=get_frame_number)
 
-        structure = combine_with(args.template_path, snapshot_path)
-        rmsd = get_rmsd(snapshot_path, args.template_path)
+        for frame_index, frame_id in enumerate(frame_ids):
 
-        to_frame(structure, png_path, rotation_y)
-        add_text(png_path, f"rmsd: {rmsd:.3f}, epoch: {get_snapshot_number(snapshot_path):.3f}")
+            frac = float(frame_index) / len(frame_ids)
+            rotation_y = rotation_y_min + (rotation_y_max - rotation_y_min) * frac
 
-        png_paths.append(png_path)
+            snapshot_path = snapshot_paths[snapshot_index]
+            png_path = f"{output_name}-{frame_id}.png"
 
-        _log.debug(f"created {png_path}")
+            snapshot_structure_s = "".join([b.decode("utf-8") for b in hdf5_file[f"{frame_id}/structure"][:].tolist()])
+            snapshot_structure = parser.get_structure(frame_id, StringIO(snapshot_structure_s))
+
+            rmsd = get_rmsd(snapshot_structure, true_structure)
+
+            to_frame(snapshot_structure, png_path, rotation_y)
+            add_text(png_path, f"rmsd: {rmsd:.3f}, epoch: {get_frame_number(frame_id):.3f}")
+
+            png_paths.append(png_path)
+
+            _log.debug(f"created {png_path}")
 
     clip = ImageSequenceClip(png_paths, 25)
-    clip.write_videofile(f"{args.id}.mp4")
+    clip.write_videofile(f"{output_name}.mp4")
