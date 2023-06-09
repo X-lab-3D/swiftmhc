@@ -137,7 +137,7 @@ class Trainer:
         self._snap_period = 5
 
         self.loop_maxlen = 16
-        self.protein_maxlen = 260
+        self.protein_maxlen = 40
 
     def _batch(self,
                epoch_index: int,

@@ -72,13 +72,8 @@ class ProteinLoopDataset(Dataset):
                 result[f"{prefix}_aatype"] = torch.zeros(max_length, device=self._device, dtype=torch.long)
                 result[f"{prefix}_aatype"][:length] = torch.tensor(aatype_data, device=self._device, dtype=torch.long)
 
-                self_mask_data = entry_group[prefix]["self_mask"][:]
-                result[f"{prefix}_self_mask"] = torch.zeros(max_length, device=self._device, dtype=torch.bool)
-                result[f"{prefix}_self_mask"][:length] = torch.tensor(self_mask_data, device=self._device, dtype=torch.bool)
-
-                cross_mask_data = entry_group[prefix]["cross_mask"][:]
-                result[f"{prefix}_cross_mask"] = torch.zeros(max_length, device=self._device, dtype=torch.bool)
-                result[f"{prefix}_cross_mask"][:length] = torch.tensor(cross_mask_data, device=self._device, dtype=torch.bool)
+                result[f"{prefix}_len_mask"] = torch.zeros(max_length, device=self._device, dtype=torch.bool)
+                result[f"{prefix}_len_mask"][:length] = True
 
                 result[f"{prefix}_residue_index"] = torch.arange(0, max_length, 1, device=self._device, dtype=torch.long)
 
@@ -104,12 +99,12 @@ class ProteinLoopDataset(Dataset):
 
             distance_data = entry_group[PREPROCESS_PROTEIN_NAME]["distances"][:]
             result["protein_distances"] = torch.zeros(self._protein_maxlen, self._protein_maxlen, 1,
-                                                        device=self._device, dtype=torch.float)
+                                                      device=self._device, dtype=torch.float)
             result["protein_distances"][:distance_data.shape[0], :distance_data.shape[0], :] = torch.tensor(distance_data, device=self._device, dtype=torch.float)
 
             distance_data = entry_group["distances"][:]
             result["distances"] = torch.zeros(self._loop_maxlen, self._protein_maxlen, 1,
-                                                device=self._device, dtype=torch.float)
+                                              device=self._device, dtype=torch.float)
             result["distances"][:distance_data.shape[0], :distance_data.shape[1], :] = torch.tensor(distance_data, device=self._device, dtype=torch.float)
 
             return result
