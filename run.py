@@ -9,7 +9,8 @@ import random
 from math import log, sqrt
 from multiprocessing import set_start_method
 import h5py
-from io import BytesIO
+import numpy
+from io import StringIO
 
 from scipy.stats import pearsonr
 import ml_collections
@@ -135,6 +136,9 @@ class Trainer:
 
         self._snap_period = 5
 
+        self.loop_maxlen = 16
+        self.protein_maxlen = 260
+
     def _batch(self,
                epoch_index: int,
                batch_index: int,
@@ -222,23 +226,23 @@ class Trainer:
             output = model(data)
 
         id_ = data["ids"][0]
-        debug_path = f"{output_directory}/{id_}-debug.hdf5"
+        animation_path = f"{output_directory}/{id_}-animation.hdf5"
 
-        with h5py.File(debug_path, "a") as debug_file:
+        with h5py.File(animation_path, "a") as animation_file:
 
-            frame_group = debug_file.require_group(frame_id)
+            frame_group = animation_file.require_group(frame_id)
 
             # save loop attentions heatmaps
             loop_self_attention = output["loop_self_attention"]
-            frame_group.create_dataset("loop_attention", data=loop_self_attention[:, 0, ...], compression="lzma")
+            frame_group.create_dataset("loop_attention", data=loop_self_attention[:, 0, ...], compression="lzf")
 
             # save protein attentions heatmaps
             protein_self_attention = output["protein_self_attention"]
-            frame_group.create_dataset("protein_attention", data=protein_self_attention[:, 0, ...], compression="lzma")
+            frame_group.create_dataset("protein_attention", data=protein_self_attention[:, 0, ...], compression="lzf")
 
             # save cross attentions heatmaps
             cross_attention = output["cross_attention"]
-            frame_group.create_dataset("cross_attention", data=cross_attention[:, 0, ...], compression="lzma")
+            frame_group.create_dataset("cross_attention", data=cross_attention[:, 0, ...], compression="lzf")
 
             # save pdb
             structure = recreate_structure(id_,
@@ -246,10 +250,14 @@ class Trainer:
                                             ("M", data["protein_sequence_onehot"][0], data["protein_atom14_gt_positions"][0])])
             pdbio = PDBIO()
             pdbio.set_structure(structure)
-            bytesio = BytesIO()
-            pdbio.save(bytesio)
-            bytesio.flush()
-            frame_group.create_dataset("structure", data=bytesio.read(), compression="lzma")
+            with StringIO() as sio:
+                pdbio.save(sio)
+                structure_data = numpy.array([bytes(line, encoding="utf-8")
+                                              for line in sio.getvalue().split('\n')],
+                                             dtype=numpy.dtype("bytes"))
+            frame_group.create_dataset("structure",
+                                       data=structure_data,
+                                       compression="lzf")
 
     def _epoch(self,
                epoch_index: int,
@@ -299,7 +307,7 @@ class Trainer:
 
             for batch_index, batch_data in enumerate(data_loader):
 
-                batch_size = batch_data["loop_sequence_embedding"].shape[0]
+                batch_size = batch_data["loop_sequence_onehot"].shape[0]
 
                 batch_output = model(batch_data)
 
@@ -350,7 +358,7 @@ class Trainer:
         output_data["loop_sequence"] += ["".join([aa.one_letter_code
                                                   for aa in one_hot_decode_sequence(embd)
                                                   if aa is not None])
-                                         for embd in truth["loop_sequence_embedding"]]
+                                         for embd in truth["loop_sequence_onehot"]]
 
         return output_data
 
@@ -383,7 +391,8 @@ class Trainer:
     def test(self, test_loader: DataLoader, run_id: str):
 
         model_path = f"{run_id}/best-predictor.pth"
-        model = Predictor(openfold_config.model, self._device)
+        model = Predictor(self.loop_maxlen, self.protein_maxlen,
+                          openfold_config.model, self._device)
         model.to(device=self._device)
         model.eval()
         model.load_state_dict(torch.load(model_path))
@@ -414,7 +423,8 @@ class Trainer:
         train_affinities = torch.cat([batch_data["affinity"] for batch_data in train_loader])
 
         # Set up the model
-        model = Predictor(openfold_config.model)
+        model = Predictor(self.loop_maxlen, self.protein_maxlen,
+                          openfold_config.model)
         model.to(device=self._device)
         model.train()
 
@@ -531,20 +541,17 @@ class Trainer:
 
         metrics_dataframe.to_csv(metrics_path, sep=",", index=False)
 
+    def get_data_loader(self,
+                        data_path: str,
+                        batch_size: int,
+                        device: torch.device) -> DataLoader:
 
-def get_data_loader(data_path: str,
-                    batch_size: int,
-                    device: torch.device) -> DataLoader:
+        dataset = ProteinLoopDataset(data_path, device, loop_maxlen=self.loop_maxlen, protein_maxlen=self.protein_maxlen)
+        loader = DataLoader(dataset,
+                            collate_fn=ProteinLoopDataset.collate, batch_size=batch_size,
+                            num_workers=5)
 
-    protein_maxlen = 260
-    loop_maxlen = 16
-
-    dataset = ProteinLoopDataset(data_path, device, loop_maxlen=loop_maxlen, protein_maxlen=protein_maxlen)
-    loader = DataLoader(dataset,
-                        collate_fn=ProteinLoopDataset.collate, batch_size=batch_size,
-                        num_workers=5)
-
-    return loader
+        return loader
 
 
 if __name__ == "__main__":
@@ -580,7 +587,7 @@ if __name__ == "__main__":
 
         test_path = args.data_path[0]
 
-        test_loader = get_data_loader(test_path, args.batch_size, device)
+        test_loader = trainer.get_data_loader(test_path, args.batch_size, device)
 
         trainer.test(test_loader, run_id=run_id)
 
@@ -588,9 +595,9 @@ if __name__ == "__main__":
 
         train_path, valid_path, test_path = args.data_path
 
-        train_loader = get_data_loader(train_path, args.batch_size, device)
-        valid_loader = get_data_loader(valid_path, args.batch_size, device)
-        test_loader = get_data_loader(test_path, args.batch_size, device)
+        train_loader = trainer.get_data_loader(train_path, args.batch_size, device)
+        valid_loader = trainer.get_data_loader(valid_path, args.batch_size, device)
+        test_loader = trainer.get_data_loader(test_path, args.batch_size, device)
 
         trainer.train(train_loader, valid_loader, test_loader,
                       args.epoch_count, args.fine_tune_count,

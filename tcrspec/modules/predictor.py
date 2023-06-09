@@ -29,6 +29,8 @@ _log = logging.getLogger(__name__)
 
 class Predictor(torch.nn.Module):
     def __init__(self,
+                 loop_maxlen: int,
+                 protein_maxlen: int,
                  config: ml_collections.ConfigDict):
         super(Predictor, self).__init__()
 
@@ -38,8 +40,8 @@ class Predictor(torch.nn.Module):
         structure_module_config.no_blocks = 2
         structure_module_config.no_heads_ipa = 2
 
-        self.loop_maxlen = 16
-        self.protein_maxlen = 40
+        self.loop_maxlen = loop_maxlen
+        self.protein_maxlen = protein_maxlen
 
         self.n_head = structure_module_config.no_heads_ipa
 
