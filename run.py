@@ -303,7 +303,8 @@ class Trainer:
 
         valid_data = {}
 
-        model.eval()
+        # using model.eval() here causes this issue:
+        # https://github.com/pytorch/pytorch/pull/98375#issuecomment-1499504721
 
         with torch.no_grad():
 
@@ -544,9 +545,12 @@ class Trainer:
 
             metrics_dataframe.at[epoch_index, f"{pass_name} {loss_name}"] = round(normalized_loss, 3)
 
-        pcc = pearsonr(data["output affinity"], data["affinity"]).statistic
-        if pcc is not None:
+        try:
+            pcc = pearsonr(data["output affinity"], data["affinity"]).statistic
             metrics_dataframe.at[epoch_index, f"{pass_name} affinity correlation"] = round(pcc, 3)
+        except:
+            output_aff = data["output affinity"]
+            _log.exception(f"running pearsonr on {output_aff}")
 
         metrics_dataframe.to_csv(metrics_path, sep=",", index=False)
 
@@ -557,7 +561,8 @@ class Trainer:
 
         dataset = ProteinLoopDataset(data_path, device, loop_maxlen=self.loop_maxlen, protein_maxlen=self.protein_maxlen)
         loader = DataLoader(dataset,
-                            collate_fn=ProteinLoopDataset.collate, batch_size=batch_size,
+                            collate_fn=ProteinLoopDataset.collate,
+                            batch_size=batch_size,
                             num_workers=5)
 
         return loader

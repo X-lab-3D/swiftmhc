@@ -59,13 +59,15 @@ class Predictor(torch.nn.Module):
 
         self.protein_dist_norm = torch.nn.LayerNorm((self.protein_maxlen, self.protein_maxlen, 1))
 
+        self.inf = 1e22
+
         self.protein_ipa = IPA(structure_module_config.c_s,
                                structure_module_config.c_z,
                                structure_module_config.c_ipa,
                                structure_module_config.no_heads_ipa,
                                structure_module_config.no_qk_points,
                                structure_module_config.no_v_points)
-        self.protein_ipa.inf = 1e22
+        self.protein_ipa.inf = self.inf
 
         self.protein_norm = torch.nn.Sequential(
             torch.nn.Dropout(p=0.1),
@@ -123,9 +125,17 @@ class Predictor(torch.nn.Module):
         # positional encoding
         loop_pos_enc = self.pos_enc(loop_seq)
 
+        # [batch_size, n_head, loop_len_max]
+        loop_len_mask = batch["loop_len_mask"][:, None, :].expand(-1, self.n_head, -1)
+
+        # [batch_size, n_head, loop_len_max, loop_len_max]
+        loop_src_mask = torch.logical_and(loop_len_mask[:, :, None, :], loop_len_mask[:, :, :, None])
+        loop_src_mask = torch.logical_not(loop_src_mask).float() * -self.inf
+        loop_src_mask = loop_src_mask.reshape(batch_size * self.n_head, self.loop_maxlen, self.loop_maxlen)
+
         # self-attention on the loop
         loop_embd = self.loop_enc(loop_pos_enc,
-                                  src_key_padding_mask=torch.logical_not(batch["loop_len_mask"]))
+                                  mask=loop_src_mask)
 
         # store the attention weights, for debugging
         loop_enc_atts = []
@@ -200,6 +210,9 @@ class Predictor(torch.nn.Module):
         #output["affinity"] = torch.sum(probabilities, dim=1)
         output["affinity"] = torch.sum(outputs, dim=1)
         #output["affinity"] = self.aff_mlp(initial_loop_seq.reshape(batch_size, -1)).reshape(batch_size)
+
+        if torch.any(torch.isnan(output["affinity"])):
+            raise RuntimeError(f"got NaN output")
 
         return output
 
