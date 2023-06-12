@@ -194,11 +194,11 @@ class Predictor(torch.nn.Module):
         updated_s_loop = output["single"]
 
         # [batch_size, loop_maxlen]
-        probabilities = self.aff_mlp(updated_s_loop).reshape(batch_size, -1)
+        outputs = self.aff_mlp(updated_s_loop)[:, :, 0]
 
         # [batch_size]
-        output["affinity"] = torch.sum(probabilities, dim=1)
-        #output["affinity"] = torch.sum(-torch.log(probabilities), dim=1)
+        #output["affinity"] = torch.sum(probabilities, dim=1)
+        output["affinity"] = torch.sum(outputs, dim=1)
         #output["affinity"] = self.aff_mlp(initial_loop_seq.reshape(batch_size, -1)).reshape(batch_size)
 
         return output
