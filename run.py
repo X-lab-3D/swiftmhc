@@ -65,7 +65,8 @@ arg_parser = ArgumentParser(description="run a TCR-spec network model")
 arg_parser.add_argument("--run-id", "-r", help="name of the run and the directory to store it")
 arg_parser.add_argument("--debug", "-d", help="generate debug files", action='store_const', const=True, default=False)
 arg_parser.add_argument("--log-stdout", "-l", help="log to stdout", action='store_const', const=True, default=False)
-arg_parser.add_argument("--pretrained-model", "-p", help="use a given pretrained model")
+arg_parser.add_argument("--pretrained-model", "-m", help="use a given pretrained model state")
+arg_parser.add_argument("--pretrained-protein-ipa", "-p", help="use a given pretrained protein ipa state")
 arg_parser.add_argument("--test-only", "-t", help="skip training and test on a pretrained model", action='store_const', const=True, default=False)
 arg_parser.add_argument("--batch-size", "-b", help="batch size to use during training/validation/testing", type=int, default=8)
 arg_parser.add_argument("--epoch-count", "-e", help="how many epochs to run during training", type=int, default=100)
@@ -418,6 +419,7 @@ class Trainer:
               epoch_count: int, fine_tune_count: int,
               run_id: Optional[str] = None,
               pretrained_model_path: Optional[str] = None,
+              pretrained_protein_ipa_path: Optional[str] = None,
               animated_complex_id: Optional[str] = None):
 
         # get train data affinities
@@ -433,11 +435,16 @@ class Trainer:
             model.load_state_dict(torch.load(pretrained_model_path,
                                              map_location=self._device))
 
+        if pretrained_protein_ipa_path is not None:
+            model.protein_ipa.load_state_dict(torch.load(pretrained_protein_ipa_path,
+                                              map_location=self._device))
+
         optimizer = Adam(model.parameters(), lr=0.001)
         # scheduler = StepLR(optimizer, step_size=10, gamma=0.1)
 
-        # define model path
+        # define model paths
         model_path = f"{run_id}/best-predictor.pth"
+        protein_ipa_path = f"{run_id}/best-protein-ipa.pth"
 
         # Keep track of the lowest loss value.
         lowest_loss = float("inf")
@@ -492,6 +499,7 @@ class Trainer:
                 lowest_loss = valid_data["total loss"]
 
                 torch.save(model.state_dict(), model_path)
+                torch.save(model.protein_ipa.state_dict(), protein_ipa_path)
             # else:
             #    model.load_state_dict(torch.load(model_path))
 
@@ -602,4 +610,4 @@ if __name__ == "__main__":
 
         trainer.train(train_loader, valid_loader, test_loader,
                       args.epoch_count, args.fine_tune_count,
-                      run_id, args.pretrained_model, args.animate)
+                      run_id, args.pretrained_model, args.pretrained_protein_ipa, args.animate)
