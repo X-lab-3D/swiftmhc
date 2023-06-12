@@ -183,11 +183,13 @@ class CrossStructureModule(torch.nn.Module):
         atts = []
         for i in range(self.n_blocks):
 
-            s_loop, T_loop, preds, att = self._block(s_loop_initial,
-                                                     loop_aatype,
-                                                     s_loop, s_protein,
-                                                     T_loop, T_protein,
-                                                     loop_mask, protein_mask)
+            preds, att = self._block(s_loop_initial,
+                                     loop_aatype,
+                                     s_loop, s_protein,
+                                     T_loop, T_protein,
+                                     loop_mask, protein_mask)
+
+            T_loop = Rigid.from_tensor_7(preds["unscaled_frames"])
 
             outputs.append(preds)
             atts.append(att.clone().detach())
@@ -195,7 +197,7 @@ class CrossStructureModule(torch.nn.Module):
         outputs = dict_multimap(torch.stack, outputs)
 
         r = {}
-        r["single"] = s_loop
+        r["single"] = outputs["states"][-1]
 
         # [n_layer, batch_size, n_head, dst_len, src_len]
         r["cross_attention"] = torch.stack(atts)
@@ -266,6 +268,7 @@ class CrossStructureModule(torch.nn.Module):
         scaled_T_loop = T_loop.scale_translation(self.trans_scale_factor)
 
         preds = {
+            "unscaled_frames": T_loop.to_tensor_7(),
             "frames": scaled_T_loop.to_tensor_7(),
             "sidechain_frames": all_frames_to_global.to_tensor_4x4(),
             "unnormalized_angles": unnormalized_angles,
@@ -276,7 +279,7 @@ class CrossStructureModule(torch.nn.Module):
 
         T_loop = T_loop.stop_rot_gradient()
 
-        return s_loop, T_loop, preds, ipa_att
+        return preds, ipa_att
 
     def _init_residue_constants(self, float_dtype, device):
         if not hasattr(self, "default_frames"):
