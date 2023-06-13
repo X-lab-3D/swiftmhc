@@ -18,6 +18,7 @@ _log = logging.getLogger(__name__)
 class CrossInvariantPointAttention(torch.nn.Module):
     def __init__( self,
         c_s: int,
+        c_z: int,
         c_hidden: int,
         no_heads: int,
         no_qk_points: int,
@@ -28,6 +29,8 @@ class CrossInvariantPointAttention(torch.nn.Module):
         Args:
             c_s:
                 Single representation channel dimension
+            c_z:
+                Pairwise representation channel dimension
             c_hidden:
                 Hidden channel dimension
             no_heads:
@@ -40,6 +43,7 @@ class CrossInvariantPointAttention(torch.nn.Module):
         super(CrossInvariantPointAttention, self).__init__()
 
         self.c_s = c_s
+        self.c_z = c_z
         self.c_hidden = c_hidden
         self.no_heads = no_heads
         self.no_qk_points = no_qk_points
@@ -62,6 +66,8 @@ class CrossInvariantPointAttention(torch.nn.Module):
 
         hpv = self.no_heads * self.no_v_points * 3
 
+        self.linear_b = Linear(self.c_z, self.no_heads)
+
         self.head_weights = torch.nn.Parameter(torch.zeros((no_heads)))
         ipa_point_weights_init_(self.head_weights)
 
@@ -83,6 +89,7 @@ class CrossInvariantPointAttention(torch.nn.Module):
         T_src: Rigid,
         dst_mask: torch.Tensor,
         src_mask: torch.Tensor,
+        z: torch.Tensor,
         inplace_safe: bool = False,
         _offload_inference: bool = False,
 
@@ -100,7 +107,9 @@ class CrossInvariantPointAttention(torch.nn.Module):
             dst_mask:
                 [batch_size, len_dst] booleans
             src_mask:
-                batch_size, len_src] booleans
+                [batch_size, len_src] booleans
+            z:
+                [batch_size, len_dst, len_src, c_z]
         Returns:
             [batch_size, len_dst, c_s] single representation update
         """
@@ -153,6 +162,9 @@ class CrossInvariantPointAttention(torch.nn.Module):
             kv_pts, [self.no_qk_points, self.no_v_points], dim=-2
         )
 
+        # [batch_size, len_dst, len_src, H]
+        b = self.linear_b(z)
+
         ##########################
         # Compute attention scores : line #7 in alphafold
         ##########################
@@ -170,6 +182,7 @@ class CrossInvariantPointAttention(torch.nn.Module):
             )
 
         a *= math.sqrt(1.0 / (3 * self.c_hidden))
+        a += (math.sqrt(1.0 / 3) * permute_final_dims(b, (2, 0, 1)))
 
         # [batch_size, len_dst, len_src, H, P_q, 3]
         pt_att = q_pts.unsqueeze(-4) - k_pts.unsqueeze(-5)

@@ -171,7 +171,8 @@ class Predictor(torch.nn.Module):
                             batch["loop_len_mask"],
                             protein_embd,
                             batch["protein_len_mask"],
-                            protein_T)
+                            protein_T,
+                            batch["distances"])
 
         output["loop_self_attention"] = loop_enc_atts
         output["protein_self_attention"] = protein_atts

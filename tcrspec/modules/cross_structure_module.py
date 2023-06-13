@@ -75,6 +75,7 @@ class CrossStructureModule(torch.nn.Module):
         super(CrossStructureModule, self).__init__()
 
         self.c_s = c_s
+        self.c_z = c_z
         self.c_ipa = c_ipa
         self.c_resnet = c_resnet
         self.no_heads_ipa = no_heads_ipa
@@ -102,6 +103,7 @@ class CrossStructureModule(torch.nn.Module):
 
         self.ipa = CrossInvariantPointAttention(
             self.c_s,
+            self.c_z,
             self.c_ipa,
             self.no_heads_ipa,
             self.no_qk_points,
@@ -132,7 +134,8 @@ class CrossStructureModule(torch.nn.Module):
         loop_mask: torch.Tensor,
         s_protein_initial: torch.Tensor,
         protein_mask: torch.Tensor,
-        T_protein: Rigid
+        T_protein: Rigid,
+        z: torch.Tensor,
 
     ) -> Dict[str, torch.Tensor]:
         """
@@ -143,6 +146,7 @@ class CrossStructureModule(torch.nn.Module):
             s_protein_initial: [batch_size, protein_len, c_s]
             protein_mask:      [batch_size, protein_len]
             T_protein:         [batch_size, protein_len, 4, 4]
+            z:                 [batch_size, loop_len, protein_len, c_z]
         Returns:
             frames:              [n_blocks, batch_size, loop_len, 4, 4]
             sidechain_frames:    [n_blocks, batch_size, loop_len, 4, 4]
@@ -187,7 +191,8 @@ class CrossStructureModule(torch.nn.Module):
                                      loop_aatype,
                                      s_loop, s_protein,
                                      T_loop, T_protein,
-                                     loop_mask, protein_mask)
+                                     loop_mask, protein_mask,
+                                     z)
 
             T_loop = Rigid.from_tensor_7(preds["unscaled_frames"])
 
@@ -218,13 +223,15 @@ class CrossStructureModule(torch.nn.Module):
                T_loop: Rigid,
                T_protein: Rigid,
                loop_mask: torch.Tensor,
-               protein_mask: torch.Tensor) -> Dict[str, torch.Tensor]:
+               protein_mask: torch.Tensor,
+               z: torch.Tensor) -> Dict[str, torch.Tensor]:
 
         # [batch_size, loop_len, c_s]
         s_upd, ipa_att = self.ipa(
             s_loop, s_protein,
             T_loop, T_protein,
-            loop_mask, protein_mask
+            loop_mask, protein_mask,
+            z,
         )
         s_loop = s_loop + s_upd
         s_loop = self.ipa_dropout(s_loop)
