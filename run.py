@@ -234,15 +234,15 @@ class Trainer:
             frame_group = animation_file.require_group(frame_id)
 
             # save loop attentions heatmaps
-            loop_self_attention = output["loop_self_attention"]
+            loop_self_attention = output["loop_self_attention"].cpu()
             frame_group.create_dataset("loop_attention", data=loop_self_attention[:, 0, ...], compression="lzf")
 
             # save protein attentions heatmaps
-            protein_self_attention = output["protein_self_attention"]
+            protein_self_attention = output["protein_self_attention"].cpu()
             frame_group.create_dataset("protein_attention", data=protein_self_attention[:, 0, ...], compression="lzf")
 
             # save cross attentions heatmaps
-            cross_attention = output["cross_attention"]
+            cross_attention = output["cross_attention"].cpu()
             frame_group.create_dataset("cross_attention", data=cross_attention[:, 0, ...], compression="lzf")
 
             # save pdb
