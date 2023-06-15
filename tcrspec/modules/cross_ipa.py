@@ -72,7 +72,7 @@ class CrossInvariantPointAttention(torch.nn.Module):
         ipa_point_weights_init_(self.head_weights)
 
         concat_out_dim = self.no_heads * (
-            self.c_hidden + self.no_v_points * 4
+            self.c_hidden + self.c_z + self.no_v_points * 4
         )
         self.linear_out = Linear(concat_out_dim, self.c_s, init="final")
 
@@ -271,10 +271,16 @@ class CrossInvariantPointAttention(torch.nn.Module):
         # [batch_size, len_dst, H * P_v, 3]
         o_pt = o_pt.reshape(*o_pt.shape[:-3], -1, 3)
 
+        # [batch_size, len_dst, H, C_z]
+        o_pair = torch.matmul(a.transpose(-2, -3), z.to(dtype=a.dtype))
+
+        # [batch_size, len_dst, H * C_z]
+        o_pair = flatten_final_dims(o_pair, 2)
+
         # [batch_size, len_dst, c_s]
         s_upd = self.linear_out(
             torch.cat(
-                (o, *torch.unbind(o_pt, dim=-1), o_pt_norm), dim=-1
+                (o, *torch.unbind(o_pt, dim=-1), o_pt_norm, o_pair), dim=-1
             ).to(dtype=s_dst.dtype)
         )
 
