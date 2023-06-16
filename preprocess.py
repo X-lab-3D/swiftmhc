@@ -12,7 +12,8 @@ _log = logging.getLogger(__name__)
 arg_parser = ArgumentParser(description="preprocess data for tcrspec to operate on")
 arg_parser.add_argument("table_path", help="table with input data")
 arg_parser.add_argument("models_dir", help="where the models are stored")
-arg_parser.add_argument("protein_mask", help="file with mask data, to indicate which protein residues to use")
+arg_parser.add_argument("protein_self_mask", help="file with mask data, to indicate which protein residues to use for self attention")
+arg_parser.add_argument("protein_cross_mask", help="file with mask data, to indicate which protein residues to use for cross attention")
 arg_parser.add_argument("output_path", help="hdf5 file where to store the data")
 
 if __name__ == "__main__":
@@ -21,4 +22,8 @@ if __name__ == "__main__":
 
     logging.basicConfig(filename="preprocess.log", filemode="a", level=logging.INFO)
 
-    preprocess(args.table_path, args.models_dir, args.protein_mask, args.output_path)
+    preprocess(args.table_path,
+               args.models_dir,
+               args.protein_self_mask,
+               args.protein_cross_mask,
+               args.output_path)

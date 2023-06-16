@@ -40,7 +40,7 @@ PREPROCESS_LOOP_NAME = "loop"
 def _write_preprocessed_data(hdf5_path: str, storage_id: str,
                              protein_data: Dict[str, torch.Tensor],
                              loop_data: Dict[str, torch.Tensor],
-                             distances: torch.Tensor,
+                             proximities: torch.Tensor,
                              kd: Optional[float] = None):
     """
     Args:
@@ -55,7 +55,7 @@ def _write_preprocessed_data(hdf5_path: str, storage_id: str,
         if kd is not None:
             storage_group.create_dataset(PREPROCESS_KD_NAME, data=kd)
 
-        storage_group.create_dataset("distances", data=distances, compression="lzf")
+        storage_group.create_dataset("proximities", data=proximities, compression="lzf")
 
         protein_group = storage_group.require_group(PREPROCESS_PROTEIN_NAME)
         for field_name, field_data in protein_data.items():
@@ -129,12 +129,10 @@ def _get_blosum_encoding(amino_acid_indexes: List[int], blosum_index: int) -> Li
     return encoding
 
 
-def _get_masked_residues(chain: Chain, mask_data: List[Tuple[str, int, AminoAcid]]) -> List[Residue]:
+def _mask_residues(residues: List[Residue], mask: List[Tuple[str, int, AminoAcid]]) -> torch.Tensor:
 
-    chain_id = chain.id
     mask = []
-    residue_dict = {}
-    for residue in chain.get_residues():
+    for residue in residues:
 
         full_id = residue.get_full_id()
         if len(full_id) == 4:
@@ -147,16 +145,9 @@ def _get_masked_residues(chain: Chain, mask_data: List[Tuple[str, int, AminoAcid
 
         residue_id = (chain_id, residue_number, amino_acid)
 
-        residue_dict[residue_id] = residue
+        mask.append(residue_id in mask)
 
-    if len(residue_dict) == 0:
-        raise ValueError(f"no residues found in {chain}")
-
-    residues = []
-    for mask_residue_id in mask_data:
-        residues.append(residue_dict[mask_residue_id])
-
-    return residues
+    return torch.tensor(mask, dtype=torch.bool)
 
 
 def _read_residue_data(residues: List[Residue]) -> Dict[str, torch.Tensor]:
@@ -195,9 +186,11 @@ def _read_residue_data(residues: List[Residue]) -> Dict[str, torch.Tensor]:
     blosum62 = _get_blosum_encoding(aatype, 62)
 
     # convert to atom 37 format, for the frames and torsion angles
-    protein = {"aatype": aatype,
-               "sequence_onehot": sequence_onehot,
-               "blosum62": blosum62}
+    protein = {
+        "aatype": aatype,
+        "sequence_onehot": sequence_onehot,
+        "blosum62": blosum62
+    }
     protein = make_atom14_masks(protein)
 
     atom37_positions = atom14_to_atom37(atom14_positions, protein)
@@ -222,7 +215,7 @@ def _create_symmetry_alternative(chain: Chain) -> Chain:
     return alt_chain
 
 
-def _create_distances(residues1: List[Residue], residues2: List[Residue]) -> torch.Tensor:
+def _create_proximities(residues1: List[Residue], residues2: List[Residue]) -> torch.Tensor:
 
     residue_distances = torch.empty((len(residues1), len(residues2), 1), dtype=torch.float32)
 
@@ -244,17 +237,19 @@ def _create_distances(residues1: List[Residue], residues2: List[Residue]) -> tor
 
             residue_distances[i, j, 0] = min_distance
 
-    return residue_distances
+    return 1.0 / (1.0 + residue_distances)
 
 
 def preprocess(table_path: str,
                models_path: str,
-               protein_mask_path: str,
+               protein_self_mask_path: str,
+               protein_cross_mask_path: str,
                output_path: str):
 
     affinities_by_id = _read_affinities_by_id(table_path)
 
-    protein_mask = _read_mask_data(protein_mask_path)
+    protein_residues_self_mask = _read_mask_data(protein_self_mask_path)
+    protein_residues_cross_mask = _read_mask_data(protein_cross_mask_path)
 
     for id_, kd in affinities_by_id:
 
@@ -271,17 +266,19 @@ def preprocess(table_path: str,
             raise ValueError(f"missing loop chain P in {model_path}")
 
         protein_chain = chains_by_id["M"]
-        protein_residues = _get_masked_residues(protein_chain, protein_mask)
+        protein_residues = list(protein_chain.get_residues())
         protein_data = _read_residue_data(protein_residues)
+        protein_data["self_residues_mask"] = _mask_residues(protein_residues, protein_residues_self_mask)
+        protein_data["cross_residues_mask"] = _mask_residues(protein_residues, protein_residues_cross_mask)
 
         loop_chain = chains_by_id["P"]
         loop_residues = list(loop_chain.get_residues())
         loop_data = _read_residue_data(loop_residues)
 
-        distances = _create_distances(loop_residues, protein_residues)
-        protein_data["distances"] = _create_distances(protein_residues, protein_residues)
+        proximities = _create_proximities(loop_residues, protein_residues)
+        protein_data["proximities"] = _create_proximities(protein_residues, protein_residues)
 
         _write_preprocessed_data(output_path, id_,
                                  protein_data,
                                  loop_data,
-                                 distances, kd)
+                                 proximities, kd)
