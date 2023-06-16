@@ -98,6 +98,8 @@ class CrossStructureModule(torch.nn.Module):
         self.layer_norm_s_loop = LayerNorm(self.c_s)
         self.layer_norm_s_protein = LayerNorm(self.c_s)
 
+        self.layer_norm_z = LayerNorm(self.c_z)
+
         self.linear_in_loop = Linear(self.c_s, self.c_s)
         self.linear_in_protein = Linear(self.c_s, self.c_s)
 
@@ -166,6 +168,9 @@ class CrossStructureModule(torch.nn.Module):
         # [batch_size, protein_len, c_s]
         s_protein = self.layer_norm_s_protein(s_protein)
 
+        # [batch_size, loop_len, protein_len, c_z]
+        z = self.layer_norm_z(z)
+
         # [batch_size, loop_len, c_s]
         s_loop_initial = torch.clone(s_loop)
         s_loop = self.linear_in_loop(s_loop)
@@ -176,9 +181,9 @@ class CrossStructureModule(torch.nn.Module):
 
         # [batch_size, loop_len]
         T_loop = Rigid.identity(
-            s_loop.shape[:-1], 
-            s_loop.dtype, 
-            s_loop.device, 
+            s_loop.shape[:-1],
+            s_loop.dtype,
+            s_loop.device,
             self.training,
             fmt="quat",
         )
@@ -233,6 +238,7 @@ class CrossStructureModule(torch.nn.Module):
             loop_mask, protein_mask,
             z,
         )
+
         s_loop = s_loop + s_upd
         s_loop = self.ipa_dropout(s_loop)
         s_loop = self.layer_norm_ipa(s_loop)
