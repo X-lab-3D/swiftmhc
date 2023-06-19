@@ -92,6 +92,7 @@ def test_mmcif_atom_coords_unit_angstrom(mock_transform_fns):
 
     all_atom_positions = features["all_atom_positions"]
 
+    compared_count = 0
     for residue_index, residue in enumerate(chain.get_residues()):
         if residue_index < all_atom_positions.shape[0]:
             for atom in residue.get_atoms():
@@ -99,3 +100,6 @@ def test_mmcif_atom_coords_unit_angstrom(mock_transform_fns):
                     atom_index = restype_atom37_order[atom.name]
 
                     assert tuple(all_atom_positions[residue_index][atom_index]) == tuple(atom.coord)
+                    compared_count += 1
+
+    assert compared_count > 1000
