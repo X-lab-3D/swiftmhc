@@ -126,10 +126,10 @@ def _get_blosum_encoding(amino_acid_indexes: List[int], blosum_index: int) -> Li
 
         encoding.append(row)
 
-    return encoding
+    return torch.tensor(encoding)
 
 
-def _mask_residues(residues: List[Residue], mask: List[Tuple[str, int, AminoAcid]]) -> torch.Tensor:
+def _mask_residues(residues: List[Residue], mask_ids: List[Tuple[str, int, AminoAcid]]) -> torch.Tensor:
 
     mask = []
     for residue in residues:
@@ -145,9 +145,14 @@ def _mask_residues(residues: List[Residue], mask: List[Tuple[str, int, AminoAcid
 
         residue_id = (chain_id, residue_number, amino_acid)
 
-        mask.append(residue_id in mask)
+        mask.append(residue_id in mask_ids)
 
-    return torch.tensor(mask, dtype=torch.bool)
+    mask = torch.tensor(mask, dtype=torch.bool)
+
+    if not torch.any(mask):
+        raise ValueError(f"none found of {mask_ids}")
+
+    return mask
 
 
 def _read_residue_data(residues: List[Residue]) -> Dict[str, torch.Tensor]:
@@ -253,29 +258,54 @@ def preprocess(table_path: str,
 
     for id_, kd in affinities_by_id:
 
+        # parse the pdb file
         model_path = os.path.join(models_path, f"{id_}.pdb")
 
         pdb_parser = PDBParser()
 
         structure = pdb_parser.get_structure(id_, model_path)
 
+        # locate protein and loop
         chains_by_id = {c.id: c for c in structure.get_chains()}
         if "M" not in chains_by_id:
             raise ValueError(f"missing protein chain M in {model_path}")
         if "P" not in chains_by_id:
             raise ValueError(f"missing loop chain P in {model_path}")
 
+        # get residues from the protein (chain M)
         protein_chain = chains_by_id["M"]
         protein_residues = list(protein_chain.get_residues())
-        protein_data = _read_residue_data(protein_residues)
-        protein_data["self_residues_mask"] = _mask_residues(protein_residues, protein_residues_self_mask)
-        protein_data["cross_residues_mask"] = _mask_residues(protein_residues, protein_residues_cross_mask)
 
+        # determine which proteinresidues match with the mask
+        self_residues_mask = _mask_residues(protein_residues, protein_residues_self_mask)
+        cross_residues_mask = _mask_residues(protein_residues, protein_residues_cross_mask)
+
+        # derive data from protein residues
+        protein_data = _read_residue_data(protein_residues)
+
+        # remove the residues that are completely masked out.
+        # (false in both masks)
+        combo_mask = torch.logical_or(self_residues_mask, cross_residues_mask)
+        combo_mask_nonzero = combo_mask.nonzero()
+        mask_start = combo_mask_nonzero.min()
+        mask_end = combo_mask_nonzero.max() + 1
+
+        for key, value in protein_data.items():
+            protein_data[key] = value[mask_start: mask_end, ...]
+
+        # store masks as protein data
+        protein_data["self_residues_mask"] = self_residues_mask[mask_start: mask_end]
+        protein_data["cross_residues_mask"] = cross_residues_mask[mask_start: mask_end]
+
+        # get residues from the loop (chain P)
         loop_chain = chains_by_id["P"]
         loop_residues = list(loop_chain.get_residues())
         loop_data = _read_residue_data(loop_residues)
 
+        # proximities between loop and protein
         proximities = _create_proximities(loop_residues, protein_residues)
+
+        # proximities within protein
         protein_data["proximities"] = _create_proximities(protein_residues, protein_residues)
 
         _write_preprocessed_data(output_path, id_,
