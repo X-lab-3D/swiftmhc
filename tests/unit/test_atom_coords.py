@@ -12,6 +12,7 @@ from openfold.data.feature_pipeline import FeaturePipeline
 from openfold.data.data_pipeline import DataPipeline
 from openfold.data import mmcif_parsing
 from openfold.data import data_transforms
+from openfold.utils.rigid_utils import Rigid
 
 from mock import patch
 
@@ -35,6 +36,15 @@ def test_mmcif_atom_coords_unit_angstrom(mock_transform_fns):
         data_transforms.get_chi_angles,
     ]
 
+    feature_names = [
+        "msa",
+        "aatype",
+        "all_atom_mask",
+        "all_atom_positions",
+        "deletion_matrix",
+        "between_segment_residues",
+    ]
+
     config = model_config(
         "initial_training",
         train=True,
@@ -54,6 +64,7 @@ def test_mmcif_atom_coords_unit_angstrom(mock_transform_fns):
         "resample_msa_in_recycling": False,
         "msa_cluster_features": False,
         "feat": [],
+        "unsupervised_features": feature_names,
     }
     config["supervised"] = {
         "clamp_prob": False,
@@ -73,15 +84,6 @@ def test_mmcif_atom_coords_unit_angstrom(mock_transform_fns):
         alignment_index=None,
     )
 
-    config["common"]["unsupervised_features"] = [
-        "msa",
-        "aatype",
-        "all_atom_mask",
-        "all_atom_positions",
-        "deletion_matrix",
-        "between_segment_residues",
-    ]
-
     features = feature_pipeline.process_features(data, "train")
 
     mmcif_parser = MMCIFParser()
@@ -92,9 +94,21 @@ def test_mmcif_atom_coords_unit_angstrom(mock_transform_fns):
 
     all_atom_positions = features["all_atom_positions"]
 
+    bb_frames = Rigid.from_tensor_4x4(features["backbone_rigid_tensor"][..., 0])
+    bb_exists = features["backbone_rigid_mask"][..., 0]
+
     compared_count = 0
     for residue_index, residue in enumerate(chain.get_residues()):
         if residue_index < all_atom_positions.shape[0]:
+
+            if bb_exists[residue_index]:
+                for atom in residue.get_atoms():
+                    if atom.name == "CA":
+                        assert tuple(atom.coord) == tuple(bb_frames.get_trans()[residue_index])
+                        break
+                else:
+                    raise ValueError(f"residue {residue_index} has no CA")
+
             for atom in residue.get_atoms():
                 if atom.name in restype_atom37_order:
                     atom_index = restype_atom37_order[atom.name]
