@@ -126,7 +126,7 @@ class Predictor(torch.nn.Module):
         loop_pos_enc = self.pos_enc(loop_seq)
 
         # [batch_size, n_head, loop_len_max]
-        loop_len_mask = batch["loop_len_mask"][:, None, :].expand(-1, self.n_head, -1)
+        loop_len_mask = batch["loop_self_residues_mask"][:, None, :].expand(-1, self.n_head, -1)
 
         # [batch_size, n_head, loop_len_max, loop_len_max]
         loop_src_mask = torch.logical_and(loop_len_mask[:, :, None, :], loop_len_mask[:, :, :, None])
@@ -149,15 +149,19 @@ class Predictor(torch.nn.Module):
 
         # [batch_size, protein_len, c_s]
         protein_embd = batch["protein_sequence_onehot"]
-        protein_norm_dist = self.protein_dist_norm(batch["protein_distances"])
+        protein_norm_dist = self.protein_dist_norm(batch["protein_proximities"])
 
-        protein_atts = []
+        protein_as_sd = []
+        protein_as_b = []
+        protein_as_pts = []
         for _ in range(self.n_ipa_repeat):
-            protein_embd, protein_att = self.protein_ipa(protein_embd,
-                                                         protein_norm_dist,
-                                                         protein_T,
-                                                         batch["protein_len_mask"].float())
-            protein_atts.append(protein_att.clone().detach())
+            protein_embd, protein_a_sd, protein_a_b, protein_a_pts = self.protein_ipa(protein_embd,
+                                                                                      protein_norm_dist,
+                                                                                      protein_T,
+                                                                                      batch["protein_self_residues_mask"].float())
+            protein_as_sd.append(protein_a_sd.detach())
+            protein_as_b.append(protein_a_b.detach())
+            protein_as_pts.append(protein_a_pts.detach())
 
         # store the attention weights, for debugging
         # [n_layer, batch_size, n_head, protein_len, protein_len]
@@ -168,14 +172,16 @@ class Predictor(torch.nn.Module):
         # cross attention and loop structure prediction
         output = self.cross(batch["loop_aatype"],
                             loop_embd,
-                            batch["loop_len_mask"],
+                            batch["loop_cross_residues_mask"],
                             protein_embd,
-                            batch["protein_len_mask"],
+                            batch["protein_cross_residues_mask"],
                             protein_T,
-                            batch["distances"])
+                            batch["proximities"])
 
         output["loop_self_attention"] = loop_enc_atts
-        output["protein_self_attention"] = protein_atts
+        output["protein_self_attention_sd"] = protein_as_sd
+        output["protein_self_attention_b"] = protein_as_b
+        output["protein_self_attention_pts"] = protein_as_pts
 
         # amino acid sequence: [1, 0, 2, ... ] meaning : Ala, Met, Cys
         # [batch_size, loop_len]

@@ -164,6 +164,10 @@ class DebuggableInvariantPointAttention(torch.nn.Module):
             assert(sys.getrefcount(z[0]) == 2)
             z[0] = z[0].cpu()
 
+        # [*, N_res, N_res]
+        square_mask = mask.unsqueeze(-1) * mask.unsqueeze(-2)
+        square_mask = (self.inf * (square_mask - 1)).unsqueeze(-3)
+
         # [*, H, N_res, N_res]
         if(is_fp16_enabled()):
             with torch.cuda.amp.autocast(enabled=False):
@@ -177,8 +181,12 @@ class DebuggableInvariantPointAttention(torch.nn.Module):
                 permute_final_dims(k, (1, 2, 0)),  # [*, H, C_hidden, N_res]
             )
 
+        a_sd = a.clone() + square_mask
+
         a *= math.sqrt(1.0 / (3 * self.c_hidden))
         a += (math.sqrt(1.0 / 3) * permute_final_dims(b, (2, 0, 1)))
+
+        a_b = permute_final_dims(b, (2, 0, 1)).clone() + square_mask
 
         # [*, N_res, N_res, H, P_q, 3]
         pt_att = q_pts.unsqueeze(-4) - k_pts.unsqueeze(-5)
@@ -202,17 +210,16 @@ class DebuggableInvariantPointAttention(torch.nn.Module):
 
         # [*, N_res, N_res, H]
         pt_att = torch.sum(pt_att, dim=-1) * (-0.5)
-        # [*, N_res, N_res]
-        square_mask = mask.unsqueeze(-1) * mask.unsqueeze(-2)
-        square_mask = self.inf * (square_mask - 1)
 
         # [*, H, N_res, N_res]
         pt_att = permute_final_dims(pt_att, (2, 0, 1))
 
+        a_pts = pt_att.clone() + square_mask
+
         if(inplace_safe):
             a += pt_att
             del pt_att
-            a += square_mask.unsqueeze(-3)
+            a += square_mask
             # in-place softmax
             attn_core_inplace_cuda.forward_(
                 a,
@@ -221,7 +228,7 @@ class DebuggableInvariantPointAttention(torch.nn.Module):
             )
         else:
             a = a + pt_att
-            a = a + square_mask.unsqueeze(-3)
+            a = a + square_mask
             a = self.softmax(a)
 
         ################
@@ -280,4 +287,4 @@ class DebuggableInvariantPointAttention(torch.nn.Module):
             ).to(dtype=z[0].dtype)
         )
 
-        return s, a
+        return s, a_sd, a_b, a_pts

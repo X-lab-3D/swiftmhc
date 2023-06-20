@@ -64,8 +64,6 @@ class ProteinLoopDataset(Dataset):
             for prefix, max_length in [(PREPROCESS_PROTEIN_NAME, self._protein_maxlen),
                                        (PREPROCESS_LOOP_NAME, self._loop_maxlen)]:
 
-                residue_range = 
-
                 aatype_data = entry_group[prefix]["aatype"][:]
                 length = aatype_data.shape[0]
                 if length < 3:

@@ -290,6 +290,7 @@ def preprocess(table_path: str,
         mask_start = combo_mask_nonzero.min()
         mask_end = combo_mask_nonzero.max() + 1
 
+        protein_residues = protein_residues[mask_start: mask_end]
         for key, value in protein_data.items():
             protein_data[key] = value[mask_start: mask_end, ...]
 
@@ -306,7 +307,8 @@ def preprocess(table_path: str,
         proximities = _create_proximities(loop_residues, protein_residues)
 
         # proximities within protein
-        protein_data["proximities"] = _create_proximities(protein_residues, protein_residues)
+        protein_proximities = _create_proximities(protein_residues, protein_residues)
+        protein_data["proximities"] = protein_proximities
 
         _write_preprocessed_data(output_path, id_,
                                  protein_data,
