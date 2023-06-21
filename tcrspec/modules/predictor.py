@@ -165,7 +165,9 @@ class Predictor(torch.nn.Module):
 
         # store the attention weights, for debugging
         # [n_layer, batch_size, n_head, protein_len, protein_len]
-        protein_atts = torch.stack(protein_atts)
+        protein_as_sd = torch.stack(protein_as_sd)
+        protein_as_b = torch.stack(protein_as_b)
+        protein_as_pts = torch.stack(protein_as_pts)
 
         protein_embd = self.protein_norm(protein_embd)
 
