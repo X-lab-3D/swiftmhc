@@ -166,6 +166,7 @@ class DebuggableInvariantPointAttention(torch.nn.Module):
 
         # [*, N_res, N_res]
         square_mask = mask.unsqueeze(-1) * mask.unsqueeze(-2)
+        general_att_mask = square_mask.clone().unsqueeze(-3)
         square_mask = (self.inf * (square_mask - 1)).unsqueeze(-3)
 
         # [*, H, N_res, N_res]
@@ -181,12 +182,12 @@ class DebuggableInvariantPointAttention(torch.nn.Module):
                 permute_final_dims(k, (1, 2, 0)),  # [*, H, C_hidden, N_res]
             )
 
-        a_sd = a.clone() + square_mask
+        a_sd = a.clone() * general_att_mask
 
         a *= math.sqrt(1.0 / (3 * self.c_hidden))
         a += (math.sqrt(1.0 / 3) * permute_final_dims(b, (2, 0, 1)))
 
-        a_b = permute_final_dims(b, (2, 0, 1)).clone() + square_mask
+        a_b = permute_final_dims(b, (2, 0, 1)).clone() * general_att_mask
 
         # [*, N_res, N_res, H, P_q, 3]
         pt_att = q_pts.unsqueeze(-4) - k_pts.unsqueeze(-5)
@@ -214,7 +215,7 @@ class DebuggableInvariantPointAttention(torch.nn.Module):
         # [*, H, N_res, N_res]
         pt_att = permute_final_dims(pt_att, (2, 0, 1))
 
-        a_pts = pt_att.clone() + square_mask
+        a_pts = pt_att.clone() * general_att_mask
 
         if(inplace_safe):
             a += pt_att
