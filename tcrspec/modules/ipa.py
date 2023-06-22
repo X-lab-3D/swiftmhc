@@ -1,12 +1,16 @@
 from typing import Optional, Tuple, Sequence
 import math
 
+import logging
 import torch
 
 from openfold.utils.rigid_utils import Rigid, Rotation
 from openfold.model.primitives import Linear, LayerNorm, ipa_point_weights_init_
 from openfold.utils.precision_utils import is_fp16_enabled
 from openfold.utils.tensor_utils import permute_final_dims, flatten_final_dims, dict_multimap
+
+
+_log = logging.getLogger(__name__)
 
 
 class DebuggableInvariantPointAttention(torch.nn.Module):
@@ -21,6 +25,7 @@ class DebuggableInvariantPointAttention(torch.nn.Module):
         no_heads: int,
         no_qk_points: int,
         no_v_points: int,
+        protein_maxlen: int,
         inf: float = 1e5,
         eps: float = 1e-8,
     ):
@@ -47,6 +52,7 @@ class DebuggableInvariantPointAttention(torch.nn.Module):
         self.no_heads = no_heads
         self.no_qk_points = no_qk_points
         self.no_v_points = no_v_points
+        self.protein_maxlen = protein_maxlen
         self.inf = inf 
         self.eps = eps 
 
@@ -55,18 +61,20 @@ class DebuggableInvariantPointAttention(torch.nn.Module):
         # Here as in the official source, they have bias and use the default
         # Lecun initialization.
         hc = self.c_hidden * self.no_heads
-        self.linear_q = Linear(self.c_s, hc)
-        self.linear_kv = Linear(self.c_s, 2 * hc)
+        self.linear_q = Linear(self.c_s, hc, bias=False)
+        self.linear_kv = Linear(self.c_s, 2 * hc, bias=False)
 
         hpq = self.no_heads * self.no_qk_points * 3
-        self.linear_q_points = Linear(self.c_s, hpq)
+        self.linear_q_points = Linear(self.c_s, hpq, bias=False)
 
         hpkv = self.no_heads * (self.no_qk_points + self.no_v_points) * 3
-        self.linear_kv_points = Linear(self.c_s, hpkv)
+        self.linear_kv_points = Linear(self.c_s, hpkv, bias=False)
+
+        self.norm_pts = torch.nn.LayerNorm((self.no_heads, self.protein_maxlen, self.protein_maxlen))
 
         hpv = self.no_heads * self.no_v_points * 3
 
-        self.linear_b = Linear(self.c_z, self.no_heads)
+        self.linear_b = Linear(self.c_z, self.no_heads, bias=False)
 
         self.head_weights = torch.nn.Parameter(torch.zeros((no_heads)))
         ipa_point_weights_init_(self.head_weights)
@@ -160,6 +168,9 @@ class DebuggableInvariantPointAttention(torch.nn.Module):
         # [*, N_res, N_res, H]
         b = self.linear_b(z[0])
 
+        _log.debug(f"mhc self attention: b_ij has values ranging from {b.min()} - {b.max()}")
+        _log.debug(f"mhc self attention: b_ij has distribution {b.mean()} +/- {b.std()}")
+
         if(_offload_inference):
             assert(sys.getrefcount(z[0]) == 2)
             z[0] = z[0].cpu()
@@ -217,6 +228,11 @@ class DebuggableInvariantPointAttention(torch.nn.Module):
 
         # [*, H, N_res, N_res]
         pt_att = permute_final_dims(pt_att, (2, 0, 1))
+
+        pt_att = self.norm_pts(pt_att)
+
+        _log.debug(f"mhc self attention: pt_att has values ranging from {pt_att.min()} - {pt_att.max()}")
+        _log.debug(f"mhc self attention: pt_att has distribution {pt_att.mean()} +/- {pt_att.std()}")
 
         # animation
         a_pts = pt_att.clone() * general_att_mask

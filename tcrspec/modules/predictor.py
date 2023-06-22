@@ -66,7 +66,8 @@ class Predictor(torch.nn.Module):
                                structure_module_config.c_ipa,
                                structure_module_config.no_heads_ipa,
                                structure_module_config.no_qk_points,
-                               structure_module_config.no_v_points)
+                               structure_module_config.no_v_points,
+                               self.protein_maxlen)
         self.protein_ipa.inf = self.inf
 
         self.protein_norm = torch.nn.Sequential(
@@ -150,6 +151,9 @@ class Predictor(torch.nn.Module):
         # [batch_size, protein_len, c_s]
         protein_embd = batch["protein_sequence_onehot"]
         protein_norm_dist = self.protein_dist_norm(batch["protein_proximities"])
+
+        _log.debug(f"protein_norm_dist has values ranging from {protein_norm_dist.min()} - {protein_norm_dist.max()}")
+        _log.debug(f"protein_norm_dist has distribution {protein_norm_dist.mean()} +/- {protein_norm_dist.std()}")
 
         protein_as = []
         protein_as_sd = []
