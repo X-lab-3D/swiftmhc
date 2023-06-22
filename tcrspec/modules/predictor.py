@@ -156,11 +156,11 @@ class Predictor(torch.nn.Module):
         protein_as_b = []
         protein_as_pts = []
         for _ in range(self.n_ipa_repeat):
-            protein_embd, protein_as, protein_a_sd, protein_a_b, protein_a_pts = self.protein_ipa(protein_embd,
+            protein_embd, protein_a, protein_a_sd, protein_a_b, protein_a_pts = self.protein_ipa(protein_embd,
                                                                                                   protein_norm_dist,
                                                                                                   protein_T,
                                                                                                   batch["protein_self_residues_mask"].float())
-            protein_as.append(protein_as)
+            protein_as.append(protein_a)
             protein_as_sd.append(protein_a_sd.detach())
             protein_as_b.append(protein_a_b.detach())
             protein_as_pts.append(protein_a_pts.detach())
