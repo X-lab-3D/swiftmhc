@@ -25,7 +25,7 @@ arg_parser.add_argument("block", type=int, help="number of the block: (0/1/2/...
 arg_parser.add_argument("head", type=int, help="number of the head: (0/1/2/...)")
 
 
-def get_epoch_number(frame_id) -> float:
+def get_epoch_number(frame_id: str) -> float:
 
     numbers = frame_id.split('.')
 
