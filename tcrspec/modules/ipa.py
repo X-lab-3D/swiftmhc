@@ -182,12 +182,12 @@ class DebuggableInvariantPointAttention(torch.nn.Module):
                 permute_final_dims(k, (1, 2, 0)),  # [*, H, C_hidden, N_res]
             )
 
+        a *= math.sqrt(1.0 / (3 * self.c_hidden))
         a_sd = a.clone() * general_att_mask
 
-        a *= math.sqrt(1.0 / (3 * self.c_hidden))
         a += (math.sqrt(1.0 / 3) * permute_final_dims(b, (2, 0, 1)))
 
-        a_b = permute_final_dims(b, (2, 0, 1)).clone() * general_att_mask
+        a_b = (math.sqrt(1.0 / 3) * permute_final_dims(b, (2, 0, 1)).clone() * general_att_mask
 
         # [*, N_res, N_res, H, P_q, 3]
         pt_att = q_pts.unsqueeze(-4) - k_pts.unsqueeze(-5)
