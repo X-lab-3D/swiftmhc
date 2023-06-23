@@ -559,6 +559,8 @@ class Trainer:
             output_aff = data["output affinity"]
             _log.exception(f"running pearsonr on {output_aff}")
 
+        # TODO: add C-alpha RMSD to metrics.csv
+
         metrics_dataframe.to_csv(metrics_path, sep=",", index=False)
 
     def get_data_loader(self,
