@@ -158,23 +158,20 @@ class Predictor(torch.nn.Module):
         protein_as = []
         protein_as_sd = []
         protein_as_b = []
-        protein_as_pts = []
         for _ in range(self.n_ipa_repeat):
-            protein_embd, protein_a, protein_a_sd, protein_a_b, protein_a_pts = self.protein_ipa(protein_embd,
-                                                                                                  protein_norm_dist,
-                                                                                                  protein_T,
-                                                                                                  batch["protein_self_residues_mask"].float())
+            protein_embd, protein_a, protein_a_sd, protein_a_b = self.protein_ipa(protein_embd,
+                                                                                  protein_norm_dist,
+                                                                                  protein_T,
+                                                                                  batch["protein_self_residues_mask"].float())
             protein_as.append(protein_a)
             protein_as_sd.append(protein_a_sd.detach())
             protein_as_b.append(protein_a_b.detach())
-            protein_as_pts.append(protein_a_pts.detach())
 
         # store the attention weights, for debugging
         # [n_layer, batch_size, n_head, protein_len, protein_len]
         protein_as = torch.stack(protein_as)
         protein_as_sd = torch.stack(protein_as_sd)
         protein_as_b = torch.stack(protein_as_b)
-        protein_as_pts = torch.stack(protein_as_pts)
 
         protein_embd = self.protein_norm(protein_embd)
 
@@ -191,7 +188,6 @@ class Predictor(torch.nn.Module):
         output["protein_self_attention"] = protein_as
         output["protein_self_attention_sd"] = protein_as_sd
         output["protein_self_attention_b"] = protein_as_b
-        output["protein_self_attention_pts"] = protein_as_pts
 
         # amino acid sequence: [1, 0, 2, ... ] meaning : Ala, Met, Cys
         # [batch_size, loop_len]

@@ -64,23 +64,10 @@ class DebuggableInvariantPointAttention(torch.nn.Module):
         self.linear_q = Linear(self.c_s, hc, bias=False)
         self.linear_kv = Linear(self.c_s, 2 * hc, bias=False)
 
-        hpq = self.no_heads * self.no_qk_points * 3
-        self.linear_q_points = Linear(self.c_s, hpq, bias=False)
-
-        hpkv = self.no_heads * (self.no_qk_points + self.no_v_points) * 3
-        self.linear_kv_points = Linear(self.c_s, hpkv, bias=False)
-
-        self.norm_pts = torch.nn.LayerNorm((self.no_heads, self.protein_maxlen, self.protein_maxlen))
-
-        hpv = self.no_heads * self.no_v_points * 3
-
         self.linear_b = Linear(self.c_z, self.no_heads, bias=False)
 
-        self.head_weights = torch.nn.Parameter(torch.zeros((no_heads)))
-        ipa_point_weights_init_(self.head_weights)
-
         concat_out_dim = self.no_heads * (
-            self.c_z + self.c_hidden + self.no_v_points * 4
+            self.c_z + self.c_hidden
         )
         self.linear_out = Linear(concat_out_dim, self.c_s, init="final")
 
@@ -132,36 +119,6 @@ class DebuggableInvariantPointAttention(torch.nn.Module):
         # [*, N_res, H, C_hidden]
         k, v = torch.split(kv, self.c_hidden, dim=-1)
 
-        # [*, N_res, H * P_q * 3]
-        q_pts = self.linear_q_points(s)
-
-        # This is kind of clunky, but it's how the original does it
-        # [*, N_res, H * P_q, 3]
-        q_pts = torch.split(q_pts, q_pts.shape[-1] // 3, dim=-1)
-        q_pts = torch.stack(q_pts, dim=-1)
-        q_pts = r[..., None].apply(q_pts)
-
-        # [*, N_res, H, P_q, 3]
-        q_pts = q_pts.view(
-            q_pts.shape[:-2] + (self.no_heads, self.no_qk_points, 3)
-        )
-
-        # [*, N_res, H * (P_q + P_v) * 3]
-        kv_pts = self.linear_kv_points(s)
-
-        # [*, N_res, H * (P_q + P_v), 3]
-        kv_pts = torch.split(kv_pts, kv_pts.shape[-1] // 3, dim=-1)
-        kv_pts = torch.stack(kv_pts, dim=-1)
-        kv_pts = r[..., None].apply(kv_pts)
-
-        # [*, N_res, H, (P_q + P_v), 3]
-        kv_pts = kv_pts.view(kv_pts.shape[:-2] + (self.no_heads, -1, 3))
-
-        # [*, N_res, H, P_q/P_v, 3]
-        k_pts, v_pts = torch.split(
-            kv_pts, [self.no_qk_points, self.no_v_points], dim=-2
-        )
-
         ##########################
         # Compute attention scores
         ##########################
@@ -193,53 +150,17 @@ class DebuggableInvariantPointAttention(torch.nn.Module):
                 permute_final_dims(k, (1, 2, 0)),  # [*, H, C_hidden, N_res]
             )
 
-        a *= math.sqrt(1.0 / (3 * self.c_hidden))
+        a *= math.sqrt(1.0 / (2 * self.c_hidden))
 
         # animation
         a_sd = a.clone() * general_att_mask
 
-        a += (math.sqrt(1.0 / 3) * permute_final_dims(b, (2, 0, 1)))
+        a += (math.sqrt(1.0 / 2) * permute_final_dims(b, (2, 0, 1)))
 
         # animation
-        a_b = math.sqrt(1.0 / 3) * permute_final_dims(b, (2, 0, 1)).clone() * general_att_mask
-
-        # [*, N_res, N_res, H, P_q, 3]
-        pt_att = q_pts.unsqueeze(-4) - k_pts.unsqueeze(-5)
-        if(inplace_safe):
-            pt_att *= pt_att
-        else:
-            pt_att = pt_att ** 2
-
-        # [*, N_res, N_res, H, P_q]
-        pt_att = sum(torch.unbind(pt_att, dim=-1))
-        head_weights = self.softplus(self.head_weights).view(
-            *((1,) * len(pt_att.shape[:-2]) + (-1, 1))
-        )
-        head_weights = head_weights * math.sqrt(
-            1.0 / (3 * (self.no_qk_points * 9.0 / 2))
-        )
-        if(inplace_safe):
-            pt_att *= head_weights
-        else:
-            pt_att = pt_att * head_weights
-
-        # [*, N_res, N_res, H]
-        pt_att = torch.sum(pt_att, dim=-1) * (-0.5)
-
-        # [*, H, N_res, N_res]
-        pt_att = permute_final_dims(pt_att, (2, 0, 1))
-
-        pt_att = self.norm_pts(pt_att)
-
-        _log.debug(f"mhc self attention: pt_att has values ranging from {pt_att.min()} - {pt_att.max()}")
-        _log.debug(f"mhc self attention: pt_att has distribution {pt_att.mean()} +/- {pt_att.std()}")
-
-        # animation
-        a_pts = pt_att.clone() * general_att_mask
+        a_b = math.sqrt(1.0 / 2) * permute_final_dims(b, (2, 0, 1)).clone() * general_att_mask
 
         if(inplace_safe):
-            a -= pt_att  # CB changed this, + became -
-            del pt_att
             a += square_mask
             # in-place softmax
             attn_core_inplace_cuda.forward_(
@@ -248,7 +169,6 @@ class DebuggableInvariantPointAttention(torch.nn.Module):
                 a.shape[-1],
             )
         else:
-            a = a - pt_att  # CB changed this, + became -
             a = a + square_mask
             a = self.softmax(a)
 
@@ -263,37 +183,8 @@ class DebuggableInvariantPointAttention(torch.nn.Module):
         # [*, N_res, H * C_hidden]
         o = flatten_final_dims(o, 2)
 
-        # [*, H, 3, N_res, P_v]·
-        if(inplace_safe):
-            v_pts = permute_final_dims(v_pts, (1, 3, 0, 2))
-            o_pt = [
-                torch.matmul(a, v.to(a.dtype))
-                for v in torch.unbind(v_pts, dim=-3)
-            ]
-            o_pt = torch.stack(o_pt, dim=-3)
-        else:
-            o_pt = torch.sum(
-                (
-                    a[..., None, :, :, None]
-                    * permute_final_dims(v_pts, (1, 3, 0, 2))[..., None, :, :]
-                ),
-                dim=-2,
-            )
-
-        # [*, N_res, H, P_v, 3]
-        o_pt = permute_final_dims(o_pt, (2, 0, 3, 1))
-        o_pt = r[..., None, None].invert_apply(o_pt)
-
-        # [*, N_res, H * P_v]
-        o_pt_norm = flatten_final_dims(
-            torch.sqrt(torch.sum(o_pt ** 2, dim=-1) + self.eps), 2
-        )
-
-        # [*, N_res, H * P_v, 3]
-        o_pt = o_pt.reshape(*o_pt.shape[:-3], -1, 3)
-
         if(_offload_inference):
-            z[0] = z[0].to(o_pt.device)
+            z[0] = z[0].to(o.device)
 
         # [*, N_res, H, C_z]
         o_pair = torch.matmul(a.transpose(-2, -3), z[0].to(dtype=a.dtype))
@@ -304,8 +195,8 @@ class DebuggableInvariantPointAttention(torch.nn.Module):
         # [*, N_res, C_s]
         s = self.linear_out(
             torch.cat(
-                (o, *torch.unbind(o_pt, dim=-1), o_pt_norm, o_pair), dim=-1
+                (o, o_pair), dim=-1
             ).to(dtype=z[0].dtype)
         )
 
-        return s, a.clone(), a_sd, a_b, a_pts
+        return s, a.clone(), a_sd, a_b

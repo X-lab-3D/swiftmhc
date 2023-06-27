@@ -135,7 +135,7 @@ class Trainer:
 
         self._early_stop_epsilon = 1e-6
 
-        self._snap_period = 5
+        self._snap_period = 20
 
         self.loop_maxlen = 16
         self.protein_maxlen = 200
@@ -241,12 +241,10 @@ class Trainer:
             protein_self_attention = output["protein_self_attention"].cpu()
             protein_self_attention_sd = output["protein_self_attention_sd"].cpu()
             protein_self_attention_b = output["protein_self_attention_b"].cpu()
-            protein_self_attention_pts = output["protein_self_attention_pts"].cpu()
 
             frame_group.create_dataset("protein_attention", data=protein_self_attention[:, 0, ...], compression="lzf")
             frame_group.create_dataset("protein_attention_sd", data=protein_self_attention_sd[:, 0, ...], compression="lzf")
             frame_group.create_dataset("protein_attention_b", data=protein_self_attention_b[:, 0, ...], compression="lzf")
-            frame_group.create_dataset("protein_attention_pts", data=protein_self_attention_pts[:, 0, ...], compression="lzf")
 
             # save cross attentions heatmaps
             cross_attention = output["cross_attention"].cpu()
