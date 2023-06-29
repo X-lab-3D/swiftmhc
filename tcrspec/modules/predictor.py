@@ -163,7 +163,7 @@ class Predictor(torch.nn.Module):
                                                                                   protein_norm_dist,
                                                                                   protein_T,
                                                                                   batch["protein_self_residues_mask"].float())
-            protein_as.append(protein_a)
+            protein_as.append(protein_a.clone().detach())
             protein_as_sd.append(protein_a_sd.detach())
             protein_as_b.append(protein_a_b.detach())
 

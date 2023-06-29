@@ -114,6 +114,9 @@ class CrossInvariantPointAttention(torch.nn.Module):
             [batch_size, len_dst, c_s] single representation update
         """
 
+        # [batch_size, 1, len_dst, len_src]
+        general_att_mask = (dst_mask.unsqueeze(-1) * src_mask.unsqueeze(-2)).unsqueeze(-3)
+
         #######################################
         # Generate scalar and point activations
         #######################################
@@ -182,7 +185,14 @@ class CrossInvariantPointAttention(torch.nn.Module):
             )
 
         a *= math.sqrt(1.0 / (3 * self.c_hidden))
+
+        # animate
+        a_sd = a * general_att_mask
+
         a += (math.sqrt(1.0 / 3) * permute_final_dims(b, (2, 0, 1)))
+
+        # animate
+        a_b = (math.sqrt(1.0 / 3) * permute_final_dims(b, (2, 0, 1))) * general_att_mask
 
         # [batch_size, len_dst, len_src, H, P_q, 3]
         pt_att = q_pts.unsqueeze(-4) - k_pts.unsqueeze(-5)
@@ -215,6 +225,9 @@ class CrossInvariantPointAttention(torch.nn.Module):
 
         # [batch_size, H, len_dst, len_src]
         pt_att = permute_final_dims(pt_att, (2, 0, 1))
+
+        # animate
+        a_pts = pt_att * general_att_mask
 
         if(inplace_safe):
             a += pt_att
@@ -284,5 +297,5 @@ class CrossInvariantPointAttention(torch.nn.Module):
             ).to(dtype=s_dst.dtype)
         )
 
-        return s_upd, a
+        return s_upd, a, a_sd, a_b, a_pts
 

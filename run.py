@@ -57,7 +57,7 @@ from tcrspec.models.amino_acid import AminoAcid
 from tcrspec.tools.amino_acid import one_hot_decode_sequence
 from tcrspec.loss import get_loss
 from tcrspec.models.data import TensorDict
-from tcrspec.tools.pdb import recreate_structure
+from tcrspec.tools.pdb import recreate_structure, get_calpha_square_deviation
 from tcrspec.domain.amino_acid import amino_acids_by_one_hot_index
 
 
@@ -241,14 +241,19 @@ class Trainer:
             protein_self_attention = output["protein_self_attention"].cpu()
             protein_self_attention_sd = output["protein_self_attention_sd"].cpu()
             protein_self_attention_b = output["protein_self_attention_b"].cpu()
-
             frame_group.create_dataset("protein_attention", data=protein_self_attention[:, 0, ...], compression="lzf")
             frame_group.create_dataset("protein_attention_sd", data=protein_self_attention_sd[:, 0, ...], compression="lzf")
             frame_group.create_dataset("protein_attention_b", data=protein_self_attention_b[:, 0, ...], compression="lzf")
 
             # save cross attentions heatmaps
             cross_attention = output["cross_attention"].cpu()
+            cross_attention_sd = output["cross_attention_sd"].cpu()
+            cross_attention_b = output["cross_attention_b"].cpu()
+            cross_attention_pts = output["cross_attention_pts"].cpu()
             frame_group.create_dataset("cross_attention", data=cross_attention[:, 0, ...], compression="lzf")
+            frame_group.create_dataset("cross_attention_sd", data=cross_attention_sd[:, 0, ...], compression="lzf")
+            frame_group.create_dataset("cross_attention_b", data=cross_attention_b[:, 0, ...], compression="lzf")
+            frame_group.create_dataset("cross_attention_pts", data=cross_attention_pts[:, 0, ...], compression="lzf")
 
             # save pdb
             structure = recreate_structure(id_,
@@ -280,7 +285,8 @@ class Trainer:
 
         model.train()
 
-        total_data_size = 0
+        sd = 0.0
+        n = 0
         for batch_index, batch_data in enumerate(data_loader):
 
             # Do the training step.
@@ -297,6 +303,14 @@ class Trainer:
 
             epoch_data = self._store_required_data(epoch_data, batch_loss, batch_output, batch_data)
 
+            sum_, count = get_calpha_square_deviation(batch_data["loop_sequence_onehot"],
+                                                      batch_output["final_positions"],
+                                                      batch_data["loop_atom14_gt_positions"])
+            sd += sum_
+            n += count
+
+        epoch_data["c_alpha_rmsd"] = sqrt(sd / n)
+
         return epoch_data
 
     def _validate(self,
@@ -311,6 +325,8 @@ class Trainer:
         # using model.eval() here causes this issue:
         # https://github.com/pytorch/pytorch/pull/98375#issuecomment-1499504721
 
+        sd = 0.0
+        n = 0
         with torch.no_grad():
 
             for batch_index, batch_data in enumerate(data_loader):
@@ -322,6 +338,14 @@ class Trainer:
                 batch_loss = get_loss(batch_output, batch_data, fine_tune)
 
                 valid_data = self._store_required_data(valid_data, batch_loss, batch_output, batch_data)
+
+                sum_, count = get_calpha_square_deviation(batch_data["loop_sequence_onehot"],
+                                                          batch_output["final_positions"],
+                                                          batch_data["loop_atom14_gt_positions"])
+                sd += sum_
+                n += count
+
+        valid_data["c_alpha_rmsd"] = sqrt(sd / n)
 
         return valid_data
 
@@ -557,7 +581,7 @@ class Trainer:
             output_aff = data["output affinity"]
             _log.exception(f"running pearsonr on {output_aff}")
 
-        # TODO: add C-alpha RMSD to metrics.csv
+        metrics_dataframe.at[epoch_index, f"{pass_name} C-alpha RMSD"] = round(data["c_alpha_rmsd"], 3)
 
         metrics_dataframe.to_csv(metrics_path, sep=",", index=False)
 

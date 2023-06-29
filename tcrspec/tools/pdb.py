@@ -1,5 +1,6 @@
 from typing import List, Tuple
 from collections import OrderedDict
+from math import sqrt
 
 import numpy
 import torch
@@ -175,6 +176,40 @@ def get_atom14_positions(residue: Residue) -> Tuple[torch.Tensor, torch.Tensor]:
                  for atom in atoms]
 
     return torch.tensor(numpy.array(positions)), torch.tensor(mask)
+
+
+def get_calpha_square_deviation(onehot_sequence: torch.Tensor,
+                                output_positions: torch.Tensor,
+                                true_positions: torch.Tensor) -> float:
+    """
+        onehot_sequence: [batch_size, seq_len, aa_depth]
+        output_positions: [batch_size, seq_len, n_atoms, 3]
+        true_positions: [batch_size, seq_len, n_atoms, 3]
+    """
+
+    sum_ = 0.0
+    count = 0
+
+    for batch_index in range(onehot_sequence.shape[0]):
+        amino_acids = one_hot_decode_sequence(onehot_sequence[batch_index])
+
+        for residue_index, amino_acid in enumerate(amino_acids):
+
+            if amino_acid is not None:
+
+                residue_name = amino_acid.three_letter_code
+
+                for atom_index, atom_name in enumerate(openfold_residue_atom14_names[residue_name]):
+
+                    if atom_name == "CA":
+
+                        output_position = output_positions[batch_index, residue_index, atom_index]
+                        true_position = true_positions[batch_index, residue_index, atom_index]
+
+                        sum_ += torch.sum((output_position - true_position) ** 2)
+                        count += 1
+
+    return sum_, count
 
 
 def recreate_structure(structure_id: str,
