@@ -248,11 +248,9 @@ class Trainer:
             # save cross attentions heatmaps
             cross_attention = output["cross_attention"].cpu()
             cross_attention_sd = output["cross_attention_sd"].cpu()
-            cross_attention_b = output["cross_attention_b"].cpu()
             cross_attention_pts = output["cross_attention_pts"].cpu()
             frame_group.create_dataset("cross_attention", data=cross_attention[:, 0, ...], compression="lzf")
             frame_group.create_dataset("cross_attention_sd", data=cross_attention_sd[:, 0, ...], compression="lzf")
-            frame_group.create_dataset("cross_attention_b", data=cross_attention_b[:, 0, ...], compression="lzf")
             frame_group.create_dataset("cross_attention_pts", data=cross_attention_pts[:, 0, ...], compression="lzf")
 
             # save pdb

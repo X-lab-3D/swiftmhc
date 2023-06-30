@@ -172,6 +172,9 @@ class DebuggableInvariantPointAttention(torch.nn.Module):
             a = a + square_mask
             a = self.softmax(a)
 
+        _log.debug(f"mhc self attention: a ranges {a.min()} - {a.max()}")
+        _log.debug(f"mhc self attention: v ranges {v.min()} - {v.max()}")
+
         ################
         # Compute output
         ################
@@ -191,6 +194,9 @@ class DebuggableInvariantPointAttention(torch.nn.Module):
 
         # [*, N_res, H * C_z]
         o_pair = flatten_final_dims(o_pair, 2)
+
+        _log.debug(f"mhc self attention: o ranges {o.min()} - {o.max()}")
+        _log.debug(f"mhc self attention: o_pair ranges {o_pair.min()} - {o_pair.max()}")
 
         # [*, N_res, C_s]
         s = self.linear_out(

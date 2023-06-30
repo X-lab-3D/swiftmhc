@@ -28,7 +28,6 @@ class CrossStructureModule(torch.nn.Module):
     def __init__(
         self,
         c_s,
-        c_z,
         c_ipa,
         c_resnet,
         no_heads_ipa,
@@ -75,7 +74,6 @@ class CrossStructureModule(torch.nn.Module):
         super(CrossStructureModule, self).__init__()
 
         self.c_s = c_s
-        self.c_z = c_z
         self.c_ipa = c_ipa
         self.c_resnet = c_resnet
         self.no_heads_ipa = no_heads_ipa
@@ -98,14 +96,11 @@ class CrossStructureModule(torch.nn.Module):
         self.layer_norm_s_loop = LayerNorm(self.c_s)
         self.layer_norm_s_protein = LayerNorm(self.c_s)
 
-        self.layer_norm_z = LayerNorm(self.c_z)
-
         self.linear_in_loop = Linear(self.c_s, self.c_s)
         self.linear_in_protein = Linear(self.c_s, self.c_s)
 
         self.ipa = CrossInvariantPointAttention(
             self.c_s,
-            self.c_z,
             self.c_ipa,
             self.no_heads_ipa,
             self.no_qk_points,
@@ -136,8 +131,7 @@ class CrossStructureModule(torch.nn.Module):
         loop_mask: torch.Tensor,
         s_protein_initial: torch.Tensor,
         protein_mask: torch.Tensor,
-        T_protein: Rigid,
-        z: torch.Tensor,
+        T_protein: Rigid
 
     ) -> Dict[str, torch.Tensor]:
         """
@@ -148,7 +142,6 @@ class CrossStructureModule(torch.nn.Module):
             s_protein_initial: [batch_size, protein_len, c_s]
             protein_mask:      [batch_size, protein_len]
             T_protein:         [batch_size, protein_len, 4, 4]
-            z:                 [batch_size, loop_len, protein_len, c_z]
         Returns:
             frames:              [n_blocks, batch_size, loop_len, 4, 4]
             sidechain_frames:    [n_blocks, batch_size, loop_len, 4, 4]
@@ -168,8 +161,7 @@ class CrossStructureModule(torch.nn.Module):
         # [batch_size, protein_len, c_s]
         s_protein = self.layer_norm_s_protein(s_protein)
 
-        # [batch_size, loop_len, protein_len, c_z]
-        z = self.layer_norm_z(z)
+        _log.debug(f"cross block: normalized s_protein ranges {s_protein.min()} - {s_protein.max()}")
 
         # [batch_size, loop_len, c_s]
         s_loop_initial = torch.clone(s_loop)
@@ -191,17 +183,15 @@ class CrossStructureModule(torch.nn.Module):
         outputs = []
         atts = []
         atts_sd = []
-        atts_b = []
         atts_pts = []
         for i in range(self.n_blocks):
 
-            preds, att, att_sd, att_b, att_pts = self._block(
+            preds, att, att_sd, att_pts = self._block(
                 s_loop_initial,
                 loop_aatype,
                 s_loop, s_protein,
                 T_loop, T_protein,
                 loop_mask, protein_mask,
-                z
             )
 
             T_loop = Rigid.from_tensor_7(preds["unscaled_frames"])
@@ -210,7 +200,6 @@ class CrossStructureModule(torch.nn.Module):
 
             atts.append(att.clone().detach())
             atts_sd.append(att_sd.detach())
-            atts_b.append(att_b.detach())
             atts_pts.append(att_pts.detach())
 
         outputs = dict_multimap(torch.stack, outputs)
@@ -221,7 +210,6 @@ class CrossStructureModule(torch.nn.Module):
         # [n_layer, batch_size, n_head, dst_len, src_len]
         r["cross_attention"] = torch.stack(atts)
         r["cross_attention_sd"] = torch.stack(atts_sd)
-        r["cross_attention_b"] = torch.stack(atts_b)
         r["cross_attention_pts"] = torch.stack(atts_pts)
 
         r["final_frames"] = outputs["frames"][-1]
@@ -240,15 +228,15 @@ class CrossStructureModule(torch.nn.Module):
                T_loop: Rigid,
                T_protein: Rigid,
                loop_mask: torch.Tensor,
-               protein_mask: torch.Tensor,
-               z: torch.Tensor) -> Dict[str, torch.Tensor]:
+               protein_mask: torch.Tensor) -> Dict[str, torch.Tensor]:
+
+        _log.debug(f"cross block: s_protein ranges {s_protein.min()} - {s_protein.max()}")
 
         # [batch_size, loop_len, c_s]
-        s_upd, ipa_att, ipa_att_sd, ipa_att_b, ipa_att_pts = self.ipa(
+        s_upd, ipa_att, ipa_att_sd, ipa_att_pts = self.ipa(
             s_loop, s_protein,
             T_loop, T_protein,
             loop_mask, protein_mask,
-            z,
         )
 
         s_loop = s_loop + s_upd
@@ -304,7 +292,7 @@ class CrossStructureModule(torch.nn.Module):
 
         T_loop = T_loop.stop_rot_gradient()
 
-        return preds, ipa_att, ipa_att_sd, ipa_att_b, ipa_att_pts
+        return preds, ipa_att, ipa_att_sd, ipa_att_pts
 
     def _init_residue_constants(self, float_dtype, device):
         if not hasattr(self, "default_frames"):

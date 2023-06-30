@@ -18,7 +18,6 @@ _log = logging.getLogger(__name__)
 class CrossInvariantPointAttention(torch.nn.Module):
     def __init__( self,
         c_s: int,
-        c_z: int,
         c_hidden: int,
         no_heads: int,
         no_qk_points: int,
@@ -43,7 +42,6 @@ class CrossInvariantPointAttention(torch.nn.Module):
         super(CrossInvariantPointAttention, self).__init__()
 
         self.c_s = c_s
-        self.c_z = c_z
         self.c_hidden = c_hidden
         self.no_heads = no_heads
         self.no_qk_points = no_qk_points
@@ -66,13 +64,11 @@ class CrossInvariantPointAttention(torch.nn.Module):
 
         hpv = self.no_heads * self.no_v_points * 3
 
-        self.linear_b = Linear(self.c_z, self.no_heads)
-
         self.head_weights = torch.nn.Parameter(torch.zeros((no_heads)))
         ipa_point_weights_init_(self.head_weights)
 
         concat_out_dim = self.no_heads * (
-            self.c_hidden + self.c_z + self.no_v_points * 4
+            self.c_hidden + self.no_v_points * 4
         )
         self.linear_out = Linear(concat_out_dim, self.c_s, init="final")
 
@@ -89,7 +85,6 @@ class CrossInvariantPointAttention(torch.nn.Module):
         T_src: Rigid,
         dst_mask: torch.Tensor,
         src_mask: torch.Tensor,
-        z: torch.Tensor,
         inplace_safe: bool = False,
         _offload_inference: bool = False,
 
@@ -108,11 +103,12 @@ class CrossInvariantPointAttention(torch.nn.Module):
                 [batch_size, len_dst] booleans
             src_mask:
                 [batch_size, len_src] booleans
-            z:
-                [batch_size, len_dst, len_src, c_z]
         Returns:
             [batch_size, len_dst, c_s] single representation update
         """
+
+        _log.debug(f"cross: s_dst ranges {s_dst.min()} - {s_dst.max()}")
+        _log.debug(f"cross: s_src ranges {s_src.min()} - {s_src.max()}")
 
         # [batch_size, 1, len_dst, len_src]
         general_att_mask = (dst_mask.unsqueeze(-1) * src_mask.unsqueeze(-2)).unsqueeze(-3)
@@ -134,6 +130,10 @@ class CrossInvariantPointAttention(torch.nn.Module):
 
         # [batch_size, len_src, H, C_hidden]
         k, v = torch.split(kv, self.c_hidden, dim=-1)
+
+        _log.debug(f"cross: q ranges {q.min()} - {q.max()}")
+        _log.debug(f"cross: k ranges {k.min()} - {k.max()}")
+        _log.debug(f"cross: v ranges {v.min()} - {v.max()}")
 
         # [batch_size, len_dst, H * P_q * 3]
         q_pts = self.linear_q_points(s_dst)
@@ -165,9 +165,6 @@ class CrossInvariantPointAttention(torch.nn.Module):
             kv_pts, [self.no_qk_points, self.no_v_points], dim=-2
         )
 
-        # [batch_size, len_dst, len_src, H]
-        b = self.linear_b(z)
-
         ##########################
         # Compute attention scores : line #7 in alphafold
         ##########################
@@ -184,15 +181,10 @@ class CrossInvariantPointAttention(torch.nn.Module):
                 permute_final_dims(k, (1, 2, 0)),  # [*, H, C_hidden, N_res]
             )
 
-        a *= math.sqrt(1.0 / (3 * self.c_hidden))
+        a *= math.sqrt(1.0 / (2 * self.c_hidden))
 
         # animate
         a_sd = a * general_att_mask
-
-        a += (math.sqrt(1.0 / 3) * permute_final_dims(b, (2, 0, 1)))
-
-        # animate
-        a_b = (math.sqrt(1.0 / 3) * permute_final_dims(b, (2, 0, 1))) * general_att_mask
 
         # [batch_size, len_dst, len_src, H, P_q, 3]
         pt_att = q_pts.unsqueeze(-4) - k_pts.unsqueeze(-5)
@@ -284,18 +276,12 @@ class CrossInvariantPointAttention(torch.nn.Module):
         # [batch_size, len_dst, H * P_v, 3]
         o_pt = o_pt.reshape(*o_pt.shape[:-3], -1, 3)
 
-        # [batch_size, len_dst, H, C_z]
-        o_pair = torch.matmul(a.transpose(-2, -3), z.to(dtype=a.dtype))
-
-        # [batch_size, len_dst, H * C_z]
-        o_pair = flatten_final_dims(o_pair, 2)
-
         # [batch_size, len_dst, c_s]
         s_upd = self.linear_out(
             torch.cat(
-                (o, *torch.unbind(o_pt, dim=-1), o_pt_norm, o_pair), dim=-1
+                (o, *torch.unbind(o_pt, dim=-1), o_pt_norm), dim=-1
             ).to(dtype=s_dst.dtype)
         )
 
-        return s_upd, a, a_sd, a_b, a_pts
+        return s_upd, a, a_sd, a_pts
 
