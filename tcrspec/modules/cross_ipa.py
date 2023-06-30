@@ -28,8 +28,6 @@ class CrossInvariantPointAttention(torch.nn.Module):
         Args:
             c_s:
                 Single representation channel dimension
-            c_z:
-                Pairwise representation channel dimension
             c_hidden:
                 Hidden channel dimension
             no_heads:
