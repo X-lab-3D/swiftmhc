@@ -254,20 +254,20 @@ class Trainer:
             frame_group.create_dataset("cross_attention_pts", data=cross_attention_pts[:, 0, ...], compression="lzf")
 
             # save pdb
-            structure = recreate_structure(id_,
-                                           [("P", data["loop_sequence_onehot"][0], output["final_positions"][0]),
-                                            ("M", data["protein_sequence_onehot"][0], data["protein_atom14_gt_positions"][0])])
-            pdbio = PDBIO()
-            pdbio.set_structure(structure)
-            with StringIO() as sio:
-                pdbio.save(sio)
-                structure_data = numpy.array([bytes(line + "\n", encoding="utf-8")
-                                              for line in sio.getvalue().split('\n')
-                                              if len(line.strip()) > 0],
-                                             dtype=numpy.dtype("bytes"))
-            frame_group.create_dataset("structure",
-                                       data=structure_data,
-                                       compression="lzf")
+            #structure = recreate_structure(id_,
+            #                               [("P", data["loop_sequence_onehot"][0], output["final_positions"][0]),
+            #                                ("M", data["protein_sequence_onehot"][0], data["protein_atom14_gt_positions"][0])])
+            #pdbio = PDBIO()
+            #pdbio.set_structure(structure)
+            #with StringIO() as sio:
+            #    pdbio.save(sio)
+            #    structure_data = numpy.array([bytes(line + "\n", encoding="utf-8")
+            #                                  for line in sio.getvalue().split('\n')
+            #                                  if len(line.strip()) > 0],
+            #                                 dtype=numpy.dtype("bytes"))
+            #frame_group.create_dataset("structure",
+            #                           data=structure_data,
+            #                           compression="lzf")
 
     def _epoch(self,
                epoch_index: int,
@@ -283,8 +283,8 @@ class Trainer:
 
         model.train()
 
-        sd = 0.0
-        n = 0
+        #sd = 0.0
+        #n = 0
         for batch_index, batch_data in enumerate(data_loader):
 
             # Do the training step.
@@ -301,13 +301,13 @@ class Trainer:
 
             epoch_data = self._store_required_data(epoch_data, batch_loss, batch_output, batch_data)
 
-            sum_, count = get_calpha_square_deviation(batch_data["loop_sequence_onehot"],
-                                                      batch_output["final_positions"],
-                                                      batch_data["loop_atom14_gt_positions"])
-            sd += sum_
-            n += count
+            #sum_, count = get_calpha_square_deviation(batch_data["loop_sequence_onehot"],
+            #                                          batch_output["final_positions"],
+            #                                          batch_data["loop_atom14_gt_positions"])
+            #sd += sum_
+            #n += count
 
-        epoch_data["c_alpha_rmsd"] = sqrt(sd / n)
+        #epoch_data["c_alpha_rmsd"] = sqrt(sd / n)
 
         return epoch_data
 
@@ -323,8 +323,8 @@ class Trainer:
         # using model.eval() here causes this issue:
         # https://github.com/pytorch/pytorch/pull/98375#issuecomment-1499504721
 
-        sd = 0.0
-        n = 0
+        #sd = 0.0
+        #n = 0
         with torch.no_grad():
 
             for batch_index, batch_data in enumerate(data_loader):
@@ -337,13 +337,13 @@ class Trainer:
 
                 valid_data = self._store_required_data(valid_data, batch_loss, batch_output, batch_data)
 
-                sum_, count = get_calpha_square_deviation(batch_data["loop_sequence_onehot"],
-                                                          batch_output["final_positions"],
-                                                          batch_data["loop_atom14_gt_positions"])
-                sd += sum_
-                n += count
+                #sum_, count = get_calpha_square_deviation(batch_data["loop_sequence_onehot"],
+                #                                          batch_output["final_positions"],
+                #                                          batch_data["loop_atom14_gt_positions"])
+                #sd += sum_
+                #n += count
 
-        valid_data["c_alpha_rmsd"] = sqrt(sd / n)
+        #valid_data["c_alpha_rmsd"] = sqrt(sd / n)
 
         return valid_data
 
@@ -567,7 +567,7 @@ class Trainer:
 
         metrics_dataframe.at[epoch_index, "epoch"] = int(epoch_index)
 
-        for loss_name in ("affinity loss", "fape loss", "chi loss", "violation loss", "total loss"):
+        for loss_name in ("total loss",):
             normalized_loss = data[loss_name] / len(data["ids"])
 
             metrics_dataframe.at[epoch_index, f"{pass_name} {loss_name}"] = round(normalized_loss, 3)
@@ -579,7 +579,7 @@ class Trainer:
             output_aff = data["output affinity"]
             _log.exception(f"running pearsonr on {output_aff}")
 
-        metrics_dataframe.at[epoch_index, f"{pass_name} C-alpha RMSD"] = round(data["c_alpha_rmsd"], 3)
+        #metrics_dataframe.at[epoch_index, f"{pass_name} C-alpha RMSD"] = round(data["c_alpha_rmsd"], 3)
 
         metrics_dataframe.to_csv(metrics_path, sep=",", index=False)
 

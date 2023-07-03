@@ -370,38 +370,40 @@ def get_loss(output: TensorDict, batch: TensorDict,
     affinity_loss = _affinity_loss_function(output["affinity"], batch["affinity"])
 
     # compute chi loss, as in openfold
-    chi_loss = _supervised_chi_loss(output["final_angles"],
-                                    output["final_unnormalized_angles"],
-                                    batch["loop_aatype"],
-                                    batch["loop_self_residues_mask"],
-                                    batch["loop_torsion_angles_mask"][..., 3:],
-                                    batch["loop_torsion_angles_sin_cos"][..., 3:, :],
-                                    **openfold_config.loss.supervised_chi)
+#    chi_loss = _supervised_chi_loss(output["final_angles"],
+#                                    output["final_unnormalized_angles"],
+#                                    batch["loop_aatype"],
+#                                    batch["loop_self_residues_mask"],
+#                                    batch["loop_torsion_angles_mask"][..., 3:],
+#                                    batch["loop_torsion_angles_sin_cos"][..., 3:, :],
+#                                    **openfold_config.loss.supervised_chi)
 
     # compute fape loss, as in openfold
-    fape_loss = _compute_fape_loss(output, batch,
-                                   openfold_config.loss.fape)
+#    fape_loss = _compute_fape_loss(output, batch,
+#                                   openfold_config.loss.fape)
 
     # compute violations loss, using an adjusted function
-    violation_loss = _compute_cross_violation_loss(output, batch, openfold_config.loss.violation)
+#    violation_loss = _compute_cross_violation_loss(output, batch, openfold_config.loss.violation)
 
     # combine the loss terms
-    total_loss = 1.0 * affinity_loss + \
-                 1.0 * chi_loss + \
-                 1.0 * fape_loss
-
-    if fine_tune:
-        total_loss += 1.0 * violation_loss
+#    total_loss = 1.0 * affinity_loss + \
+#                 1.0 * chi_loss + \
+#                 1.0 * fape_loss
+#
+#    if fine_tune:
+#        total_loss += 1.0 * violation_loss
 
     # for true non-binders, the total loss is simply affinity-based
-    non_binders_index = batch["affinity"] < _affinity_binding_treshold
-    total_loss[non_binders_index] = 1.0 * affinity_loss[non_binders_index]
+#    non_binders_index = batch["affinity"] < _affinity_binding_treshold
+#    total_loss[non_binders_index] = 1.0 * affinity_loss[non_binders_index]
+
+    total_loss = affinity_loss
 
     # average losses over batch dimension
     return TensorDict({
         "total": total_loss.mean(dim=0),
-        "affinity": affinity_loss.mean(dim=0),
-        "fape": fape_loss.mean(dim=0),
-        "chi": chi_loss.mean(dim=0),
-        "violation": violation_loss.mean(dim=0),
+#        "affinity": affinity_loss.mean(dim=0),
+#        "fape": fape_loss.mean(dim=0),
+#        "chi": chi_loss.mean(dim=0),
+#        "violation": violation_loss.mean(dim=0),
     })

@@ -77,7 +77,7 @@ class Predictor(torch.nn.Module):
 
         self.cross = CrossStructureModule(**structure_module_config)
 
-        c_affinity = 128
+        c_affinity = 512
 
         #self.aff_norm = LayerNorm(structure_module_config.c_s)
 
@@ -89,12 +89,12 @@ class Predictor(torch.nn.Module):
         #    torch.nn.LayerNorm(structure_module_config.c_s)
         #)
 
-        #mlp_input_size = self.loop_maxlen * structure_module_config.c_s * 2
+        mlp_input_size = self.loop_maxlen * structure_module_config.c_s
         #mlp_input_size = self.loop_maxlen * self.protein_maxlen * structure_module_config.no_heads_ipa
 
         self.aff_mlp = torch.nn.Sequential(
-            #torch.nn.Linear(mlp_input_size, c_affinity),
-            torch.nn.Linear(structure_module_config.c_s, c_affinity),
+            torch.nn.Linear(mlp_input_size, c_affinity),
+            #torch.nn.Linear(structure_module_config.c_s, c_affinity),
             torch.nn.GELU(),
             torch.nn.Linear(c_affinity, c_affinity),
             torch.nn.GELU(),
@@ -196,24 +196,24 @@ class Predictor(torch.nn.Module):
 
         # amino acid sequence: [1, 0, 2, ... ] meaning : Ala, Met, Cys
         # [batch_size, loop_len]
-        output["aatype"] = batch["loop_aatype"]
+        #output["aatype"] = batch["loop_aatype"]
 
         # amino acid sequence index: [0, 1, 2, 3, 4, ... ], representing the order of amino acids
         # [batch_size, loop_len]
-        output["residue_index"] = torch.arange(0,
-                                               loop_seq.shape[1], 1,
-                                               dtype=torch.int64,
-                                               device=loop_seq.device
-        ).unsqueeze(dim=0).expand(batch_size, -1)
+        #output["residue_index"] = torch.arange(0,
+        #                                       loop_seq.shape[1], 1,
+        #                                       dtype=torch.int64,
+        #                                       device=loop_seq.device
+        #).unsqueeze(dim=0).expand(batch_size, -1)
 
         # whether the heavy atoms exists or not
         # for each loop residue
         # [batch_size, loop_len, 14] (true or false)
-        output = make_atom14_masks(output)
+        #output = make_atom14_masks(output)
 
         # adding hydrogens:
         # [batch_size, loop_len, 37, 3]
-        output["final_atom_positions"] = atom14_to_atom37(output["final_positions"], output)
+        #output["final_atom_positions"] = atom14_to_atom37(output["final_positions"], output)
 
         # [batch_size, n_heads, loop_len, protein_len]
         #cross_att = output["cross_attention"]
@@ -222,12 +222,12 @@ class Predictor(torch.nn.Module):
         updated_s_loop = output["single"]
 
         # [batch_size, loop_maxlen]
-        outputs = self.aff_mlp(updated_s_loop)[:, :, 0]
+        #outputs = self.aff_mlp(updated_s_loop)[:, :, 0]
 
         # [batch_size]
         #output["affinity"] = torch.sum(probabilities, dim=1)
-        output["affinity"] = torch.sum(outputs, dim=1)
-        #output["affinity"] = self.aff_mlp(initial_loop_seq.reshape(batch_size, -1)).reshape(batch_size)
+        #output["affinity"] = torch.sum(outputs, dim=1)
+        output["affinity"] = self.aff_mlp(updated_s_loop.reshape(batch_size, -1)).reshape(batch_size)
 
         if torch.any(torch.isnan(output["affinity"])):
             raise RuntimeError(f"got NaN output")
