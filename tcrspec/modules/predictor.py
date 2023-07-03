@@ -47,13 +47,9 @@ class Predictor(torch.nn.Module):
 
         self.pos_enc = PositionalEncoding(structure_module_config.c_s, self.loop_maxlen)
 
-        self.loop_enc = TransformerEncoder(
-            DebuggableTransformerEncoderLayer(structure_module_config.c_s,
-                                              self.n_head,
-                                              batch_first=True,
-                                              norm_first=True),
-            structure_module_config.no_blocks
-        )
+        self.loop_enc = DebuggableTransformerEncoderLayer(structure_module_config.c_s,
+                                                          self.n_head)
+        self.n_block = structure_module_config.no_blocks
 
         self.n_ipa_repeat = structure_module_config.no_blocks
 
@@ -126,22 +122,15 @@ class Predictor(torch.nn.Module):
         # positional encoding
         loop_pos_enc = self.pos_enc(loop_seq)
 
-        # [batch_size, n_head, loop_len_max]
-        loop_len_mask = batch["loop_self_residues_mask"][:, None, :].expand(-1, self.n_head, -1)
-
-        # [batch_size, n_head, loop_len_max, loop_len_max]
-        loop_src_mask = torch.logical_and(loop_len_mask[:, :, None, :], loop_len_mask[:, :, :, None])
-        loop_src_mask = torch.logical_not(loop_src_mask).float() * -self.inf
-        loop_src_mask = loop_src_mask.reshape(batch_size * self.n_head, self.loop_maxlen, self.loop_maxlen)
-
         # self-attention on the loop
-        loop_embd = self.loop_enc(loop_pos_enc,
-                                  mask=loop_src_mask)
-
-        # store the attention weights, for debugging
+        loop_embd = loop_pos_enc
         loop_enc_atts = []
-        for layer in self.loop_enc.layers:
-            loop_enc_atts.append(layer.last_att)
+        for block_index in range(self.n_block):
+            loop_embd, att = self.loop_enc(loop_embd, batch["loop_self_residues_mask"])
+
+            # store the attention weights, for debugging
+            loop_enc_atts.append(att.detach())
+
         # [n_layer, batch_size, n_head, loop_len, loop_len]
         loop_enc_atts = torch.stack(loop_enc_atts)
 
@@ -190,6 +179,9 @@ class Predictor(torch.nn.Module):
                             protein_T)
 
         output["loop_self_attention"] = loop_enc_atts
+        output["loop_embd"] = loop_embd
+        output["loop_pos_enc"] = loop_pos_enc
+        output["loop_init"] = loop_seq
         output["protein_self_attention"] = protein_as
         output["protein_self_attention_sd"] = protein_as_sd
         output["protein_self_attention_b"] = protein_as_b
