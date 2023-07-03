@@ -21,8 +21,8 @@ _log = logging.getLogger(__name__)
 arg_parser = ArgumentParser(description="combine tcrspec csv.xz tables into a heatmap animation")
 arg_parser.add_argument("hdf5_path", help="path to the hdf5 file, containing the data")
 arg_parser.add_argument("data_type", help="type of data to take from hdf5 file: (loop_attention/protein_attention/cross_attention/other)")
-arg_parser.add_argument("block", type=int, help="number of the block: (0/1/2/...)")
-arg_parser.add_argument("head", type=int, help="number of the head: (0/1/2/...)")
+arg_parser.add_argument("block", type=int, nargs="?", help="number of the block: (0/1/2/...)")
+arg_parser.add_argument("head", type=int, nargs="?", help="number of the head: (0/1/2/...)")
 
 
 def get_epoch_number(frame_id: str) -> float:
@@ -40,7 +40,11 @@ if __name__ == "__main__":
     args = arg_parser.parse_args()
     logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
 
-    output_name = os.path.basename(args.hdf5_path).replace(".hdf5","").replace("-animation", "") + f"-{args.data_type}-{args.block}-{args.head}"
+    if args.block is not None and args.head is not None:
+
+        output_name = os.path.basename(args.hdf5_path).replace(".hdf5","").replace("-animation", "") + f"-{args.data_type}-{args.block}-{args.head}"
+    else:
+        output_name = os.path.basename(args.hdf5_path).replace(".hdf5","").replace("-animation", "") + f"-{args.data_type}"
 
     with h5py.File(args.hdf5_path, 'r') as hdf5_file:
         frame_ids = sorted(hdf5_file.keys(), key=get_epoch_number)
@@ -51,7 +55,10 @@ if __name__ == "__main__":
 
             epoch_number = get_epoch_number(frame_id)
 
-            data = hdf5_file[f"{frame_id}/{args.data_type}"][args.block, args.head, ...]
+            if args.block is not None and args.head is not None:
+                data = hdf5_file[f"{frame_id}/{args.data_type}"][args.block, args.head, ...]
+            else:
+                data = hdf5_file[f"{frame_id}/{args.data_type}"][:]
 
             figure = pyplot.figure()
             plot = figure.add_subplot()
