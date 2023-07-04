@@ -131,6 +131,9 @@ class Predictor(torch.nn.Module):
         # transition on the loop
         loop_embd = self.loop_mlp(loop_seq.reshape(batch_size, -1)).reshape(batch_size, loop_maxlen, loop_depth)
 
+        # mask out residues that don't exist
+        loop_embd = loop_embd * batch["loop_self_residues_mask"][..., None]
+
         # structure-based self-attention on the protein
         protein_T = Rigid.from_tensor_4x4(batch["protein_backbone_rigid_tensor"])
 
