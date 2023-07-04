@@ -577,7 +577,7 @@ class Trainer:
 
         metrics_dataframe.at[epoch_index, "epoch"] = int(epoch_index)
 
-        for loss_name in ("total loss",):
+        for loss_name in ("total loss", "affinity loss", "chi loss", "fape loss", "violation loss"):
             normalized_loss = data[loss_name] / len(data["ids"])
 
             metrics_dataframe.at[epoch_index, f"{pass_name} {loss_name}"] = round(normalized_loss, 3)

@@ -114,15 +114,15 @@ class CrossStructureModule(torch.nn.Module):
                                                     self.n_transition_layers,
                                                     self.dropout_rate)
 
-        #self.bb_update = BackboneUpdate(self.c_s)
+        self.bb_update = BackboneUpdate(self.c_s)
 
-        #self.angle_resnet = AngleResnet(
-        #    self.c_s,
-        #    self.c_resnet,
-        #    self.no_resnet_blocks,
-        #    self.no_angles,
-        #    self.epsilon,
-        #)
+        self.angle_resnet = AngleResnet(
+            self.c_s,
+            self.c_resnet,
+            self.no_resnet_blocks,
+            self.no_angles,
+            self.epsilon,
+        )
 
     def forward(
         self,
@@ -194,7 +194,7 @@ class CrossStructureModule(torch.nn.Module):
                 loop_mask, protein_mask,
             )
 
-            #T_loop = Rigid.from_tensor_7(preds["unscaled_frames"])
+            T_loop = Rigid.from_tensor_7(preds["unscaled_frames"])
 
             outputs.append(preds)
 
@@ -212,11 +212,11 @@ class CrossStructureModule(torch.nn.Module):
         r["cross_attention_sd"] = torch.stack(atts_sd)
         r["cross_attention_pts"] = torch.stack(atts_pts)
 
-        #r["final_frames"] = outputs["frames"][-1]
-        #r["final_sidechain_frames"] = outputs["sidechain_frames"][-1]
-        #r["final_angles"] = outputs["angles"][-1]
-        #r["final_unnormalized_angles"] = outputs["unnormalized_angles"][-1]
-        #r["final_positions"] = outputs["positions"][-1]
+        r["final_frames"] = outputs["frames"][-1]
+        r["final_sidechain_frames"] = outputs["sidechain_frames"][-1]
+        r["final_angles"] = outputs["angles"][-1]
+        r["final_unnormalized_angles"] = outputs["unnormalized_angles"][-1]
+        r["final_positions"] = outputs["positions"][-1]
 
         return r
 
@@ -245,52 +245,52 @@ class CrossStructureModule(torch.nn.Module):
         s_loop = self.transition(s_loop)
 
         # [batch_size, loop_len]
-        #T_loop = T_loop.compose_q_update_vec(self.bb_update(s_loop))
+        T_loop = T_loop.compose_q_update_vec(self.bb_update(s_loop))
 
         # To hew as closely as possible to AlphaFold, we convert our
         # quaternion-based transformations to rotation-matrix ones
         # here
-        #backb_to_global = Rigid(
-        #    Rotation(
-        #        rot_mats=T_loop.get_rots().get_rot_mats(), 
-        #        quats=None
-        #    ),
-        #    T_loop.get_trans(),
-        #)
+        backb_to_global = Rigid(
+            Rotation(
+                rot_mats=T_loop.get_rots().get_rot_mats(), 
+                quats=None
+            ),
+            T_loop.get_trans(),
+        )
 
-        #backb_to_global = backb_to_global.scale_translation(
-        #    self.trans_scale_factor
-        #)
+        backb_to_global = backb_to_global.scale_translation(
+            self.trans_scale_factor
+        )
 
         # [batch_size, loop_len, 7, 2]
-        #unnormalized_angles, angles = self.angle_resnet(s_loop, s_loop_initial)
+        unnormalized_angles, angles = self.angle_resnet(s_loop, s_loop_initial)
 
         # Calculate frames for side chains
-        #all_frames_to_global = self.torsion_angles_to_frames(
-        #    backb_to_global,
-        #    angles,
-        #    loop_aatype,
-        #)
+        all_frames_to_global = self.torsion_angles_to_frames(
+            backb_to_global,
+            angles,
+            loop_aatype,
+        )
 
         # Compute all atom coordinates, from torsions
-        #pred_xyz = self.frames_and_literature_positions_to_atom14_pos(
-        #    all_frames_to_global,
-        #    loop_aatype,
-        #)
+        pred_xyz = self.frames_and_literature_positions_to_atom14_pos(
+            all_frames_to_global,
+            loop_aatype,
+        )
 
-        #scaled_T_loop = T_loop.scale_translation(self.trans_scale_factor)
+        scaled_T_loop = T_loop.scale_translation(self.trans_scale_factor)
 
         preds = {
-        #    "unscaled_frames": T_loop.to_tensor_7(),
-        #    "frames": scaled_T_loop.to_tensor_7(),
-        #    "sidechain_frames": all_frames_to_global.to_tensor_4x4(),
-        #    "unnormalized_angles": unnormalized_angles,
-        #    "angles": angles,
-        #    "positions": pred_xyz,
+            "unscaled_frames": T_loop.to_tensor_7(),
+            "frames": scaled_T_loop.to_tensor_7(),
+            "sidechain_frames": all_frames_to_global.to_tensor_4x4(),
+            "unnormalized_angles": unnormalized_angles,
+            "angles": angles,
+            "positions": pred_xyz,
             "states": s_loop,
         }
 
-        #T_loop = T_loop.stop_rot_gradient()
+        T_loop = T_loop.stop_rot_gradient()
 
         return preds, ipa_att, ipa_att_sd, ipa_att_pts
 
