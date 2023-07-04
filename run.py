@@ -55,7 +55,7 @@ from tcrspec.modules.predictor import Predictor
 from tcrspec.models.complex import ComplexClass
 from tcrspec.models.amino_acid import AminoAcid
 from tcrspec.tools.amino_acid import one_hot_decode_sequence
-from tcrspec.loss import get_loss
+from tcrspec.loss import get_loss, AFFINITY_BINDING_TRESHOLD
 from tcrspec.models.data import TensorDict
 from tcrspec.tools.pdb import recreate_structure, get_calpha_square_deviation
 from tcrspec.domain.amino_acid import amino_acids_by_one_hot_index
@@ -311,13 +311,15 @@ class Trainer:
 
             epoch_data = self._store_required_data(epoch_data, batch_loss, batch_output, batch_data)
 
-            sum_, count = get_calpha_square_deviation(batch_data["loop_sequence_onehot"],
-                                                      batch_output["final_positions"],
-                                                      batch_data["loop_atom14_gt_positions"])
+            binders_index = batch_data["affinity"] > AFFINITY_BINDING_TRESHOLD
+
+            sum_, count = get_calpha_square_deviation(batch_data["loop_sequence_onehot"][binders_index],
+                                                      batch_output["final_positions"][binders_index],
+                                                      batch_data["loop_atom14_gt_positions"][binders_index])
             sd += sum_
             n += count
 
-        epoch_data["c_alpha_rmsd"] = sqrt(sd / n)
+        epoch_data["binders_c_alpha_rmsd"] = sqrt(sd / n)
 
         return epoch_data
 
@@ -347,13 +349,15 @@ class Trainer:
 
                 valid_data = self._store_required_data(valid_data, batch_loss, batch_output, batch_data)
 
-                sum_, count = get_calpha_square_deviation(batch_data["loop_sequence_onehot"],
-                                                          batch_output["final_positions"],
-                                                          batch_data["loop_atom14_gt_positions"])
+                binders_index = batch_data["affinity"] > AFFINITY_BINDING_TRESHOLD
+
+                sum_, count = get_calpha_square_deviation(batch_data["loop_sequence_onehot"][binders_index],
+                                                          batch_output["final_positions"][binders_index],
+                                                          batch_data["loop_atom14_gt_positions"][binders_index])
                 sd += sum_
                 n += count
 
-        valid_data["c_alpha_rmsd"] = sqrt(sd / n)
+        valid_data["binders_c_alpha_rmsd"] = sqrt(sd / n)
 
         return valid_data
 
@@ -589,7 +593,7 @@ class Trainer:
             output_aff = data["output affinity"]
             _log.exception(f"running pearsonr on {output_aff}")
 
-        metrics_dataframe.at[epoch_index, f"{pass_name} C-alpha RMSD"] = round(data["c_alpha_rmsd"], 3)
+        metrics_dataframe.at[epoch_index, f"{pass_name} binders C-alpha RMSD"] = round(data["binders_c_alpha_rmsd"], 3)
 
         metrics_dataframe.to_csv(metrics_path, sep=",", index=False)
 

@@ -359,7 +359,7 @@ def _supervised_chi_loss(angles_sin_cos: torch.Tensor,
     return loss
 
 
-_affinity_binding_treshold = 1.0 - log(500) / log(50000)
+AFFINITY_BINDING_TRESHOLD = 1.0 - log(500) / log(50000)
 _affinity_loss_function = MSELoss(reduction="none")
 
 
@@ -394,7 +394,7 @@ def get_loss(output: TensorDict, batch: TensorDict,
         total_loss += 1.0 * violation_loss
 
     # for true non-binders, the total loss is simply affinity-based
-    non_binders_index = batch["affinity"] < _affinity_binding_treshold
+    non_binders_index = batch["affinity"] < AFFINITY_BINDING_TRESHOLD
     total_loss[non_binders_index] = 1.0 * affinity_loss[non_binders_index]
 
     # average losses over batch dimension
