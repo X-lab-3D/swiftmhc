@@ -234,15 +234,15 @@ class Trainer:
             frame_group = animation_file.require_group(frame_id)
 
             # save loop attentions heatmaps
-            loop_self_attention = output["loop_self_attention"].cpu()
-            frame_group.create_dataset("loop_attention", data=loop_self_attention[:, 0, ...], compression="lzf")
+            #loop_self_attention = output["loop_self_attention"].cpu()
+            #frame_group.create_dataset("loop_attention", data=loop_self_attention[:, 0, ...], compression="lzf")
 
             # save loop embeddings heatmaps
             loop_embd = output["loop_embd"].cpu()
             frame_group.create_dataset("loop_embd", data=loop_embd[0, ...], compression="lzf")
 
-            loop_pos_enc = output["loop_pos_enc"].cpu()
-            frame_group.create_dataset("loop_pos_enc", data=loop_pos_enc[0, ...], compression="lzf")
+            #loop_pos_enc = output["loop_pos_enc"].cpu()
+            #frame_group.create_dataset("loop_pos_enc", data=loop_pos_enc[0, ...], compression="lzf")
 
             loop_init = output["loop_init"].cpu()
             frame_group.create_dataset("loop_init", data=loop_init[0, ...], compression="lzf")

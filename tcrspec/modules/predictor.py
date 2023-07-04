@@ -47,9 +47,18 @@ class Predictor(torch.nn.Module):
 
         self.pos_enc = PositionalEncoding(structure_module_config.c_s, self.loop_maxlen)
 
-        self.loop_enc = DebuggableTransformerEncoderLayer(structure_module_config.c_s,
-                                                          self.n_head)
-        self.n_block = structure_module_config.no_blocks
+        #self.loop_enc = DebuggableTransformerEncoderLayer(structure_module_config.c_s,
+        #                                                  self.n_head)
+        #self.n_block = structure_module_config.no_blocks
+
+        loop_input_size = self.loop_maxlen * structure_module_config.c_s
+        c_loop = 512
+
+        self.loop_mlp = torch.nn.Sequential(
+            torch.nn.Linear(loop_input_size, c_loop),
+            torch.nn.GELU(),
+            torch.nn.Linear(c_loop, loop_input_size),
+        )
 
         self.n_ipa_repeat = structure_module_config.no_blocks
 
@@ -85,11 +94,8 @@ class Predictor(torch.nn.Module):
         #    torch.nn.LayerNorm(structure_module_config.c_s)
         #)
 
-        mlp_input_size = self.loop_maxlen * structure_module_config.c_s
-        #mlp_input_size = self.loop_maxlen * self.protein_maxlen * structure_module_config.no_heads_ipa
-
         self.aff_mlp = torch.nn.Sequential(
-            torch.nn.Linear(mlp_input_size, c_affinity),
+            torch.nn.Linear(loop_input_size, c_affinity),
             #torch.nn.Linear(structure_module_config.c_s, c_affinity),
             torch.nn.GELU(),
             torch.nn.Linear(c_affinity, c_affinity),
@@ -117,22 +123,13 @@ class Predictor(torch.nn.Module):
         # [batch_size, loop_len, c_s]
         loop_seq = batch["loop_sequence_onehot"]
         # initial_loop_seq = loop_seq.clone()
-        batch_size = loop_seq.shape[0]
+        batch_size, loop_maxlen, loop_depth = loop_seq.shape
 
         # positional encoding
-        loop_pos_enc = self.pos_enc(loop_seq)
+        #loop_pos_enc = self.pos_enc(loop_seq)
 
-        # self-attention on the loop
-        loop_embd = loop_pos_enc
-        loop_enc_atts = []
-        for block_index in range(self.n_block):
-            loop_embd, att = self.loop_enc(loop_embd, batch["loop_self_residues_mask"])
-
-            # store the attention weights, for debugging
-            loop_enc_atts.append(att.detach())
-
-        # [n_layer, batch_size, n_head, loop_len, loop_len]
-        loop_enc_atts = torch.stack(loop_enc_atts)
+        # transition on the loop
+        loop_embd = self.loop_mlp(loop_seq.reshape(batch_size, -1)).reshape(batch_size, loop_maxlen, loop_depth)
 
         # structure-based self-attention on the protein
         protein_T = Rigid.from_tensor_4x4(batch["protein_backbone_rigid_tensor"])
@@ -178,9 +175,7 @@ class Predictor(torch.nn.Module):
                             batch["protein_cross_residues_mask"],
                             protein_T)
 
-        output["loop_self_attention"] = loop_enc_atts
         output["loop_embd"] = loop_embd
-        output["loop_pos_enc"] = loop_pos_enc
         output["loop_init"] = loop_seq
         output["protein_self_attention"] = protein_as
         output["protein_self_attention_sd"] = protein_as_sd
@@ -214,10 +209,9 @@ class Predictor(torch.nn.Module):
         updated_s_loop = output["single"]
 
         # [batch_size, loop_maxlen]
-        #outputs = self.aff_mlp(updated_s_loop)[:, :, 0]
+        #outputs = self.aff_mlp(updated_s_loop)[..., 0]
 
         # [batch_size]
-        #output["affinity"] = torch.sum(probabilities, dim=1)
         #output["affinity"] = torch.sum(outputs, dim=1)
         output["affinity"] = self.aff_mlp(updated_s_loop.reshape(batch_size, -1)).reshape(batch_size)
 
