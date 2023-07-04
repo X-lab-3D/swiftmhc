@@ -264,20 +264,20 @@ class Trainer:
             frame_group.create_dataset("cross_attention_pts", data=cross_attention_pts[:, 0, ...], compression="lzf")
 
             # save pdb
-            #structure = recreate_structure(id_,
-            #                               [("P", data["loop_sequence_onehot"][0], output["final_positions"][0]),
-            #                                ("M", data["protein_sequence_onehot"][0], data["protein_atom14_gt_positions"][0])])
-            #pdbio = PDBIO()
-            #pdbio.set_structure(structure)
-            #with StringIO() as sio:
-            #    pdbio.save(sio)
-            #    structure_data = numpy.array([bytes(line + "\n", encoding="utf-8")
-            #                                  for line in sio.getvalue().split('\n')
-            #                                  if len(line.strip()) > 0],
-            #                                 dtype=numpy.dtype("bytes"))
-            #frame_group.create_dataset("structure",
-            #                           data=structure_data,
-            #                           compression="lzf")
+            structure = recreate_structure(id_,
+                                           [("P", data["loop_sequence_onehot"][0], output["final_positions"][0]),
+                                            ("M", data["protein_sequence_onehot"][0], data["protein_atom14_gt_positions"][0])])
+            pdbio = PDBIO()
+            pdbio.set_structure(structure)
+            with StringIO() as sio:
+                pdbio.save(sio)
+                structure_data = numpy.array([bytes(line + "\n", encoding="utf-8")
+                                              for line in sio.getvalue().split('\n')
+                                              if len(line.strip()) > 0],
+                                             dtype=numpy.dtype("bytes"))
+            frame_group.create_dataset("structure",
+                                       data=structure_data,
+                                       compression="lzf")
 
     def _epoch(self,
                epoch_index: int,
