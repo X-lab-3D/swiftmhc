@@ -55,9 +55,9 @@ from tcrspec.modules.predictor import Predictor
 from tcrspec.models.complex import ComplexClass
 from tcrspec.models.amino_acid import AminoAcid
 from tcrspec.tools.amino_acid import one_hot_decode_sequence
-from tcrspec.loss import get_loss, AFFINITY_BINDING_TRESHOLD
+from tcrspec.loss import get_loss, get_calpha_square_deviation
 from tcrspec.models.data import TensorDict
-from tcrspec.tools.pdb import recreate_structure, get_calpha_square_deviation
+from tcrspec.tools.pdb import recreate_structure
 from tcrspec.domain.amino_acid import amino_acids_by_one_hot_index
 
 

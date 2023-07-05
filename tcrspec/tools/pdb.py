@@ -19,7 +19,6 @@ from Bio.PDB.Chain import Chain
 from Bio.PDB.Model import Model
 
 from ..domain.amino_acid import amino_acids_by_code
-from ..loss import AFFINITY_BINDING_TRESHOLD
 from .amino_acid import one_hot_decode_sequence
 
 
@@ -178,31 +177,6 @@ def get_atom14_positions(residue: Residue) -> Tuple[torch.Tensor, torch.Tensor]:
                  for atom in atoms]
 
     return torch.tensor(numpy.array(positions)), torch.tensor(mask)
-
-
-def get_calpha_square_deviation(output_data: Dict[str, torch.Tensor],
-                                batch_data: Dict[str, torch.Tensor]) -> Tuple[float, int]:
-    """
-    Returns: (sum of squares, number of squares)
-    """
-
-    # take binders only
-    binders_index = batch_data["affinity"] > AFFINITY_BINDING_TRESHOLD
-
-    output_positions = batch_output["final_positions"][binders_index]
-    true_positions = batch_data["loop_atom14_gt_positions"][binders_index]
-    mask = batch_data["loop_cross_residues_mask"][binders_index]
-
-    # take C-alpha only
-    output_postions = output_positions[..., 1,:]
-    true_positions = true_positions[..., 1, :]
-
-    # [n_binders, max_loop_len, 1]
-    mask = mask[..., None]
-
-    sum_ = torch.sum(((output_positions - true_positions) * mask) ** 2)
-    count = torch.sum(mask.int())
-    return sum_, count
 
 
 def recreate_structure(structure_id: str,

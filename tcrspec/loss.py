@@ -411,3 +411,35 @@ def get_loss(output: TensorDict, batch: TensorDict,
         "chi": chi_loss.mean(dim=0),
         "violation": violation_loss.mean(dim=0),
     })
+
+
+def get_calpha_square_deviation(output_data: Dict[str, torch.Tensor],
+                                batch_data: Dict[str, torch.Tensor]) -> Tuple[float, int]:
+    """
+    Returns: (sum of squares, number of squares)
+    """
+
+    # take binders only
+    binders_index = batch_data["affinity"] > AFFINITY_BINDING_TRESHOLD
+
+    output_positions = output_data["final_positions"][binders_index]
+    true_positions = batch_data["loop_atom14_gt_positions"][binders_index]
+    mask = batch_data["loop_cross_residues_mask"][binders_index]
+
+    # take C-alpha only
+    output_positions = output_positions[..., 1, :]
+    true_positions = true_positions[..., 1, :]
+
+    # [n_binders, max_loop_len, 1, 1]
+    mask = mask[..., None]
+
+    _log.debug(f"shape of output_positions is {output_positions.shape}")
+    _log.debug(f"shape of true_positions is {true_positions.shape}")
+    _log.debug(f"shape of mask is {mask.shape}")
+
+    diff = output_positions - true_positions
+
+    sum_ = torch.sum((diff * mask) ** 2)
+    count = torch.sum(mask.int())
+    return sum_, count
+
