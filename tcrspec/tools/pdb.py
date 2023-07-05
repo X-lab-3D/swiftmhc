@@ -7,6 +7,7 @@ import torch
 from torch.nn.functional import normalize
 
 import pdb2sql
+from openfold.utils.rigid_utils import Rigid
 from openfold.np.residue_constants import (restype_name_to_atom14_names as openfold_residue_atom14_names,
                                            chi_angles_atoms as openfold_chi_angles_atoms,
                                            chi_angles_mask as openfold_chi_angles_mask)
@@ -178,10 +179,16 @@ def get_atom14_positions(residue: Residue) -> Tuple[torch.Tensor, torch.Tensor]:
     return torch.tensor(numpy.array(positions)), torch.tensor(mask)
 
 
-def get_calpha_square_deviation(onehot_sequence: torch.Tensor,
+def get_calpha_square_deviation(output_global_frame: Rigid,
+                                true_global_frame: Rigid,
+                                sequence_mask: torch.Tensor,
+                                onehot_sequence: torch.Tensor,
                                 output_positions: torch.Tensor,
                                 true_positions: torch.Tensor) -> float:
     """
+        output_global_frame: [batch_size, seq_len] (Rigid)
+        true_global_frame: [batch_size, seq_len] (Rigid)
+        sequence_mask: [batch_size, seq_len]
         onehot_sequence: [batch_size, seq_len, aa_depth]
         output_positions: [batch_size, seq_len, n_atoms, 3]
         true_positions: [batch_size, seq_len, n_atoms, 3]
@@ -190,12 +197,15 @@ def get_calpha_square_deviation(onehot_sequence: torch.Tensor,
     sum_ = 0.0
     count = 0
 
+    output_transform = output_global_frame.invert()
+    true_transform = true_global_frame.invert()
+
     for batch_index in range(onehot_sequence.shape[0]):
         amino_acids = one_hot_decode_sequence(onehot_sequence[batch_index])
 
         for residue_index, amino_acid in enumerate(amino_acids):
 
-            if amino_acid is not None:
+            if sequence_mask[batch_index, residue_index]:
 
                 residue_name = amino_acid.three_letter_code
 
@@ -203,8 +213,8 @@ def get_calpha_square_deviation(onehot_sequence: torch.Tensor,
 
                     if atom_name == "CA":
 
-                        output_position = output_positions[batch_index, residue_index, atom_index]
-                        true_position = true_positions[batch_index, residue_index, atom_index]
+                        output_position = output_transform[batch_index, residue_index].apply(output_positions[batch_index, residue_index, atom_index])
+                        true_position = true_transform[batch_index, residue_index].apply(true_positions[batch_index, residue_index, atom_index])
 
                         sum_ += torch.sum((output_position - true_position) ** 2)
                         count += 1

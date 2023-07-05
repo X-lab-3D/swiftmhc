@@ -279,6 +279,20 @@ class Trainer:
                                        data=structure_data,
                                        compression="lzf")
 
+    @staticmethod
+    def _get_global_frame(batch_mask: torch.Tensor, batch_frames: torch.Tensor) -> torch.Tensor:
+        """
+        Args:
+            batch_mask: [batch_size, sequence_length] (bool)
+            batch_frames: [batch_size, sequence_length] (Rigid)
+        Returns:
+            [batch_size] (Rigid)
+        """
+
+        masked_frames = batch_frames[batch_mask]
+
+        return masked_frames[:, 0]
+
     def _epoch(self,
                epoch_index: int,
                optimizer: Optimizer,
@@ -313,7 +327,13 @@ class Trainer:
 
             binders_index = batch_data["affinity"] > AFFINITY_BINDING_TRESHOLD
 
-            sum_, count = get_calpha_square_deviation(batch_data["loop_sequence_onehot"][binders_index],
+            true_global_frame = self._get_global_frame(batch_data["protein_cross_residues_mask"],
+                                                       Rigid.from_tensor_4x4(batch_data["protein_backbone_rigid_tensor"]))
+
+            sum_, count = get_calpha_square_deviation(true_global_frame[binders_index],
+                                                      true_global_frame[binders_index],
+                                                      batch_data["loop_cross_residues_mask"][binders_index],
+                                                      batch_data["loop_sequence_onehot"][binders_index],
                                                       batch_output["final_positions"][binders_index],
                                                       batch_data["loop_atom14_gt_positions"][binders_index])
             sd += sum_
@@ -351,7 +371,13 @@ class Trainer:
 
                 binders_index = batch_data["affinity"] > AFFINITY_BINDING_TRESHOLD
 
-                sum_, count = get_calpha_square_deviation(batch_data["loop_sequence_onehot"][binders_index],
+                true_global_frame = self._get_global_frame(batch_data["protein_cross_residues_mask"],
+                                                           Rigid.from_tensor_4x4(batch_data["protein_backbone_rigid_tensor"]))
+
+                sum_, count = get_calpha_square_deviation(true_global_frame[binders_index],
+                                                          true_global_frame[binders_index]
+                                                          batch_data["loop_cross_residues_mask"][binders_index],
+                                                          batch_data["loop_sequence_onehot"][binders_index],
                                                           batch_output["final_positions"][binders_index],
                                                           batch_data["loop_atom14_gt_positions"][binders_index])
                 sd += sum_
