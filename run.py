@@ -375,7 +375,7 @@ class Trainer:
                                                            Rigid.from_tensor_4x4(batch_data["protein_backbone_rigid_tensor"]))
 
                 sum_, count = get_calpha_square_deviation(true_global_frame[binders_index],
-                                                          true_global_frame[binders_index]
+                                                          true_global_frame[binders_index],
                                                           batch_data["loop_cross_residues_mask"][binders_index],
                                                           batch_data["loop_sequence_onehot"][binders_index],
                                                           batch_output["final_positions"][binders_index],
