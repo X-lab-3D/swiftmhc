@@ -19,6 +19,7 @@ from Bio.PDB.Chain import Chain
 from Bio.PDB.Model import Model
 
 from ..domain.amino_acid import amino_acids_by_code
+from ..loss import AFFINITY_BINDING_TRESHOLD
 from .amino_acid import one_hot_decode_sequence
 
 
@@ -179,46 +180,28 @@ def get_atom14_positions(residue: Residue) -> Tuple[torch.Tensor, torch.Tensor]:
     return torch.tensor(numpy.array(positions)), torch.tensor(mask)
 
 
-def get_calpha_square_deviation(output_global_frame: Rigid,
-                                true_global_frame: Rigid,
-                                sequence_mask: torch.Tensor,
-                                onehot_sequence: torch.Tensor,
-                                output_positions: torch.Tensor,
-                                true_positions: torch.Tensor) -> float:
+def get_calpha_square_deviation(output_data: Dict[str, torch.Tensor],
+                                batch_data: Dict[str, torch.Tensor]) -> Tuple[float, int]:
     """
-        output_global_frame: [batch_size, seq_len] (Rigid)
-        true_global_frame: [batch_size, seq_len] (Rigid)
-        sequence_mask: [batch_size, seq_len]
-        onehot_sequence: [batch_size, seq_len, aa_depth]
-        output_positions: [batch_size, seq_len, n_atoms, 3]
-        true_positions: [batch_size, seq_len, n_atoms, 3]
+    Returns: (sum of squares, number of squares)
     """
 
-    sum_ = 0.0
-    count = 0
+    # take binders only
+    binders_index = batch_data["affinity"] > AFFINITY_BINDING_TRESHOLD
 
-    output_transform = output_global_frame.invert()
-    true_transform = true_global_frame.invert()
+    output_positions = batch_output["final_positions"][binders_index]
+    true_positions = batch_data["loop_atom14_gt_positions"][binders_index]
+    mask = batch_data["loop_cross_residues_mask"][binders_index]
 
-    for batch_index in range(onehot_sequence.shape[0]):
-        amino_acids = one_hot_decode_sequence(onehot_sequence[batch_index])
+    # take C-alpha only
+    output_postions = output_positions[..., 1,:]
+    true_positions = true_positions[..., 1, :]
 
-        for residue_index, amino_acid in enumerate(amino_acids):
+    # [n_binders, max_loop_len, 1]
+    mask = mask[..., None]
 
-            if sequence_mask[batch_index, residue_index]:
-
-                residue_name = amino_acid.three_letter_code
-
-                for atom_index, atom_name in enumerate(openfold_residue_atom14_names[residue_name]):
-
-                    if atom_name == "CA":
-
-                        output_position = output_transform[batch_index, residue_index].apply(output_positions[batch_index, residue_index, atom_index])
-                        true_position = true_transform[batch_index, residue_index].apply(true_positions[batch_index, residue_index, atom_index])
-
-                        sum_ += torch.sum((output_position - true_position) ** 2)
-                        count += 1
-
+    sum_ = torch.sum(((output_positions - true_positions) * mask) ** 2)
+    count = torch.sum(mask.int())
     return sum_, count
 
 
