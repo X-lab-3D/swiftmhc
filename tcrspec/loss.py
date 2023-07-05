@@ -27,7 +27,7 @@ from openfold.utils.loss import (violation_loss as openfold_compute_violation_lo
                                  within_residue_violations as openfold_within_residue_violations,
                                  lddt_loss as openfold_compute_lddt_loss,
                                  compute_renamed_ground_truth as openfold_compute_renamed_ground_truth,
-                                 backbone_loss as openfold_compute_backbone_loss,
+                                 compute_fape as openfold_compute_fape,
                                  sidechain_loss as openfold_compute_sidechain_loss,
                                  supervised_chi_loss as openfold_supervised_chi_loss,
                                  find_structural_violations as openfold_find_structural_violations,
@@ -61,19 +61,25 @@ def _compute_fape_loss(output: TensorDict, batch: TensorDict,
     """
 
     # compute backbone loss
-    batch_size, loop_len = batch["loop_cross_residues_mask"].shape
-    batch_size, protein_len = batch["protein_cross_residues_mask"].shape
+    loop_mask = batch["loop_cross_residues_mask"]
+    loop_true_frames = Rigid.from_tensor_4x4(batch["loop_backbone_rigid_tensor"])
+    loop_output_frames = Rigid.from_tensor_7(output["final_frames"])
+    protein_frames = Rigid.from_tensor_4x4(batch["protein_backbone_rigid_tensor"])
+    protein_mask = batch["protein_cross_residues_mask"]
 
-    bb_mask = torch.cat((batch["protein_cross_residues_mask"], batch["loop_cross_residues_mask"]), dim=1)
-    bb_true_frames = torch.cat((batch["protein_backbone_rigid_tensor"], batch["loop_backbone_rigid_tensor"]), dim=1)
-    bb_output_frames = torch.cat((Rigid.from_tensor_4x4(batch["protein_backbone_rigid_tensor"]).to_tensor_7(),
-                                  output["final_frames"]), dim=1)
-
-    bb_loss = openfold_compute_backbone_loss(backbone_rigid_tensor=bb_true_frames,
-                                             backbone_rigid_mask=bb_mask,
-                                             traj=bb_output_frames,
-                                             **config.backbone)
-
+    bb_loss = torch.mean(
+        openfold_compute_fape(
+            pred_frames=protein_frames,
+            target_frames=protein_frames,
+            frames_mask=protein_mask,
+            pred_positions=loop_output_frames.get_trans(),
+            target_positions=loop_true_frames.get_trans(),
+            positions_mask=loop_mask,
+            length_scale=10.0,
+            l1_clamp_distance=10.0,
+            eps=1e-4,
+        )
+    )
 
     # compute sidechain loss
     atom14_atom_is_ambiguous = torch.tensor(openfold_restype_atom14_ambiguous_atoms[batch["loop_aatype"].cpu().numpy()],
