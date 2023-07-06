@@ -265,8 +265,8 @@ class Trainer:
 
             # save pdb
             structure = recreate_structure(id_,
-                                           [("P", data["loop_sequence_onehot"][0], output["final_positions"][0]),
-                                            ("M", data["protein_sequence_onehot"][0], data["protein_atom14_gt_positions"][0])])
+                                           [("P", data["loop_residue_numbers"][0], data["loop_sequence_onehot"][0], output["final_positions"][0]),
+                                            ("M", data["protein_residue_numbers"][0], data["protein_sequence_onehot"][0], data["protein_atom14_gt_positions"][0])])
             pdbio = PDBIO()
             pdbio.set_structure(structure)
             with StringIO() as sio:

@@ -180,13 +180,14 @@ def get_atom14_positions(residue: Residue) -> Tuple[torch.Tensor, torch.Tensor]:
 
 
 def recreate_structure(structure_id: str,
-                       data_by_chain: List[Tuple[str, torch.Tensor, torch.Tensor]]) -> Structure:
+                       data_by_chain: List[Tuple[str, torch.Tensor, torch.Tensor, torch.Tensor]]) -> Structure:
     """
         Args:
             amino_acids_by_chain:
                 [0] chain ids
-                [1] amino acids per residue, one-hot encoded
-                [2] positions of atoms: [n_residues, n_atoms, 3]
+                [1] residue numbers
+                [2] amino acids per residue, one-hot encoded
+                [3] positions of atoms: [n_residues, n_atoms, 3]
     """
 
     structure = Structure(structure_id)
@@ -195,7 +196,7 @@ def recreate_structure(structure_id: str,
 
     atom_count = 0
 
-    for chain_id, sequence, atom_positions in data_by_chain:
+    for chain_id, residue_numbers, sequence, atom_positions in data_by_chain:
 
         chain = Chain(chain_id)
         model.add(chain)
@@ -208,7 +209,7 @@ def recreate_structure(structure_id: str,
                 continue
 
             residue_name = amino_acid.three_letter_code
-            residue_number = residue_index + 1
+            residue_number = residue_numbers[residue_index]
 
             residue = Residue((chain_id, residue_number, " "),
                               residue_name, chain_id)

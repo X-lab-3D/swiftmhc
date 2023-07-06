@@ -181,17 +181,22 @@ def _read_residue_data(residues: List[Residue]) -> Dict[str, torch.Tensor]:
     # get atom positions and mask
     atom14_positions = []
     atom14_mask = []
+    residue_numbers = []
     for residue_index, residue in enumerate(residues):
         p, m = get_atom14_positions(residue)
         atom14_positions.append(p.float())
         atom14_mask.append(m)
+        residue_numbers.append(residue.get_id()[1])
+
     atom14_positions = torch.stack(atom14_positions)
     atom14_mask = torch.stack(atom14_mask)
+    residue_numbers = torch.tensor(residue_numbers)
 
     blosum62 = _get_blosum_encoding(aatype, 62)
 
     # convert to atom 37 format, for the frames and torsion angles
     protein = {
+        "residue_numbers": residue_numbers,
         "aatype": aatype,
         "sequence_onehot": sequence_onehot,
         "blosum62": blosum62
