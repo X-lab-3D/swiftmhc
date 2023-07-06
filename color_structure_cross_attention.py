@@ -57,37 +57,39 @@ if __name__ == "__main__":
 
         print("written:", pdb_path)
 
-        structure = pdb_parser.get_structure(f"{output_name}-{last_frame_id}", pdb_path)
-        chains_by_id = {chain.id: chain for chain in structure.get_chains()}
-        protein_chain = chains_by_id["M"]
-        loop_chain = chains_by_id["P"]
+        protein_chain_id = "M"
+        loop_chain_id = "P"
 
         cross_attention = hdf5_file[f"{last_frame_id}/cross_attention"][0, 0, ...]
 
         cross_attention_protein = cross_attention.sum(axis=0)
         cross_attention_protein = cross_attention_protein / cross_attention_protein.max()
 
-        cross_attention_loop = cross_attention.sum(axis=1)
-        cross_attention_loop = cross_attention_loop / cross_attention_loop.max()
+        protein_residue_numbers = hdf5_file[f"{last_frame_id}/protein_residue_numbers"][:]
+        protein_residue_mask = hdf5_file[f"{last_frame_id}/protein_cross_residue_mask"][:]
 
     pymol_cmd.reinitialize()
     pymol_cmd.load(pdb_path)
 
     pymol_cmd.show("sticks", "name CA or sidechain")
-    pymol_cmd.show("sticks", f"chain {loop_chain.get_id()[0]}")
-    pymol_cmd.hide("cartoon", f"chain {loop_chain.get_id()[0]}")
+    pymol_cmd.show("sticks", f"chain {loop_chain_id}")
+    pymol_cmd.hide("cartoon", f"chain {loop_chain_id}")
 
-    for residue_index, protein_residue in enumerate(protein_chain.get_residues()):
-        attention_value = cross_attention_protein[residue_index]
-        residue_number = protein_residue.get_id()[1]
+    pymol_cmd.color("blue", f"chain {protein_chain_id}")
 
-        rgb = (attention_value, attention_value, 1.0)
+    for residue_index, residue_number in enumerate(protein_residue_numbers):
 
-        color_name = f"protein-residue-{residue_index}"
-        pymol_cmd.set_color(color_name, rgb)
-        pymol_cmd.color(color_name, f"chain {protein_chain.get_id()[0]} and residue {residue_number}")
+        if protein_residue_mask[residue_index]:
 
-    pymol_cmd.color("green", f"chain {loop_chain.get_id()[0]}")
+            attention_value = cross_attention_protein[residue_index]
+
+            rgb = (attention_value, attention_value, 1.0)
+
+            color_name = f"protein-residue-{residue_index}"
+            pymol_cmd.set_color(color_name, rgb)
+            pymol_cmd.color(color_name, f"chain {protein_chain_id} and residue {residue_number}")
+
+    pymol_cmd.color("green", f"chain {loop_chain_id}")
 
     session_path = f"{output_name}-{last_frame_id}.pse"
     pymol_cmd.save(session_path)

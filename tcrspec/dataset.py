@@ -84,7 +84,8 @@ class ProteinLoopDataset(Dataset):
                         result[f"{prefix}_{interfix}_residues_mask"][:length] = True
 
                 result[f"{prefix}_residue_index"] = torch.arange(0, max_length, 1, device=self._device, dtype=torch.long)
-                result[f"{prefix}_residue_numbers"] = torch.tensor(entry_group[prefix]["residue_numbers"][:], dtype=torch.int, device=self._device)
+                result[f"{prefix}_residue_numbers"] = torch.zeros(max_length, dtype=torch.int, device=self._device)
+                result[f"{prefix}_residue_numbers"][:length] = torch.tensor(entry_group[prefix]["residue_numbers"][:], dtype=torch.int, device=self._device)
 
                 residx_atom14_to_atom37_data = entry_group[prefix]["residx_atom14_to_atom37"][:]
                 result[f"{prefix}_residx_atom14_to_atom37"] = torch.zeros((max_length, residx_atom14_to_atom37_data.shape[1]), device=self._device, dtype=torch.long)
