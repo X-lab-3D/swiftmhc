@@ -9,6 +9,7 @@ from tempfile import mkdtemp
 import shutil
 from math import sqrt
 from io import StringIO
+import re
 
 from Bio.PDB.PDBParser import PDBParser
 import pymol.cmd as pymol_cmd
@@ -19,6 +20,10 @@ _log = logging.getLogger(__name__)
 
 arg_parser = ArgumentParser(description="combine multiple snapshot structures into an animation")
 arg_parser.add_argument("hdf5_path", help="path to the hdf5 data file")
+
+
+def is_frame_id(s: str) -> bool:
+    return re.match("\d+\.\d+", s) is not None
 
 
 def get_frame_number(frame_id: str) -> float:
@@ -45,7 +50,7 @@ if __name__ == "__main__":
 
     with h5py.File(args.hdf5_path, 'r') as hdf5_file:
 
-        frame_ids = sorted(hdf5_file.keys(), key=get_frame_number)
+        frame_ids = sorted(filter(is_frame_id, hdf5_file.keys()), key=get_frame_number)
         last_frame_id = frame_ids[-1]
 
         pdb_path = f"{output_name}-{last_frame_id}.pdb"
@@ -66,7 +71,7 @@ if __name__ == "__main__":
         cross_attention_protein = cross_attention_protein / cross_attention_protein.max()
 
         protein_residue_numbers = hdf5_file[f"protein_residue_numbers"][:]
-        protein_residue_mask = hdf5_file[f"{last_frame_id}/protein_cross_residue_mask"][:]
+        protein_residue_mask = hdf5_file[f"protein_cross_residues_mask"][:]
 
     pymol_cmd.reinitialize()
     pymol_cmd.load(pdb_path)

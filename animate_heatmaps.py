@@ -2,6 +2,7 @@
 
 import os
 import sys
+import re
 from glob import glob
 from tempfile import mkdtemp
 from shutil import rmtree
@@ -23,6 +24,10 @@ arg_parser.add_argument("hdf5_path", help="path to the hdf5 file, containing the
 arg_parser.add_argument("data_type", help="type of data to take from hdf5 file: (loop_attention/protein_attention/cross_attention/other)")
 arg_parser.add_argument("block", type=int, nargs="?", help="number of the block: (0/1/2/...)")
 arg_parser.add_argument("head", type=int, nargs="?", help="number of the head: (0/1/2/...)")
+
+
+def is_frame_id(s: str) -> bool:
+    return re.match("\d+\.\d+", s) is not None
 
 
 def get_epoch_number(frame_id: str) -> float:
@@ -47,7 +52,7 @@ if __name__ == "__main__":
         output_name = os.path.basename(args.hdf5_path).replace(".hdf5","").replace("-animation", "") + f"-{args.data_type}"
 
     with h5py.File(args.hdf5_path, 'r') as hdf5_file:
-        frame_ids = sorted(hdf5_file.keys(), key=get_epoch_number)
+        frame_ids = sorted(filter(is_frame_id, hdf5_file.keys()), key=get_epoch_number)
 
         png_files = []
 

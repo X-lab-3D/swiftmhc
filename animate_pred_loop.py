@@ -3,6 +3,7 @@
 import logging
 import os
 import sys
+import re
 from argparse import ArgumentParser
 from glob import glob
 from tempfile import mkdtemp
@@ -31,6 +32,10 @@ arg_parser.add_argument("true_path", help="path to the true pdb file")
 
 
 font = ImageFont.truetype("DejaVuSans.ttf", 48)
+
+
+def is_frame_id(s: str) -> bool:
+    return re.match("\d+\.\d+", s) is not None
 
 
 def find_atom(residue: Residue, name: str) -> Atom:
@@ -143,7 +148,7 @@ if __name__ == "__main__":
 
     with h5py.File(args.hdf5_path, 'r') as hdf5_file:
 
-        frame_ids = sorted(hdf5_file.keys(), key=get_frame_number)
+        frame_ids = sorted(filter(is_frame_id, hdf5_file.keys()), key=get_frame_number)
 
         for frame_index, frame_id in enumerate(frame_ids):
 
