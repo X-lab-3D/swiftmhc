@@ -280,8 +280,8 @@ class Trainer:
                                        compression="lzf")
 
             # save the residue numbering, for later lookup
-            animation_file.create_dataset("protein_residue_numbers", data=data["protein_residue_numbers"][0])
-            animation_file.create_dataset("loop_residue_numbers", data=data["loop_residue_numbers"][0])
+            animation_file.create_dataset("protein_residue_numbers", data=data["protein_residue_numbers"][0].cpu())
+            animation_file.create_dataset("loop_residue_numbers", data=data["loop_residue_numbers"][0].cpu())
 
     def _epoch(self,
                epoch_index: int,
