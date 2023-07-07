@@ -285,23 +285,21 @@ def preprocess(table_path: str,
         self_residues_mask = _mask_residues(protein_residues, protein_residues_self_mask)
         cross_residues_mask = _mask_residues(protein_residues, protein_residues_cross_mask)
 
-        # derive data from protein residues
-        protein_data = _read_residue_data(protein_residues)
-
-        # remove the residues that are completely masked out.
-        # (false in both masks)
+        # remove the residues that are completely outside of mask range
         combo_mask = torch.logical_or(self_residues_mask, cross_residues_mask)
         combo_mask_nonzero = combo_mask.nonzero()
         mask_start = combo_mask_nonzero.min()
         mask_end = combo_mask_nonzero.max() + 1
 
+        # apply the limiting protein range, reducing the size of the data that needs to be generated.
+        self_residues_mask = self_residues_mask[mask_start: mask_end]
+        cross_residues_mask = cross_residues_mask[mask_start: mask_end]
         protein_residues = protein_residues[mask_start: mask_end]
-        for key, value in protein_data.items():
-            protein_data[key] = value[mask_start: mask_end, ...]
 
-        # store masks as protein data
-        protein_data["self_residues_mask"] = self_residues_mask[mask_start: mask_end]
-        protein_data["cross_residues_mask"] = cross_residues_mask[mask_start: mask_end]
+        # derive data from protein residues
+        protein_data = _read_residue_data(protein_residues)
+        protein_data["cross_residues_mask"] = cross_residues_mask
+        protein_data["self_residues_mask"] = self_residues_mask
 
         # get residues from the loop (chain P)
         loop_chain = chains_by_id["P"]
