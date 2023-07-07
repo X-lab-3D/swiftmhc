@@ -227,7 +227,7 @@ class Predictor(torch.nn.Module):
     def get_storage_size(self):
         total_size = 0
         for parameter in self.parameters():
-            total_size += sys.getsizeof(parameter.storage.cpu())
+            total_size += sys.getsizeof(parameter.storage().cpu())
 
         return total_size
 
