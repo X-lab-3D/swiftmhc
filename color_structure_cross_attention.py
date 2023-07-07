@@ -65,7 +65,7 @@ if __name__ == "__main__":
         cross_attention_protein = cross_attention.sum(axis=0)
         cross_attention_protein = cross_attention_protein / cross_attention_protein.max()
 
-        protein_residue_numbers = hdf5_file[f"{last_frame_id}/protein_residue_numbers"][:]
+        protein_residue_numbers = hdf5_file[f"protein_residue_numbers"][:]
         protein_residue_mask = hdf5_file[f"{last_frame_id}/protein_cross_residue_mask"][:]
 
     pymol_cmd.reinitialize()
