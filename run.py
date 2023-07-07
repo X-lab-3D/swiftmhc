@@ -281,11 +281,11 @@ class Trainer:
                                        compression="lzf")
 
             # save the residue numbering, for later lookup
-            if not "protein_residue_numbers" in animation_file:
-                animation_file.create_dataset("protein_residue_numbers", data=data["protein_residue_numbers"][0].cpu())
+            for key in ("protein_cross_residues_mask", "loop_cross_residues_mask",
+                        "protein_residue_numbers", "loop_residue_numbers"):
 
-            if not "loop_residue_numbers" in animation_file:
-                animation_file.create_dataset("loop_residue_numbers", data=data["loop_residue_numbers"][0].cpu())
+                if not key in animation_file:
+                    animation_file.create_dataset(key, data=data[key][0].cpu())
 
     def _epoch(self,
                epoch_index: int,
