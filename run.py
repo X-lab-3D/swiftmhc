@@ -59,6 +59,7 @@ from tcrspec.loss import get_loss, get_calpha_square_deviation
 from tcrspec.models.data import TensorDict
 from tcrspec.tools.pdb import recreate_structure
 from tcrspec.domain.amino_acid import amino_acids_by_one_hot_index
+from tcrspec.tools.storage import get_batch_storage_size
 
 
 arg_parser = ArgumentParser(description="run a TCR-spec network model")
@@ -438,6 +439,11 @@ class Trainer:
         model_path = f"{run_id}/best-predictor.pth"
         model = Predictor(self.loop_maxlen, self.protein_maxlen,
                           openfold_config.model, self._device)
+
+        if _log.level <= logging.DEBUG:
+            model_storage_size = model.get_storage_size()
+            _log.debug(f"the model takes {model_storage_size} bytes storage space")
+
         model.to(device=self._device)
         model.eval()
         model.load_state_dict(torch.load(model_path))
@@ -471,6 +477,11 @@ class Trainer:
         # Set up the model
         model = Predictor(self.loop_maxlen, self.protein_maxlen,
                           openfold_config.model)
+
+        if _log.level <= logging.DEBUG:
+            model_storage_size = model.get_storage_size()
+            _log.debug(f"the model takes {model_storage_size} bytes storage space")
+
         model.to(device=self._device)
         model.train()
 
@@ -604,6 +615,11 @@ class Trainer:
                         device: torch.device) -> DataLoader:
 
         dataset = ProteinLoopDataset(data_path, device, loop_maxlen=self.loop_maxlen, protein_maxlen=self.protein_maxlen)
+
+        if _log.level <= logging.DEBUG:
+            batch_storage_size = get_batch_storage_size(dataset[0])
+            _log.debug(f"one batch from {data_path} takes {batch_storage_size} bytes storage space")
+
         loader = DataLoader(dataset,
                             collate_fn=ProteinLoopDataset.collate,
                             batch_size=batch_size,
