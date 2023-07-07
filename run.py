@@ -59,6 +59,7 @@ from tcrspec.loss import get_loss, get_calpha_square_deviation
 from tcrspec.models.data import TensorDict
 from tcrspec.tools.pdb import recreate_structure
 from tcrspec.domain.amino_acid import amino_acids_by_one_hot_index
+from tcrspec.tools.storage import get_batch_storage_size
 
 
 arg_parser = ArgumentParser(description="run a TCR-spec network model")
@@ -280,8 +281,11 @@ class Trainer:
                                        compression="lzf")
 
             # save the residue numbering, for later lookup
-            animation_file.create_dataset("protein_residue_numbers", data=data["protein_residue_numbers"][0])
-            animation_file.create_dataset("loop_residue_numbers", data=data["loop_residue_numbers"][0])
+            for key in ("protein_cross_residues_mask", "loop_cross_residues_mask",
+                        "protein_residue_numbers", "loop_residue_numbers"):
+
+                if not key in animation_file:
+                    animation_file.create_dataset(key, data=data[key][0].cpu())
 
     def _epoch(self,
                epoch_index: int,
@@ -314,6 +318,8 @@ class Trainer:
                                pdb_output_directory, animated_data)
 
             epoch_data = self._store_required_data(epoch_data, batch_loss, batch_output, batch_data)
+
+            _log.debug(torch.cuda.memory_summary())
 
             sum_, count = get_calpha_square_deviation(batch_output, batch_data)
 
@@ -435,6 +441,11 @@ class Trainer:
         model_path = f"{run_id}/best-predictor.pth"
         model = Predictor(self.loop_maxlen, self.protein_maxlen,
                           openfold_config.model, self._device)
+
+        if _log.level <= logging.DEBUG:
+            model_storage_size = model.get_storage_size()
+            _log.debug(f"the model takes {model_storage_size} bytes storage space")
+
         model.to(device=self._device)
         model.eval()
         model.load_state_dict(torch.load(model_path))
@@ -468,6 +479,11 @@ class Trainer:
         # Set up the model
         model = Predictor(self.loop_maxlen, self.protein_maxlen,
                           openfold_config.model)
+
+        if _log.level <= logging.DEBUG:
+            model_storage_size = model.get_storage_size()
+            _log.debug(f"the model takes {model_storage_size} bytes storage space")
+
         model.to(device=self._device)
         model.train()
 
@@ -601,6 +617,11 @@ class Trainer:
                         device: torch.device) -> DataLoader:
 
         dataset = ProteinLoopDataset(data_path, device, loop_maxlen=self.loop_maxlen, protein_maxlen=self.protein_maxlen)
+
+        if _log.level <= logging.DEBUG:
+            batch_storage_size = get_batch_storage_size(dataset[0])
+            _log.debug(f"one batch from {data_path} takes {batch_storage_size} bytes storage space")
+
         loader = DataLoader(dataset,
                             collate_fn=ProteinLoopDataset.collate,
                             batch_size=batch_size,
@@ -631,6 +652,8 @@ if __name__ == "__main__":
     if torch.cuda.is_available():
         device = torch.device("cuda")
         _log.debug("using cuda device")
+
+        _log.debug(torch.cuda.memory_summary())
     else:
         device = torch.device("cpu")
         _log.debug("using cpu device")

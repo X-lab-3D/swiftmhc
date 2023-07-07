@@ -1,6 +1,7 @@
 from typing import Dict, Union
 from copy import deepcopy as copy
 import logging
+import sys
 
 from torch.nn import Embedding
 from torch.nn.modules.transformer import TransformerEncoder
@@ -223,4 +224,10 @@ class Predictor(torch.nn.Module):
 
         return output
 
+    def get_storage_size(self):
+        total_size = 0
+        for parameter in self.parameters():
+            total_size += sys.getsizeof(parameter.storage().cpu())
+
+        return total_size
 
