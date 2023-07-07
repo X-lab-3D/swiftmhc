@@ -319,6 +319,8 @@ class Trainer:
 
             epoch_data = self._store_required_data(epoch_data, batch_loss, batch_output, batch_data)
 
+            _log.debug(torch.cuda.memory_summary())
+
             sum_, count = get_calpha_square_deviation(batch_output, batch_data)
 
             sd += sum_
@@ -650,6 +652,8 @@ if __name__ == "__main__":
     if torch.cuda.is_available():
         device = torch.device("cuda")
         _log.debug("using cuda device")
+
+        _log.debug(torch.cuda.memory_summary())
     else:
         device = torch.device("cpu")
         _log.debug("using cpu device")
