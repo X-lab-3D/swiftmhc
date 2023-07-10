@@ -112,11 +112,6 @@ class ProteinLoopDataset(Dataset):
                                                       device=self._device, dtype=torch.float)
             result["protein_proximities"][:prox_data.shape[0], :prox_data.shape[0], :] = torch.tensor(prox_data, device=self._device, dtype=torch.float)
 
-            prox_data = entry_group["proximities"][:]
-            result["proximities"] = torch.zeros(self._loop_maxlen, self._protein_maxlen, 1,
-                                              device=self._device, dtype=torch.float)
-            result["proximities"][:prox_data.shape[0], :prox_data.shape[1], :] = torch.tensor(prox_data, device=self._device, dtype=torch.float)
-
             return result
 
     @staticmethod

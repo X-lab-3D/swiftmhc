@@ -40,13 +40,7 @@ PREPROCESS_LOOP_NAME = "loop"
 def _write_preprocessed_data(hdf5_path: str, storage_id: str,
                              protein_data: Dict[str, torch.Tensor],
                              loop_data: Dict[str, torch.Tensor],
-                             proximities: torch.Tensor,
                              kd: Optional[float] = None):
-    """
-    Args:
-        protein_proximities: [protein_len, protein_len, 1] proximity matrix
-        proximities:         [loop_len, protein_len, 1] proximity matrix
-    """
 
     with h5py.File(hdf5_path, 'a') as hdf5_file:
 
@@ -54,8 +48,6 @@ def _write_preprocessed_data(hdf5_path: str, storage_id: str,
 
         if kd is not None:
             storage_group.create_dataset(PREPROCESS_KD_NAME, data=kd)
-
-        storage_group.create_dataset("proximities", data=proximities, compression="lzf")
 
         protein_group = storage_group.require_group(PREPROCESS_PROTEIN_NAME)
         for field_name, field_data in protein_data.items():
@@ -306,9 +298,6 @@ def preprocess(table_path: str,
         loop_residues = list(loop_chain.get_residues())
         loop_data = _read_residue_data(loop_residues)
 
-        # proximities between loop and protein
-        proximities = _create_proximities(loop_residues, protein_residues)
-
         # proximities within protein
         protein_proximities = _create_proximities(protein_residues, protein_residues)
         protein_data["proximities"] = protein_proximities
@@ -316,4 +305,4 @@ def preprocess(table_path: str,
         _write_preprocessed_data(output_path, id_,
                                  protein_data,
                                  loop_data,
-                                 proximities, kd)
+                                 kd)
