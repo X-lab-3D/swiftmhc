@@ -7,7 +7,6 @@ from uuid import uuid4
 from typing import Tuple, Union, Optional, List, Dict, Set, Any
 import random
 from math import log, sqrt
-from multiprocessing import set_start_method
 import h5py
 import numpy
 from io import StringIO
@@ -16,12 +15,13 @@ from scipy.stats import pearsonr
 import ml_collections
 import pandas
 import torch
-from torch.utils.data import DataLoader, SubsetRandomSampler
+from torch.utils.data import DataLoader
 from torch.nn.modules.module import Module
 from torch.optim import Adam, Optimizer
 from torch.optim.lr_scheduler import StepLR, _LRScheduler
 from torch.nn import CrossEntropyLoss, MSELoss
 from torch.nn.utils import clip_grad_norm_
+from torch.nn import DataParallel
 
 from Bio.PDB.PDBIO import PDBIO
 
@@ -59,7 +59,6 @@ from tcrspec.loss import get_loss, get_calpha_square_deviation
 from tcrspec.models.data import TensorDict
 from tcrspec.tools.pdb import recreate_structure
 from tcrspec.domain.amino_acid import amino_acids_by_one_hot_index
-from tcrspec.tools.storage import get_batch_storage_size
 
 
 arg_parser = ArgumentParser(description="run a TCR-spec network model")
@@ -69,6 +68,7 @@ arg_parser.add_argument("--log-stdout", "-l", help="log to stdout", action='stor
 arg_parser.add_argument("--pretrained-model", "-m", help="use a given pretrained model state")
 arg_parser.add_argument("--pretrained-protein-ipa", "-p", help="use a given pretrained protein ipa state")
 arg_parser.add_argument("--test-only", "-t", help="skip training and test on a pretrained model", action='store_const', const=True, default=False)
+arg_parser.add_argument("--workers", "-w", help="number of workers to load batches", type=int, default=5)
 arg_parser.add_argument("--batch-size", "-b", help="batch size to use during training/validation/testing", type=int, default=8)
 arg_parser.add_argument("--epoch-count", "-e", help="how many epochs to run during training", type=int, default=100)
 arg_parser.add_argument("--fine-tune-count", "-u", help="how many epochs to run during fine-tuning", type=int, default=10)
@@ -78,58 +78,11 @@ arg_parser.add_argument("data_path", help="path to the train, validation & test 
 
 _log = logging.getLogger(__name__)
 
-def _calc_mcc(probabilities: torch.Tensor, targets: torch.Tensor) -> float:
-
-    predictions = torch.argmax(probabilities, dim=1)
-
-    tp = torch.count_nonzero(torch.logical_and(predictions, targets)).item()
-    fp = torch.count_nonzero(torch.logical_and(predictions, torch.logical_not(targets))).item()
-    tn = torch.count_nonzero(torch.logical_and(torch.logical_not(predictions), torch.logical_not(targets))).item()
-    fn = torch.count_nonzero(torch.logical_and(torch.logical_not(predictions), targets)).item()
-
-    mcc_numerator = tn * tp - fp * fn
-    if mcc_numerator == 0:
-        mcc = 0
-    else:
-        mcc_denominator = sqrt((tn + fn) * (fp + tp) * (tn + fp) * (fn + tp))
-        mcc = mcc_numerator / mcc_denominator
-
-    return mcc
-
-
-def _calc_sensitivity(probabilities: torch.Tensor, targets: torch.Tensor) -> float:
-
-    predictions = torch.argmax(probabilities, dim=1)
-
-    tp = torch.count_nonzero(torch.logical_and(predictions, targets)).item()
-    fn = torch.count_nonzero(torch.logical_and(torch.logical_not(predictions), targets)).item()
-
-    return tp / (tp + fn)
-
-
-def _calc_specificity(probabilities: torch.Tensor, targets: torch.Tensor) -> float:
-
-    predictions = torch.argmax(probabilities, dim=1)
-
-    tn = torch.count_nonzero(torch.logical_and(torch.logical_not(predictions), torch.logical_not(targets))).item()
-    fp = torch.count_nonzero(torch.logical_and(predictions, torch.logical_not(targets))).item()
-
-    return tn / (tn + fp)
-
-
-def _calc_accuracy(probabilities: torch.Tensor, targets: torch.Tensor) -> float:
-
-    predictions = torch.argmax(probabilities, dim=1)
-
-    tp = torch.count_nonzero(torch.logical_and(predictions, targets)).item()
-    tn = torch.count_nonzero(torch.logical_and(torch.logical_not(predictions), torch.logical_not(targets))).item()
-
-    return (tp + tn) / predictions.shape[0]
-
 
 class Trainer:
     def __init__(self,
-                 device: torch.device):
+                 device: torch.device,
+                 workers_count: int):
 
 
         self._device = device
@@ -140,6 +93,8 @@ class Trainer:
 
         self.loop_maxlen = 16
         self.protein_maxlen = 200
+
+        self.workers_count = workers_count
 
     def _batch(self,
                epoch_index: int,
@@ -319,8 +274,6 @@ class Trainer:
 
             epoch_data = self._store_required_data(epoch_data, batch_loss, batch_output, batch_data)
 
-            _log.debug(torch.cuda.memory_summary())
-
             sum_, count = get_calpha_square_deviation(batch_output, batch_data)
 
             sd += sum_
@@ -441,10 +394,7 @@ class Trainer:
         model_path = f"{run_id}/best-predictor.pth"
         model = Predictor(self.loop_maxlen, self.protein_maxlen,
                           openfold_config.model, self._device)
-
-        if _log.level <= logging.DEBUG:
-            model_storage_size = model.get_storage_size()
-            _log.debug(f"the model takes {model_storage_size} bytes storage space")
+        model = DataParallel(model)
 
         model.to(device=self._device)
         model.eval()
@@ -479,10 +429,7 @@ class Trainer:
         # Set up the model
         model = Predictor(self.loop_maxlen, self.protein_maxlen,
                           openfold_config.model)
-
-        if _log.level <= logging.DEBUG:
-            model_storage_size = model.get_storage_size()
-            _log.debug(f"the model takes {model_storage_size} bytes storage space")
+        model = DataParallel(model)
 
         model.to(device=self._device)
         model.train()
@@ -492,8 +439,8 @@ class Trainer:
                                              map_location=self._device))
 
         if pretrained_protein_ipa_path is not None:
-            model.protein_ipa.load_state_dict(torch.load(pretrained_protein_ipa_path,
-                                              map_location=self._device))
+            model.module.protein_ipa.load_state_dict(torch.load(pretrained_protein_ipa_path,
+                                                    map_location=self._device))
 
         optimizer = Adam(model.parameters(), lr=0.001)
         # scheduler = StepLR(optimizer, step_size=10, gamma=0.1)
@@ -555,7 +502,7 @@ class Trainer:
                 lowest_loss = valid_data["total loss"]
 
                 torch.save(model.state_dict(), model_path)
-                torch.save(model.protein_ipa.state_dict(), protein_ipa_path)
+                torch.save(model.module.protein_ipa.state_dict(), protein_ipa_path)
             # else:
             #    model.load_state_dict(torch.load(model_path))
 
@@ -618,14 +565,10 @@ class Trainer:
 
         dataset = ProteinLoopDataset(data_path, device, loop_maxlen=self.loop_maxlen, protein_maxlen=self.protein_maxlen)
 
-        if _log.level <= logging.DEBUG:
-            batch_storage_size = get_batch_storage_size(dataset[0])
-            _log.debug(f"one batch from {data_path} takes {batch_storage_size} bytes storage space")
-
         loader = DataLoader(dataset,
                             collate_fn=ProteinLoopDataset.collate,
                             batch_size=batch_size,
-                            num_workers=5)
+                            num_workers=self.workers_count)
 
         return loader
 
@@ -650,17 +593,19 @@ if __name__ == "__main__":
                             level=logging.DEBUG if args.debug else logging.INFO)
 
     if torch.cuda.is_available():
-        device = torch.device("cuda")
-        _log.debug("using cuda device")
+        device_count = torch.cuda.device_count()
+        _log.debug(f"using {device_count} cuda devices")
 
-        _log.debug(torch.cuda.memory_summary())
+        device = torch.device("cuda")
     else:
-        device = torch.device("cpu")
         _log.debug("using cpu device")
 
-    set_start_method('spawn')
+        device = torch.device("cpu")
 
-    trainer = Trainer(device)
+    _log.debug(f"using {args.workers} workers")
+    torch.multiprocessing.set_start_method('spawn')
+
+    trainer = Trainer(device, args.workers)
     if args.test_only:
 
         test_path = args.data_path[0]

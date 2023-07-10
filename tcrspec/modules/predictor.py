@@ -46,7 +46,7 @@ class Predictor(torch.nn.Module):
 
         self.n_head = structure_module_config.no_heads_ipa
 
-        self.pos_enc = PositionalEncoding(structure_module_config.c_s, self.loop_maxlen)
+        #self.pos_enc = PositionalEncoding(structure_module_config.c_s, self.loop_maxlen)
 
         #self.loop_enc = DebuggableTransformerEncoderLayer(structure_module_config.c_s,
         #                                                  self.n_head)
