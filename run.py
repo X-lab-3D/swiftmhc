@@ -191,33 +191,33 @@ class Trainer:
 
             # save loop attentions heatmaps
             #loop_self_attention = output["loop_self_attention"].cpu()
-            #frame_group.create_dataset("loop_attention", data=loop_self_attention[:, 0, ...], compression="lzf")
+            #frame_group.create_dataset("loop_attention", data=loop_self_attention[0], compression="lzf")
 
             # save loop embeddings heatmaps
             loop_embd = output["loop_embd"].cpu()
-            frame_group.create_dataset("loop_embd", data=loop_embd[0, ...], compression="lzf")
+            frame_group.create_dataset("loop_embd", data=loop_embd[0], compression="lzf")
 
             #loop_pos_enc = output["loop_pos_enc"].cpu()
-            #frame_group.create_dataset("loop_pos_enc", data=loop_pos_enc[0, ...], compression="lzf")
+            #frame_group.create_dataset("loop_pos_enc", data=loop_pos_enc[0], compression="lzf")
 
             loop_init = output["loop_init"].cpu()
-            frame_group.create_dataset("loop_init", data=loop_init[0, ...], compression="lzf")
+            frame_group.create_dataset("loop_init", data=loop_init[0], compression="lzf")
 
             # save protein attentions heatmaps
             protein_self_attention = output["protein_self_attention"].cpu()
             protein_self_attention_sd = output["protein_self_attention_sd"].cpu()
             protein_self_attention_b = output["protein_self_attention_b"].cpu()
-            frame_group.create_dataset("protein_attention", data=protein_self_attention[:, 0, ...], compression="lzf")
-            frame_group.create_dataset("protein_attention_sd", data=protein_self_attention_sd[:, 0, ...], compression="lzf")
-            frame_group.create_dataset("protein_attention_b", data=protein_self_attention_b[:, 0, ...], compression="lzf")
+            frame_group.create_dataset("protein_attention", data=protein_self_attention[0], compression="lzf")
+            frame_group.create_dataset("protein_attention_sd", data=protein_self_attention_sd[0], compression="lzf")
+            frame_group.create_dataset("protein_attention_b", data=protein_self_attention_b[0], compression="lzf")
 
             # save cross attentions heatmaps
             cross_attention = output["cross_attention"].cpu()
             cross_attention_sd = output["cross_attention_sd"].cpu()
             cross_attention_pts = output["cross_attention_pts"].cpu()
-            frame_group.create_dataset("cross_attention", data=cross_attention[:, 0, ...], compression="lzf")
-            frame_group.create_dataset("cross_attention_sd", data=cross_attention_sd[:, 0, ...], compression="lzf")
-            frame_group.create_dataset("cross_attention_pts", data=cross_attention_pts[:, 0, ...], compression="lzf")
+            frame_group.create_dataset("cross_attention", data=cross_attention[0], compression="lzf")
+            frame_group.create_dataset("cross_attention_sd", data=cross_attention_sd[0], compression="lzf")
+            frame_group.create_dataset("cross_attention_pts", data=cross_attention_pts[0], compression="lzf")
 
             # save pdb
             structure = recreate_structure(id_,

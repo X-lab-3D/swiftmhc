@@ -207,10 +207,10 @@ class CrossStructureModule(torch.nn.Module):
         r = {}
         r["single"] = outputs["states"][-1]
 
-        # [n_layer, batch_size, n_head, dst_len, src_len]
-        r["cross_attention"] = torch.stack(atts)
-        r["cross_attention_sd"] = torch.stack(atts_sd)
-        r["cross_attention_pts"] = torch.stack(atts_pts)
+        # [batch_size, n_block, n_head, dst_len, src_len]
+        r["cross_attention"] = torch.stack(atts).transpose(0, 1)
+        r["cross_attention_sd"] = torch.stack(atts_sd).transpose(0, 1)
+        r["cross_attention_pts"] = torch.stack(atts_pts).transpose(0, 1)
 
         r["final_frames"] = outputs["frames"][-1]
         r["final_sidechain_frames"] = outputs["sidechain_frames"][-1]

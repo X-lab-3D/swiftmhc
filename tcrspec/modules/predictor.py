@@ -160,10 +160,10 @@ class Predictor(torch.nn.Module):
             protein_as_b.append(protein_a_b.detach())
 
         # store the attention weights, for debugging
-        # [n_layer, batch_size, n_head, protein_len, protein_len]
-        protein_as = torch.stack(protein_as)
-        protein_as_sd = torch.stack(protein_as_sd)
-        protein_as_b = torch.stack(protein_as_b)
+        # [batch_size, n_block, n_head, protein_len, protein_len]
+        protein_as = torch.stack(protein_as).transpose(0, 1)
+        protein_as_sd = torch.stack(protein_as_sd).transpose(0, 1)
+        protein_as_b = torch.stack(protein_as_b).transpose(0, 1)
 
         _log.debug(f"predictor: after ipa, protein_embd ranges {protein_embd.min()} - {protein_embd.max()}")
 
