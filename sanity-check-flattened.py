@@ -75,22 +75,24 @@ if __name__ == "__main__":
 
     loss_func = torch.nn.MSELoss(reduction="mean")
 
-    dataset = SequenceDataset("/data/tcrspec-clustered-10fold/train-fold2.hdf5")
-    data_loader = DataLoader(dataset, batch_size=64)
+    train_dataset = SequenceDataset("/data/tcrspec-clustered-10fold/train-fold2.hdf5")
+    train_data_loader = DataLoader(train_dataset, batch_size=64)
+
+    test_dataset = SequenceDataset("/data/tcrspec-clustered-10fold/test-fold2.hdf5")
+    test_data_loader = DataLoader(test_dataset, batch_size=64)
+
     model = Model()
     model.train()
 
     optimizer = Adam(model.parameters(), lr=0.001)
 
-    for epoch_index in range(10):
+    for epoch_index in range(100):
 
-        for batch_input, affinity in data_loader:
+        for batch_input, affinity in train_data_loader:
 
             optimizer.zero_grad()
 
             output = model(batch_input.to(torch.float32))
-
-            print("output", output)
 
             loss = loss_func(output, affinity.to(torch.float32))
 
@@ -98,6 +100,14 @@ if __name__ == "__main__":
 
             optimizer.step()
 
-            print("loss", loss)
-            print("pearson", _calc_pearson_correlation_coefficient(output, affinity))
-            print("pearsonr", pearsonr(output.tolist(), affinity.tolist()))
+        total_y = []
+        total_z = []
+
+        with torch.no_grad():
+            for batch_input, affinity in test_data_loader:
+                output = model(batch_input.to(torch.float32))
+
+                total_y += output.tolist()
+                total_z += affinity.tolist()
+
+        print("pearsonr", pearsonr(total_y, total_z))
