@@ -59,23 +59,37 @@ class Model(torch.nn.Module):
         super(Model, self).__init__()
 
         mlp_input_size = 22
+        c_res = 128
         c_affinity = 128
 
         self.pos_enc = PositionalEncoding(22, 9)
 
+        self.res_mlp = torch.nn.Sequential(
+            torch.nn.Linear(mlp_input_size, c_res),
+            torch.nn.GELU(),
+            torch.nn.Linear(c_res, c_res),
+            torch.nn.GELU(),
+            torch.nn.Linear(c_res, 1),
+        )
+
         self.aff_mlp = torch.nn.Sequential(
-            torch.nn.Linear(mlp_input_size, c_affinity),
+            torch.nn.Linear(9, c_affinity),
             torch.nn.GELU(),
             torch.nn.Linear(c_affinity, c_affinity),
             torch.nn.GELU(),
-            torch.nn.Linear(c_affinity, 1),
+            torch.nn.Linear(c_affinity, 1)
         )
 
-        self.plot = True
+        self.plot = False
 
     def forward(self, seq_embd: torch.Tensor) -> torch.Tensor:
 
-        seq_embd = self.pos_enc(seq_embd)
+        batch_size, loop_len, loop_depth = seq_embd.shape
+
+        pos_enc = torch.eye(loop_len, loop_depth).unsqueeze(0).expand(seq_embd.shape)
+
+        #seq_embd = torch.cat((seq_embd, pos_enc), dim=2)
+        seq_embd = seq_embd + pos_enc
 
         if self.plot:
             figure = pyplot.figure()
@@ -88,38 +102,39 @@ class Model(torch.nn.Module):
 
             self.plot = False
 
-        output = self.aff_mlp(seq_embd)
+        prob = self.res_mlp(seq_embd)[..., 0]
 
-        output = output[:, :, 0]
-        prob = torch.nn.functional.softmax(output, dim=1)
+        #prob = torch.nn.functional.softmax(prob, dim=1)
 
-        e = -torch.log(prob)
+        #aff = torch.sum(-torch.log(prob), dim=1)
 
-        return torch.sum(e, dim=1)
+        aff = self.aff_mlp(prob)[..., 0]
+
+        return aff
 
 
 if __name__ == "__main__":
 
     loss_func = torch.nn.MSELoss(reduction="mean")
 
-    dataset = SequenceDataset("/data/tcrspec-clustered-10fold/train-fold2.hdf5")
-    data_loader = DataLoader(dataset, batch_size=64)
+    train_dataset = SequenceDataset("/data/tcrspec-clustered-10fold/train-fold2.hdf5")
+    train_data_loader = DataLoader(train_dataset, batch_size=64)
+
+    test_dataset = SequenceDataset("/data/tcrspec-clustered-10fold/test-fold2.hdf5")
+    test_data_loader = DataLoader(test_dataset, batch_size=64)
+
     model = Model()
     model.train()
 
     optimizer = Adam(model.parameters(), lr=0.001)
 
-    for epoch_index in range(10):
+    for epoch_index in range(100):
 
-        for batch_input, affinity in data_loader:
+        for batch_input, affinity in train_data_loader:
 
             optimizer.zero_grad()
 
-            print("input", batch_input[0])
-
             output = model(batch_input.to(torch.float32))
-
-            print("output", output)
 
             loss = loss_func(output, affinity.to(torch.float32))
 
@@ -127,6 +142,14 @@ if __name__ == "__main__":
 
             optimizer.step()
 
-            print("loss", loss)
-            print("pearson", _calc_pearson_correlation_coefficient(output, affinity))
-            print("pearsonr", pearsonr(output.tolist(), affinity.tolist()))
+        total_y = []
+        total_z = []
+
+        with torch.no_grad():
+            for batch_input, affinity in test_data_loader:
+                output = model(batch_input.to(torch.float32))
+
+                total_y += output.tolist()
+                total_z += affinity.tolist()
+
+        print("pearsonr", pearsonr(total_y, total_z))
