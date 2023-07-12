@@ -443,3 +443,21 @@ def get_calpha_square_deviation(output_data: Dict[str, torch.Tensor],
     count = torch.sum(mask.int())
     return sum_, count
 
+
+def get_mcc(probabilities: torch.Tensor, targets: torch.Tensor) -> float:
+
+    predictions = torch.argmax(probabilities, dim=1)
+
+    tp = torch.count_nonzero(torch.logical_and(predictions, targets)).item()
+    fp = torch.count_nonzero(torch.logical_and(predictions, torch.logical_not(targets))).item()
+    tn = torch.count_nonzero(torch.logical_and(torch.logical_not(predictions), torch.logical_not(targets))).item()
+    fn = torch.count_nonzero(torch.logical_and(torch.logical_not(predictions), targets)).item()
+
+    mcc_numerator = tn * tp - fp * fn
+    if mcc_numerator == 0:
+        mcc = 0.0
+    else:
+        mcc_denominator = sqrt((tn + fn) * (fp + tp) * (tn + fp) * (fn + tp))
+        mcc = mcc_numerator / mcc_denominator
+
+    return mcc
