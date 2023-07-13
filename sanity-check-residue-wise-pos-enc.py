@@ -46,7 +46,8 @@ class SequenceDataset(Dataset):
         entry_name = self._entry_names[index]
 
         with h5py.File(self._hdf5_path, 'r') as hdf5_file:
-            seq_embd = hdf5_file[entry_name]["loop/sequence_onehot"][:]
+            seq_embd = torch.zeros(9, 32)
+            seq_embd[:, :22] = torch.tensor(hdf5_file[entry_name]["loop/sequence_onehot"][:])
             affinity = 1.0 - log(hdf5_file[entry_name]["kd"][()]) / log(50000)
 
         return seq_embd, affinity
@@ -58,16 +59,14 @@ class Model(torch.nn.Module):
 
         super(Model, self).__init__()
 
-        mlp_input_size = 22
+        mlp_input_size = 32
         c_res = 128
         c_affinity = 128
 
-        self.pos_enc = PositionalEncoding(22, 9)
+        self.pos_encoder = PositionalEncoding(32, 9)
 
         self.res_mlp = torch.nn.Sequential(
             torch.nn.Linear(mlp_input_size, c_res),
-            torch.nn.GELU(),
-            torch.nn.Linear(c_res, c_res),
             torch.nn.GELU(),
             torch.nn.Linear(c_res, 1),
         )
@@ -75,36 +74,16 @@ class Model(torch.nn.Module):
         self.aff_mlp = torch.nn.Sequential(
             torch.nn.Linear(9, c_affinity),
             torch.nn.GELU(),
-            torch.nn.Linear(c_affinity, c_affinity),
-            torch.nn.GELU(),
             torch.nn.Linear(c_affinity, 1)
         )
-
-        self.plot = False
 
     def forward(self, seq_embd: torch.Tensor) -> torch.Tensor:
 
         batch_size, loop_len, loop_depth = seq_embd.shape
 
-        pos_enc = torch.eye(loop_len, loop_depth).unsqueeze(0).expand(seq_embd.shape)
-        seq_embd = self.pos_enc(seq_embd)
-
-        if self.plot:
-            figure = pyplot.figure()
-            plot = figure.add_subplot()
-            vmin=seq_embd.min().min()
-            vmax=seq_embd.max().max()
-            heatmap = plot.imshow(seq_embd[0], cmap="Greys", aspect="auto", vmin=vmin, vmax=vmax)
-            figure.colorbar(heatmap)
-            pyplot.show()
-
-            self.plot = False
+        seq_embd = self.pos_encoder(seq_embd)
 
         prob = self.res_mlp(seq_embd)[..., 0]
-
-        #prob = torch.nn.functional.softmax(prob, dim=1)
-
-        #aff = torch.sum(-torch.log(prob), dim=1)
 
         aff = self.aff_mlp(prob)[..., 0]
 
@@ -150,4 +129,6 @@ if __name__ == "__main__":
                 total_y += output.tolist()
                 total_z += affinity.tolist()
 
-        print("pearsonr", pearsonr(total_y, total_z))
+        corr = pearsonr(total_y, total_z).statistic
+        with open("results.csv", "at") as f:
+            f.write(f"{corr}\n")
