@@ -110,4 +110,7 @@ if __name__ == "__main__":
                 total_y += output.tolist()
                 total_z += affinity.tolist()
 
-        print("pearsonr", pearsonr(total_y, total_z))
+        corr = pearsonr(total_y, total_z).statistic
+        with open("results.csv", "at") as f:
+            f.write(f"{corr}\n")
+
