@@ -21,6 +21,7 @@ from .models.complex import ComplexClass, ComplexTableEntry, ComplexDataEntry, S
 from .domain.amino_acid import amino_acids_by_letter, amino_acids_by_one_hot_index, AMINO_ACID_DIMENSION
 from .tools.pdb import get_selected_residues, get_residue_transformations, get_residue_proximities
 from .preprocess import PREPROCESS_KD_NAME, PREPROCESS_PROTEIN_NAME, PREPROCESS_LOOP_NAME
+from .modules.sequence_encoding import mask_loop_left_center_right
 
 
 _log = logging.getLogger(__name__)
@@ -69,27 +70,35 @@ class ProteinLoopDataset(Dataset):
                 if length < 3:
                     raise ValueError(f"{entry_name} {prefix} length is {length}")
 
+                # For the protein, put all residues leftmost
+                index = torch.zeros(max_length, device=self._device, dtype=torch.bool)
+                index[:length] = True
+
+                # For the loop, put residues partly leftmost, partly centered, partly rightmost
+                if prefix == PREPROCESS_LOOP_NAME:
+                    index = mask_loop_left_center_right(length, max_length)
+
                 result[f"{prefix}_aatype"] = torch.zeros(max_length, device=self._device, dtype=torch.long)
-                result[f"{prefix}_aatype"][:length] = torch.tensor(aatype_data, device=self._device, dtype=torch.long)
+                result[f"{prefix}_aatype"][index] = torch.tensor(aatype_data, device=self._device, dtype=torch.long)
 
                 for interfix in ["self", "cross"]:
                     result[f"{prefix}_{interfix}_residues_mask"] = torch.zeros(max_length, device=self._device, dtype=torch.bool)
                     key = "{interfix}_residues_mask"
 
-                    # If no mask, then set all present residues to True.
                     if key in entry_group[prefix]:
                         mask_data = entry_group[prefix][key][:]
-                        result[f"{prefix}_{interfix}_residues_mask"][:length] = mask_data
+                        result[f"{prefix}_{interfix}_residues_mask"][index] = mask_data
                     else:
-                        result[f"{prefix}_{interfix}_residues_mask"][:length] = True
+                        # If no mask, then set all present residues to True.
+                        result[f"{prefix}_{interfix}_residues_mask"][index] = True
 
                 result[f"{prefix}_residue_index"] = torch.arange(0, max_length, 1, device=self._device, dtype=torch.long)
                 result[f"{prefix}_residue_numbers"] = torch.zeros(max_length, dtype=torch.int, device=self._device)
-                result[f"{prefix}_residue_numbers"][:length] = torch.tensor(entry_group[prefix]["residue_numbers"][:], dtype=torch.int, device=self._device)
+                result[f"{prefix}_residue_numbers"][index] = torch.tensor(entry_group[prefix]["residue_numbers"][:], dtype=torch.int, device=self._device)
 
                 residx_atom14_to_atom37_data = entry_group[prefix]["residx_atom14_to_atom37"][:]
                 result[f"{prefix}_residx_atom14_to_atom37"] = torch.zeros((max_length, residx_atom14_to_atom37_data.shape[1]), device=self._device, dtype=torch.long)
-                result[f"{prefix}_residx_atom14_to_atom37"][:length] = torch.tensor(residx_atom14_to_atom37_data, device=self._device, dtype=torch.long)
+                result[f"{prefix}_residx_atom14_to_atom37"][index] = torch.tensor(residx_atom14_to_atom37_data, device=self._device, dtype=torch.long)
 
                 result[f"{prefix}_sequence_onehot"] = torch.zeros((max_length, 32), device=self._device, dtype=torch.float)
                 t = torch.tensor(entry_group[prefix]["sequence_onehot"][:], device=self._device, dtype=torch.float)
@@ -103,7 +112,7 @@ class ProteinLoopDataset(Dataset):
                     data = entry_group[prefix][field_name][:]
                     length = data.shape[0]
                     t = torch.zeros([max_length] + list(data.shape[1:]), device=self._device, dtype=torch.float)
-                    t[:length] = torch.tensor(data, device=self._device, dtype=torch.float)
+                    t[index] = torch.tensor(data, device=self._device, dtype=torch.float)
 
                     result[f"{prefix}_{field_name}"] = t
 
