@@ -189,6 +189,7 @@ class Predictor(torch.nn.Module):
         # [batch_size, loop_len]
         output["aatype"] = batch["loop_aatype"]
 
+        # alphafold needs this variable:
         # amino acid sequence index: [0, 1, 2, 3, 4, ... ], representing the order of amino acids
         # [batch_size, loop_len]
         output["residue_index"] = torch.arange(0,
