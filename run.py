@@ -11,6 +11,7 @@ import h5py
 import numpy
 from io import StringIO
 
+from sklearn.metrics import matthews_corrcoef
 from scipy.stats import pearsonr
 import ml_collections
 import pandas
@@ -59,6 +60,7 @@ from tcrspec.loss import get_loss, get_calpha_square_deviation
 from tcrspec.models.data import TensorDict
 from tcrspec.tools.pdb import recreate_structure
 from tcrspec.domain.amino_acid import amino_acids_by_one_hot_index
+from tcrspec.models.types import ModelType
 
 
 arg_parser = ArgumentParser(description="run a TCR-spec network model")
@@ -73,6 +75,7 @@ arg_parser.add_argument("--batch-size", "-b", help="batch size to use during tra
 arg_parser.add_argument("--epoch-count", "-e", help="how many epochs to run during training", type=int, default=100)
 arg_parser.add_argument("--fine-tune-count", "-u", help="how many epochs to run during fine-tuning", type=int, default=10)
 arg_parser.add_argument("--animate", "-a", help="id of a data point to generate intermediary pdb for")
+arg_parser.add_argument("--classification", "-c", help="do classification instead of regression", action="store_const", const=True, default=False)
 arg_parser.add_argument("data_path", help="path to the train, validation & test hdf5", nargs="+")
 
 
@@ -82,8 +85,10 @@ _log = logging.getLogger(__name__)
 class Trainer:
     def __init__(self,
                  device: torch.device,
-                 workers_count: int):
+                 workers_count: int,
+                 model_type: ModelType):
 
+        self._model_type = model_type
 
         self._device = device
 
@@ -346,9 +351,22 @@ class Trainer:
             output_data["affinity"] = []
         output_data["affinity"] += truth["affinity"].tolist()
 
-        if "output affinity" not in output_data:
-            output_data["output affinity"] = []
-        output_data["output affinity"] += output["affinity"].tolist()
+        if "class" not in output_data:
+            output_data["class"] = []
+        output_data["class"] += truth["class"].tolist()
+
+        if "affinity" in output:
+            if "output affinity" not in output_data:
+                output_data["output affinity"] = []
+            output_data["output affinity"] += output["affinity"].tolist()
+
+        if "class" in output:
+            if "output class" not in output_data:
+                output_data["output class"] = []
+            output_data["output class"] += output["class"].tolist()
+            if "output classification" not in output_data:
+                output_data["output classification"] = []
+            output_data["output classification"] += output["classification"].tolist()
 
         if "ids" not in output_data:
             output_data["ids"] = []
@@ -371,7 +389,16 @@ class Trainer:
         if os.path.isfile(output_path):
             table = pandas.read_csv(output_path)
         else:
-            table = pandas.DataFrame(data={"id": [], "loop": [], "true affinity": [], "output affinity": []})
+            table = pandas.DataFrame(data={"id": [], "loop": []})
+            if "affinity" in data:
+                table["output affinity"] = []
+                table["true affinity"] = []
+            elif "class" in data:
+                table["output class"] = []
+                table["output 0"] = []
+                table["output 1"] = []
+                table["true class"] = []
+
             table.set_index("id")
 
         for batch_index in range(batch_size):
@@ -380,9 +407,18 @@ class Trainer:
 
             loop_sequence = data["loop_sequence"][batch_index]
 
-            row = pandas.DataFrame({"id": [id_], "loop": [loop_sequence],
-                                    "output affinity": [data["output affinity"][batch_index]],
-                                    "true affinity": [data["affinity"][batch_index]]})
+            row_data = {"id": [id_], "loop": [loop_sequence]}
+            if "affinity" in data:
+                row_data["output affinity"] = [data["output affinity"][batch_index]]
+                row_data["true affinity"] = [data["affinity"][batch_index]]
+
+            if "class" in data:
+                row_data["output class"] = [data["output class"][batch_index]]
+                row_data["output 0"] = [data["output classification"][batch_index, 0]]
+                row_data["output 1"] = [data["output classification"][batch_index, 1]]
+                row_data["true class"] = [data["class"][batch_index]]
+
+            row = pandas.DataFrame(row_data)
             row.set_index("id")
 
             table = pandas.concat((table, row))
@@ -392,8 +428,10 @@ class Trainer:
     def test(self, test_loader: DataLoader, run_id: str):
 
         model_path = f"{run_id}/best-predictor.pth"
-        model = Predictor(self.loop_maxlen, self.protein_maxlen,
-                          openfold_config.model, self._device)
+        model = Predictor(self._model_type,
+                          self.loop_maxlen,
+                          self.protein_maxlen,
+                          openfold_config.model)
         model = DataParallel(model)
 
         model.to(device=self._device)
@@ -427,7 +465,9 @@ class Trainer:
         train_affinities = torch.cat([batch_data["affinity"] for batch_data in train_loader])
 
         # Set up the model
-        model = Predictor(self.loop_maxlen, self.protein_maxlen,
+        model = Predictor(self._model_type,
+                          self.loop_maxlen,
+                          self.protein_maxlen,
                           openfold_config.model)
         model = DataParallel(model)
 
@@ -517,10 +557,7 @@ class Trainer:
         metrics_dataframe = pandas.DataFrame(data={"epoch": [],
                                                    "train total loss": [],
                                                    "valid total loss": [],
-                                                   "test total loss": [],
-                                                   "train affinity correlation": [],
-                                                   "valid affinity correlation": [],
-                                                   "test affinity correlation": []})
+                                                   "test total loss": []})
 
         return metrics_dataframe
 
@@ -547,12 +584,21 @@ class Trainer:
 
             metrics_dataframe.at[epoch_index, f"{pass_name} {loss_name}"] = round(normalized_loss, 3)
 
-        try:
-            pcc = pearsonr(data["output affinity"], data["affinity"]).statistic
-            metrics_dataframe.at[epoch_index, f"{pass_name} affinity correlation"] = round(pcc, 3)
-        except:
-            output_aff = data["output affinity"]
-            _log.exception(f"running pearsonr on {output_aff}")
+        if "output class" in data:
+            try:
+                mcc = matthews_corrcoef(data["output class"], data["class"])
+                metrics_dataframe.at[epoch_index, f"{pass_name} matthews correlation"] = round(mcc, 3)
+            except:
+                output_class = data["output class"]
+                _log.exception(f"running matthews_corrcoef on {output_class}")
+
+        elif "output affinity" in data:
+            try:
+                pcc = pearsonr(data["output affinity"], data["affinity"]).statistic
+                metrics_dataframe.at[epoch_index, f"{pass_name} affinity pearson correlation"] = round(pcc, 3)
+            except:
+                output_aff = data["output affinity"]
+                _log.exception(f"running pearsonr on {output_aff}")
 
         metrics_dataframe.at[epoch_index, f"{pass_name} binders C-alpha RMSD"] = round(data["binders_c_alpha_rmsd"], 3)
 
@@ -563,7 +609,9 @@ class Trainer:
                         batch_size: int,
                         device: torch.device) -> DataLoader:
 
-        dataset = ProteinLoopDataset(data_path, device, loop_maxlen=self.loop_maxlen, protein_maxlen=self.protein_maxlen)
+        dataset = ProteinLoopDataset(data_path, device, self._model_type,
+                                     loop_maxlen=self.loop_maxlen,
+                                     protein_maxlen=self.protein_maxlen)
 
         loader = DataLoader(dataset,
                             collate_fn=ProteinLoopDataset.collate,
@@ -576,6 +624,10 @@ class Trainer:
 if __name__ == "__main__":
 
     args = arg_parser.parse_args()
+
+    model_type = ModelType.REGRESSION
+    if args.classification:
+        model_type = ModelType.CLASSIFICATION
 
     if args.run_id is not None:
         run_id = args.run_id
@@ -605,7 +657,7 @@ if __name__ == "__main__":
     _log.debug(f"using {args.workers} workers")
     torch.multiprocessing.set_start_method('spawn')
 
-    trainer = Trainer(device, args.workers)
+    trainer = Trainer(device, args.workers, model_type)
     if args.test_only:
 
         test_path = args.data_path[0]

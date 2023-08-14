@@ -15,6 +15,7 @@ from sklearn.decomposition import PCA
 
 from openfold.utils.rigid_utils import Rigid
 
+from .models.types import ModelType
 from .models.data import TensorDict
 from .models.residue import Residue
 from .models.complex import ComplexClass, ComplexTableEntry, ComplexDataEntry, StructureDataEntry
@@ -28,11 +29,12 @@ _log = logging.getLogger(__name__)
 
 
 class ProteinLoopDataset(Dataset):
-    def __init__(self, hdf5_path: str, device: torch.device, loop_maxlen: int, protein_maxlen: int):
+    def __init__(self, hdf5_path: str, device: torch.device, model_type: ModelType, loop_maxlen: int, protein_maxlen: int):
         self._hdf5_path = hdf5_path
         self._device = device
         self._loop_maxlen = loop_maxlen
         self._protein_maxlen = protein_maxlen
+        self._model_type = model_type
 
         with h5py.File(self._hdf5_path, 'r') as hdf5_file:
             self._entry_names = list(hdf5_file.keys())
@@ -61,6 +63,7 @@ class ProteinLoopDataset(Dataset):
             if PREPROCESS_KD_NAME in entry_group:
                 result["kd"] = torch.tensor(entry_group[PREPROCESS_KD_NAME][()], device=self._device, dtype=torch.float)
                 result["affinity"] = 1.0 - torch.log(result["kd"]) / log(50000)
+                result["class"] = torch.tensor(result["kd"] < 500.0, dtype=torch.long)
 
             for prefix, max_length in [(PREPROCESS_PROTEIN_NAME, self._protein_maxlen),
                                        (PREPROCESS_LOOP_NAME, self._loop_maxlen)]:

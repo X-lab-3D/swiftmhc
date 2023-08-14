@@ -44,7 +44,6 @@ from tcrspec.time import Timer
 from tcrspec.preprocess import preprocess
 from tcrspec.dataset import ProteinLoopDataset
 from tcrspec.modules.predictor import Predictor
-from tcrspec.models.complex import ComplexClass
 from tcrspec.models.amino_acid import AminoAcid
 from tcrspec.tools.amino_acid import one_hot_decode_sequence
 from tcrspec.models.data import TensorDict
@@ -367,13 +366,23 @@ def _supervised_chi_loss(angles_sin_cos: torch.Tensor,
 
 AFFINITY_BINDING_TRESHOLD = 1.0 - log(500) / log(50000)
 _affinity_loss_function = MSELoss(reduction="none")
+_classification_loss_function = CrossEntropyLoss(reduction="none")
 
 
 def get_loss(output: TensorDict, batch: TensorDict,
              fine_tune: bool) -> TensorDict:
 
     # compute our own affinity-based loss
-    affinity_loss = _affinity_loss_function(output["affinity"], batch["affinity"])
+    if "class" in output:
+        affinity_loss = _classification_loss_function(output["classification"], batch["class"])
+        non_binders_index = batch["class"]
+
+    elif "affinity" in output:
+        affinity_loss = _affinity_loss_function(output["affinity"], batch["affinity"])
+        non_binders_index = batch["affinity"] < AFFINITY_BINDING_TRESHOLD
+
+    else:
+        raise ValueError("Cannot compute affinity loss without class or affinity output")
 
     # compute chi loss, as in openfold
     chi_loss = _supervised_chi_loss(output["final_angles"],
@@ -400,7 +409,6 @@ def get_loss(output: TensorDict, batch: TensorDict,
         total_loss += 1.0 * violation_loss
 
     # for true non-binders, the total loss is simply affinity-based
-    non_binders_index = batch["affinity"] < AFFINITY_BINDING_TRESHOLD
     total_loss[non_binders_index] = 1.0 * affinity_loss[non_binders_index]
 
     # average losses over batch dimension

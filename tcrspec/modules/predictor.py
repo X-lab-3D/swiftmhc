@@ -16,6 +16,7 @@ from openfold.utils.loss import find_structural_violations
 from openfold.utils.feats import atom14_to_atom37
 from openfold.model.primitives import LayerNorm
 
+from ..models.types import ModelType
 from .position_encoding import PositionalEncoding
 from .cross_structure_module import CrossStructureModule
 from ..domain.amino_acid import AMINO_ACID_DIMENSION
@@ -30,6 +31,7 @@ _log = logging.getLogger(__name__)
 
 class Predictor(torch.nn.Module):
     def __init__(self,
+                 model_type: ModelType,
                  loop_maxlen: int,
                  protein_maxlen: int,
                  config: ml_collections.ConfigDict):
@@ -41,6 +43,7 @@ class Predictor(torch.nn.Module):
         structure_module_config.no_blocks = 2
         structure_module_config.no_heads_ipa = 2
 
+        self.model_type = model_type
         self.loop_maxlen = loop_maxlen
         self.protein_maxlen = protein_maxlen
 
@@ -95,13 +98,19 @@ class Predictor(torch.nn.Module):
         #    torch.nn.LayerNorm(structure_module_config.c_s)
         #)
 
+        if self.model_type == ModelType.REGRESSION:
+            output_size = 1
+
+        elif self.model_type == ModelType.CLASSIFICATION:
+            output_size = 2
+
         self.aff_mlp = torch.nn.Sequential(
             torch.nn.Linear(loop_input_size, c_affinity),
             #torch.nn.Linear(structure_module_config.c_s, c_affinity),
             torch.nn.GELU(),
             torch.nn.Linear(c_affinity, c_affinity),
             torch.nn.GELU(),
-            torch.nn.Linear(c_affinity, 1),
+            torch.nn.Linear(c_affinity, output_size),
             #torch.nn.LayerNorm(1),
         )
 
@@ -213,15 +222,20 @@ class Predictor(torch.nn.Module):
         # [batch_size, loop_maxlen, c_s]
         updated_s_loop = output["single"]
 
-        # [batch_size, loop_maxlen]
-        #outputs = self.aff_mlp(updated_s_loop)[..., 0]
+        if self.model_type == ModelType.REGRESSION:
+            # [batch_size]
+            output["affinity"] = self.aff_mlp(updated_s_loop.reshape(batch_size, -1)).reshape(batch_size)
 
-        # [batch_size]
-        #output["affinity"] = torch.sum(outputs, dim=1)
-        output["affinity"] = self.aff_mlp(updated_s_loop.reshape(batch_size, -1)).reshape(batch_size)
+            if torch.any(torch.isnan(output["affinity"])):
+                raise RuntimeError(f"got NaN output")
 
-        if torch.any(torch.isnan(output["affinity"])):
-            raise RuntimeError(f"got NaN output")
+        elif self.model_type == ModelType.CLASSIFICATION:
+            output["classification"] = self.aff_mlp(updated_s_loop.reshape(batch_size, -1))
+
+            if torch.any(torch.isnan(output["classification"])):
+                raise RuntimeError(f"got NaN output")
+
+            output["class"] = torch.argmax(output["classification"], dim=1)
 
         return output
 
