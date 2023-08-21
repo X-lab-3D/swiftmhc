@@ -501,9 +501,11 @@ class Trainer:
         animated_data = None
         if animated_complex_id is not None:
             # make snapshots for animation
-            animated_data = self._get_single_data_batch([train_loader.dataset,
-                                                         valid_loader.dataset,
-                                                         test_loader.dataset], animated_complex_id)
+            datasets = [train_loader.dataset, valid_loader.dataset, test_loader.dataset]
+            if structures_loader is not None:
+                datasets.append(structures_loader.dataset)
+
+            animated_data = self._get_single_data_batch(datasets, animated_complex_id)
 
             self._snapshot("0.0",
                            model,
