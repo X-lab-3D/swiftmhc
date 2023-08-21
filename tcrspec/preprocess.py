@@ -52,7 +52,7 @@ def _write_preprocessed_data(hdf5_path: str, storage_id: str,
             storage_group.create_dataset(PREPROCESS_KD_NAME, data=kd)
 
         elif isinstance(target, ComplexClass):
-            storage_group.create_dataset(PREPROCESS_KD_NAME, data=int(target))
+            storage_group.create_dataset(PREPROCESS_CLASS_NAME, data=int(target))
         else:
             raise TypeError(type(target))
 
@@ -259,12 +259,7 @@ def preprocess(table_path: str,
                protein_cross_mask_path: str,
                output_path: str):
 
-    try:
-        targets_by_id = _read_targets_by_id(table_path)
-    except KeyError:
-        targets_by_id = []
-
-    classes_by_id = _read_classes_by_id(table_path)
+    targets_by_id = _read_targets_by_id(table_path)
 
     protein_residues_self_mask = _read_mask_data(protein_self_mask_path)
     protein_residues_cross_mask = _read_mask_data(protein_cross_mask_path)
@@ -289,36 +284,40 @@ def preprocess(table_path: str,
         protein_chain = chains_by_id["M"]
         protein_residues = list(protein_chain.get_residues())
 
-        # determine which proteinresidues match with the mask
-        self_residues_mask = _mask_residues(protein_residues, protein_residues_self_mask)
-        cross_residues_mask = _mask_residues(protein_residues, protein_residues_cross_mask)
+        try:
+            # determine which proteinresidues match with the mask
+            self_residues_mask = _mask_residues(protein_residues, protein_residues_self_mask)
+            cross_residues_mask = _mask_residues(protein_residues, protein_residues_cross_mask)
 
-        # remove the residues that are completely outside of mask range
-        combo_mask = torch.logical_or(self_residues_mask, cross_residues_mask)
-        combo_mask_nonzero = combo_mask.nonzero()
-        mask_start = combo_mask_nonzero.min()
-        mask_end = combo_mask_nonzero.max() + 1
+            # remove the residues that are completely outside of mask range
+            combo_mask = torch.logical_or(self_residues_mask, cross_residues_mask)
+            combo_mask_nonzero = combo_mask.nonzero()
+            mask_start = combo_mask_nonzero.min()
+            mask_end = combo_mask_nonzero.max() + 1
 
-        # apply the limiting protein range, reducing the size of the data that needs to be generated.
-        self_residues_mask = self_residues_mask[mask_start: mask_end]
-        cross_residues_mask = cross_residues_mask[mask_start: mask_end]
-        protein_residues = protein_residues[mask_start: mask_end]
+            # apply the limiting protein range, reducing the size of the data that needs to be generated.
+            self_residues_mask = self_residues_mask[mask_start: mask_end]
+            cross_residues_mask = cross_residues_mask[mask_start: mask_end]
+            protein_residues = protein_residues[mask_start: mask_end]
 
-        # derive data from protein residues
-        protein_data = _read_residue_data(protein_residues)
-        protein_data["cross_residues_mask"] = cross_residues_mask
-        protein_data["self_residues_mask"] = self_residues_mask
+            # derive data from protein residues
+            protein_data = _read_residue_data(protein_residues)
+            protein_data["cross_residues_mask"] = cross_residues_mask
+            protein_data["self_residues_mask"] = self_residues_mask
 
-        # get residues from the loop (chain P)
-        loop_chain = chains_by_id["P"]
-        loop_residues = list(loop_chain.get_residues())
-        loop_data = _read_residue_data(loop_residues)
+            # get residues from the loop (chain P)
+            loop_chain = chains_by_id["P"]
+            loop_residues = list(loop_chain.get_residues())
+            loop_data = _read_residue_data(loop_residues)
 
-        # proximities within protein
-        protein_proximities = _create_proximities(protein_residues, protein_residues)
-        protein_data["proximities"] = protein_proximities
+            # proximities within protein
+            protein_proximities = _create_proximities(protein_residues, protein_residues)
+            protein_data["proximities"] = protein_proximities
 
-        _write_preprocessed_data(output_path, id_,
-                                 protein_data,
-                                 loop_data,
-                                 target)
+            _write_preprocessed_data(output_path, id_,
+                                     protein_data,
+                                     loop_data,
+                                     target)
+        except:
+            _log.exception(f"on {model_path}")
+            continue
