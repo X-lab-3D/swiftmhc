@@ -428,7 +428,14 @@ def get_calpha_square_deviation(output_data: Dict[str, torch.Tensor],
     """
 
     # take binders only
-    binders_index = batch_data["affinity"] > AFFINITY_BINDING_TRESHOLD
+    if "class" in batch_data:
+        binders_index = batch_data["class"] == 1
+
+    elif "affinity" in batch_data:
+        binders_index = batch_data["affinity"] > AFFINITY_BINDING_TRESHOLD
+
+    else:
+        raise ValueError("Cannot compute RMSD without class or affinity output")
 
     output_positions = output_data["final_positions"][binders_index]
     true_positions = batch_data["loop_atom14_gt_positions"][binders_index]

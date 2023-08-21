@@ -75,6 +75,7 @@ arg_parser.add_argument("--batch-size", "-b", help="batch size to use during tra
 arg_parser.add_argument("--epoch-count", "-e", help="how many epochs to run during training", type=int, default=100)
 arg_parser.add_argument("--fine-tune-count", "-u", help="how many epochs to run during fine-tuning", type=int, default=10)
 arg_parser.add_argument("--animate", "-a", help="id of a data point to generate intermediary pdb for")
+arg_parser.add_argument("--structures-path", "-s", help="an additional structures hdf5 file to measure RMSD on")
 arg_parser.add_argument("--classification", "-c", help="do classification instead of regression", action="store_const", const=True, default=False)
 arg_parser.add_argument("data_path", help="path to the train, validation & test hdf5", nargs="+")
 
@@ -347,13 +348,15 @@ class Trainer:
             else:
                 output_data[loss_name] += loss_value.item() * batch_size
 
-        if "affinity" not in output_data:
-            output_data["affinity"] = []
-        output_data["affinity"] += truth["affinity"].tolist()
+        if "affinity" in truth:
+            if "affinity" not in output_data:
+                output_data["affinity"] = []
+            output_data["affinity"] += truth["affinity"].tolist()
 
-        if "class" not in output_data:
-            output_data["class"] = []
-        output_data["class"] += truth["class"].tolist()
+        if "class" in truth:
+            if "class" not in output_data:
+                output_data["class"] = []
+            output_data["class"] += truth["class"].tolist()
 
         if "affinity" in output:
             if "output affinity" not in output_data:
@@ -425,7 +428,7 @@ class Trainer:
 
         table.to_csv(output_path, index=False)
 
-    def test(self, test_loader: DataLoader, run_id: str):
+    def test(self, test_loader: DataLoader, structures_loader: Union[DataLoader, None], run_id: str):
 
         model_path = f"{run_id}/best-predictor.pth"
         model = Predictor(self._model_type,
@@ -438,9 +441,14 @@ class Trainer:
         model.eval()
         model.load_state_dict(torch.load(model_path))
 
-        test_loss, test_data, test_output = self._validate(-1, model, test_loader, True, run_id)
+        test_data = self._validate(-1, model, test_loader, True, run_id)
 
-        self._output_metrics(run_id, "test", -1, test_loss, test_data, test_output)
+        structures_data = None
+        if structures_loader is not None:
+            structures_data = self._validate(-1, model, structures_loader, True, run_id)
+
+        self._output_metrics(run_id, "test", -1, test_data)
+        self._output_metrics(run_id, "structures", -1, structures_data)
 
     @staticmethod
     def _get_single_data_batch(datasets: List[ProteinLoopDataset], name: str) -> Dict[str, torch.Tensor]:
@@ -459,10 +467,8 @@ class Trainer:
               run_id: Optional[str] = None,
               pretrained_model_path: Optional[str] = None,
               pretrained_protein_ipa_path: Optional[str] = None,
-              animated_complex_id: Optional[str] = None):
-
-        # get train data affinities
-        train_affinities = torch.cat([batch_data["affinity"] for batch_data in train_loader])
+              animated_complex_id: Optional[str] = None,
+              structures_loader: Optional[DataLoader] = None):
 
         # Set up the model
         model = Predictor(self._model_type,
@@ -525,10 +531,20 @@ class Trainer:
                 test_data = self._validate(epoch_index, model, test_loader, fine_tune)
                 t.add_to_title(f"on {len(test_loader.dataset)} data points")
 
+            # structures
+            structures_data = None
+            if structures_loader is not None:
+                with Timer(f"structures epoch {epoch_index}") as t:
+                    structures_data = self._validate(epoch_index, model, structures_loader, fine_tune)
+                    t.add_to_title(f"on {len(structures_loader.dataset)} data points")
+
             # write the metrics
             self._output_metrics(run_id, "train", epoch_index, train_data)
             self._output_metrics(run_id, "valid", epoch_index, valid_data)
             self._output_metrics(run_id, "test", epoch_index, test_data)
+
+            if structures_data is not None:
+                self._output_metrics(run_id, "structures", epoch_index, structures_data)
 
             # early stopping, if no more improvement
             if abs(valid_data["total loss"] - lowest_loss) < self._early_stop_epsilon:
@@ -558,7 +574,6 @@ class Trainer:
                                                    "train total loss": [],
                                                    "valid total loss": [],
                                                    "test total loss": []})
-
         return metrics_dataframe
 
     def _output_metrics(self, run_id: str,
@@ -658,13 +673,18 @@ if __name__ == "__main__":
     torch.multiprocessing.set_start_method('spawn')
 
     trainer = Trainer(device, args.workers, model_type)
+
+    structures_loader = None
+    if args.structures_path is not None:
+        structures_loader = trainer.get_data_loader(args.structures_path, args.batch_size, device)
+
     if args.test_only:
 
         test_path = args.data_path[0]
 
         test_loader = trainer.get_data_loader(test_path, args.batch_size, device)
 
-        trainer.test(test_loader, run_id=run_id)
+        trainer.test(test_loader, structures_loader, run_id=run_id)
 
     else:  # train & test
 
@@ -676,4 +696,5 @@ if __name__ == "__main__":
 
         trainer.train(train_loader, valid_loader, test_loader,
                       args.epoch_count, args.fine_tune_count,
-                      run_id, args.pretrained_model, args.pretrained_protein_ipa, args.animate)
+                      run_id, args.pretrained_model, args.pretrained_protein_ipa,
+                      args.animate, structures_loader)

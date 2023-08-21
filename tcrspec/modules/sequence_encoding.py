@@ -13,13 +13,17 @@ def mask_loop_left_center_right(length: int, maxlength: int) -> torch.Tensor:
 
     mask = torch.zeros(maxlength, dtype=torch.bool)
 
-    mask[:4] = True
+    cap_length = 4
+    if length <= 8:
+        cap_length = int(floor((length - 2) / 2))
 
-    center_length = length - 8
+    mask[:cap_length] = True
+
+    center_length = length - 2 * cap_length
     center_lefthalf = int(floor(center_length / 2))
     center_righthalf = center_length - center_lefthalf
     mask[middle - center_lefthalf: middle + center_righthalf] = True
 
-    mask[-4:] = True
+    mask[-cap_length:] = True
 
     return mask

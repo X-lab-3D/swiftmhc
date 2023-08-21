@@ -21,7 +21,7 @@ from .models.residue import Residue
 from .models.complex import ComplexClass, ComplexTableEntry, ComplexDataEntry, StructureDataEntry
 from .domain.amino_acid import amino_acids_by_letter, amino_acids_by_one_hot_index, AMINO_ACID_DIMENSION
 from .tools.pdb import get_selected_residues, get_residue_transformations, get_residue_proximities
-from .preprocess import PREPROCESS_KD_NAME, PREPROCESS_PROTEIN_NAME, PREPROCESS_LOOP_NAME
+from .preprocess import PREPROCESS_KD_NAME, PREPROCESS_CLASS_NAME, PREPROCESS_PROTEIN_NAME, PREPROCESS_LOOP_NAME
 from .modules.sequence_encoding import mask_loop_left_center_right
 
 
@@ -64,6 +64,9 @@ class ProteinLoopDataset(Dataset):
                 result["kd"] = torch.tensor(entry_group[PREPROCESS_KD_NAME][()], device=self._device, dtype=torch.float)
                 result["affinity"] = 1.0 - torch.log(result["kd"]) / log(50000)
                 result["class"] = torch.tensor(result["kd"] < 500.0, dtype=torch.long)
+
+            elif PREPROCESS_CLASS_NAME in entry_group:
+                result["class"] = torch.tensor(entry_group[PREPROCESS_CLASS_NAME][()], device=self._device, dtype=torch.long)
 
             for prefix, max_length in [(PREPROCESS_PROTEIN_NAME, self._protein_maxlen),
                                        (PREPROCESS_LOOP_NAME, self._loop_maxlen)]:
