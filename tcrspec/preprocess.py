@@ -27,12 +27,14 @@ from .tools.pdb import (get_residue_transformations,
                         get_residue_proximities)
 from .domain.amino_acid import amino_acids_by_code, canonical_amino_acids
 from .models.amino_acid import AminoAcid
+from .models.complex import ComplexClass
 
 
 _log = logging.getLogger(__name__)
 
 
 PREPROCESS_KD_NAME = "kd"
+PREPROCESS_CLASS_NAME = "class"
 PREPROCESS_PROTEIN_NAME = "protein"
 PREPROCESS_LOOP_NAME = "loop"
 
@@ -40,14 +42,19 @@ PREPROCESS_LOOP_NAME = "loop"
 def _write_preprocessed_data(hdf5_path: str, storage_id: str,
                              protein_data: Dict[str, torch.Tensor],
                              loop_data: Dict[str, torch.Tensor],
-                             kd: Optional[float] = None):
+                             target: Optional[Union[float, ComplexClass]] = None):
 
     with h5py.File(hdf5_path, 'a') as hdf5_file:
 
         storage_group = hdf5_file.require_group(storage_id)
 
-        if kd is not None:
+        if isinstance(target, float):
             storage_group.create_dataset(PREPROCESS_KD_NAME, data=kd)
+
+        elif isinstance(target, ComplexClass):
+            storage_group.create_dataset(PREPROCESS_KD_NAME, data=int(target))
+        else:
+            raise TypeError(type(target))
 
         protein_group = storage_group.require_group(PREPROCESS_PROTEIN_NAME)
         for field_name, field_data in protein_data.items():
@@ -58,7 +65,7 @@ def _write_preprocessed_data(hdf5_path: str, storage_id: str,
             loop_group.create_dataset(field_name, data=field_data, compression="lzf")
 
 
-def _read_affinities_by_id(table_path: str) -> List[Tuple[str, float]]:
+def _read_targets_by_id(table_path: str) -> List[Tuple[str, Union[float, ComplexClass]]]:
     """
     Args:
         table_path: points to a csv table
@@ -66,14 +73,19 @@ def _read_affinities_by_id(table_path: str) -> List[Tuple[str, float]]:
 
     table = pandas.read_csv(table_path)
 
-    affinities_by_id = []
+    data = []
     for index, row in table.iterrows():
-        kd = row["measurement_value"]
+        value = row["measurement_value"]
         id_ = row["ID"]
 
-        affinities_by_id.append((id_, kd))
+        try:
+            value = float(value)
+        except ValueError:
+            value = ComplexClass.from_string(value)
 
-    return affinities_by_id
+        data.append((id_, value))
+
+    return data
 
 
 def _read_mask_data(path: str) -> List[Tuple[str, int, AminoAcid]]:
@@ -248,12 +260,17 @@ def preprocess(table_path: str,
                protein_cross_mask_path: str,
                output_path: str):
 
-    affinities_by_id = _read_affinities_by_id(table_path)
+    try:
+        targets_by_id = _read_targets_by_id(table_path)
+    except KeyError:
+        targets_by_id = []
+
+    classes_by_id = _read_classes_by_id(table_path)
 
     protein_residues_self_mask = _read_mask_data(protein_self_mask_path)
     protein_residues_cross_mask = _read_mask_data(protein_cross_mask_path)
 
-    for id_, kd in affinities_by_id:
+    for id_, target in targets_by_id:
 
         # parse the pdb file
         model_path = os.path.join(models_path, f"{id_}.pdb")
@@ -305,4 +322,4 @@ def preprocess(table_path: str,
         _write_preprocessed_data(output_path, id_,
                                  protein_data,
                                  loop_data,
-                                 kd)
+                                 target)
