@@ -95,12 +95,12 @@ def _read_mask_data(path: str) -> List[Tuple[str, int, AminoAcid]]:
     with open(path, 'r') as f:
         for line in f:
             if not line.startswith("#"):
-                chain_id, resnum_s, amino_acid_s = line.split()
+                row = line.split()
 
-                residue_number = int(resnum_s)
-                amino_acid = amino_acids_by_code[amino_acid_s]
+                chain_id = row[0]
+                residue_number = int(row[1])
 
-                mask_data.append((chain_id, residue_number, amino_acid))
+                mask_data.append((chain_id, residue_number))
 
     return mask_data
 
@@ -133,7 +133,7 @@ def _get_blosum_encoding(amino_acid_indexes: List[int], blosum_index: int) -> Li
     return torch.tensor(encoding)
 
 
-def _mask_residues(residues: List[Residue], mask_ids: List[Tuple[str, int, AminoAcid]]) -> torch.Tensor:
+def _mask_residues(residues: List[Residue], mask_ids: List[Tuple[str, int]]) -> torch.Tensor:
 
     mask = []
     for residue in residues:
@@ -145,9 +145,8 @@ def _mask_residues(residues: List[Residue], mask_ids: List[Tuple[str, int, Amino
             chain_id, residue_id = full_id
 
         residue_number = residue_id[1]
-        amino_acid = amino_acids_by_code[residue.get_resname()]
 
-        residue_id = (chain_id, residue_number, amino_acid)
+        residue_id = (chain_id, residue_number)
 
         mask.append(residue_id in mask_ids)
 
