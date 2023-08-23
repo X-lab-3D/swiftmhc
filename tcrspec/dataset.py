@@ -7,7 +7,6 @@ from math import log
 from enum import Enum
 
 import h5py
-from pdb2sql import pdb2sql
 import torch
 from torch.utils.data import Dataset
 from torch.nn.functional import pad
@@ -108,7 +107,7 @@ class ProteinLoopDataset(Dataset):
 
                 result[f"{prefix}_sequence_onehot"] = torch.zeros((max_length, 32), device=self._device, dtype=torch.float)
                 t = torch.tensor(entry_group[prefix]["sequence_onehot"][:], device=self._device, dtype=torch.float)
-                result[f"{prefix}_sequence_onehot"][:t.shape[0], :t.shape[1]] = t
+                result[f"{prefix}_sequence_onehot"][index, :t.shape[1]] = t
 
                 for field_name in ["backbone_rigid_tensor",
                                    "torsion_angles_sin_cos", "alt_torsion_angles_sin_cos", "torsion_angles_mask",
@@ -124,8 +123,9 @@ class ProteinLoopDataset(Dataset):
 
             prox_data = entry_group[PREPROCESS_PROTEIN_NAME]["proximities"][:]
             result["protein_proximities"] = torch.zeros(self._protein_maxlen, self._protein_maxlen, 1,
-                                                      device=self._device, dtype=torch.float)
-            result["protein_proximities"][:prox_data.shape[0], :prox_data.shape[0], :] = torch.tensor(prox_data, device=self._device, dtype=torch.float)
+                                                        device=self._device, dtype=torch.float)
+
+            result["protein_proximities"][:prox_data.shape[0], :prox_data.shape[1], :] = torch.tensor(prox_data, device=self._device, dtype=torch.float)
 
             return result
 
