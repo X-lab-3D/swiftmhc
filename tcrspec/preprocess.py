@@ -5,7 +5,6 @@ from math import isinf
 
 import h5py
 import pandas
-from pdb2sql import pdb2sql
 import numpy
 import torch
 from Bio.PDB.PDBParser import PDBParser

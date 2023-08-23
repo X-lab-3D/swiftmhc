@@ -6,7 +6,6 @@ import numpy
 import torch
 from torch.nn.functional import normalize
 
-import pdb2sql
 from openfold.utils.rigid_utils import Rigid
 from openfold.np.residue_constants import (restype_name_to_atom14_names as openfold_residue_atom14_names,
                                            chi_angles_atoms as openfold_chi_angles_atoms,
