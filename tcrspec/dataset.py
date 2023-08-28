@@ -63,7 +63,7 @@ class ProteinLoopDataset(Dataset):
             if PREPROCESS_KD_NAME in entry_group:
                 result["kd"] = torch.tensor(entry_group[PREPROCESS_KD_NAME][()], device=self._device, dtype=torch.float)
                 result["affinity"] = 1.0 - torch.log(result["kd"]) / log(50000)
-                result["class"] = torch.tensor(result["kd"] < 500.0, dtype=torch.long)
+                result["class"] = torch.tensor(entry_group[PREPROCESS_KD_NAME][()] < 500.0, device=self._device, dtype=torch.long)
 
             for prefix, max_length in [(PREPROCESS_PROTEIN_NAME, self._protein_maxlen),
                                        (PREPROCESS_LOOP_NAME, self._loop_maxlen)]:
