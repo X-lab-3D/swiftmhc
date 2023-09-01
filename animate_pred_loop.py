@@ -28,7 +28,6 @@ _log = logging.getLogger(__name__)
 
 arg_parser = ArgumentParser(description="combine multiple snapshot structures into an animation")
 arg_parser.add_argument("hdf5_path", help="path to the hdf5 data file")
-arg_parser.add_argument("true_path", help="path to the true pdb file")
 
 
 font = ImageFont.truetype("DejaVuSans.ttf", 48)
@@ -144,9 +143,12 @@ if __name__ == "__main__":
     output_name = os.path.basename(args.hdf5_path).replace(".hdf5", "").replace("-animation", "")
 
     parser = PDBParser()
-    true_structure = parser.get_structure("true", args.true_path)
 
     with h5py.File(args.hdf5_path, 'r') as hdf5_file:
+
+        true_structure_s = "".join([b.decode("utf-8") for b in hdf5_file[f"true/structure"][:].tolist()])
+
+        true_structure = parser.get_structure("true", StringIO(true_structure_s))
 
         frame_ids = sorted(filter(is_frame_id, hdf5_file.keys()), key=get_frame_number)
 

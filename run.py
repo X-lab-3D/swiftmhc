@@ -193,6 +193,24 @@ class Trainer:
 
         with h5py.File(animation_path, "a") as animation_file:
 
+            # for convenience, store the true structure in the animation file also
+            if "true" not in animation_file:
+                true_group = animation_file.require_group("true")
+                structure = recreate_structure(id_,
+                                               [("P", data["loop_residue_numbers"][0], data["loop_sequence_onehot"][0], data["loop_atom14_gt_positions"][0]),
+                                                ("M", data["protein_residue_numbers"][0], data["protein_sequence_onehot"][0], data["protein_atom14_gt_positions"][0])])
+                pdbio = PDBIO()
+                pdbio.set_structure(structure)
+                with StringIO() as sio:
+                    pdbio.save(sio)
+                    structure_data = numpy.array([bytes(line + "\n", encoding="utf-8")
+                                                  for line in sio.getvalue().split('\n')
+                                                  if len(line.strip()) > 0],
+                                                 dtype=numpy.dtype("bytes"))
+                true_group.create_dataset("structure",
+                                           data=structure_data,
+                                           compression="lzf")
+
             frame_group = animation_file.require_group(frame_id)
 
             # save loop attentions heatmaps
@@ -467,6 +485,7 @@ class Trainer:
               run_id: Optional[str] = None,
               pretrained_model_path: Optional[str] = None,
               pretrained_protein_ipa_path: Optional[str] = None,
+
               animated_complex_id: Optional[str] = None,
               structures_loader: Optional[DataLoader] = None):
 
