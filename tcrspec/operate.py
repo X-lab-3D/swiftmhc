@@ -18,15 +18,13 @@ def average_quats(input_: torch.Tensor, dim: Optional[Union[int, List[int]]] = N
     if dim is None:
         dim = list(range(len(input_.shape) - 1))
 
-    preserved_dim = len(input_.shape) - 1
+    quat_dim = len(input_.shape) - 1
 
-    sum_matrix = torch.sum(torch.mul(input_.unsqueeze(preserved_dim), input_.unsqueeze(preserved_dim + 1)), dim=dim)
+    sum_matrix = torch.sum(torch.mul(input_.unsqueeze(quat_dim), input_.unsqueeze(quat_dim + 1)), dim=dim)
 
     eigen_values, eigen_vectors = torch.linalg.eig(sum_matrix)
 
-    max_index = torch.argmax(eigen_values.real)
-
-    return torch.nn.functional.normalize(eigen_vectors[:, max_index].real, dim=0)
+    return torch.nn.functional.normalize(eigen_vectors[..., 0].real, dim=-1)
 
 
 def average_rigid(input_: Rigid, dim: Optional[Union[int, List[int]]] = None) -> Rigid:
