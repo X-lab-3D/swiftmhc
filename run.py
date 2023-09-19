@@ -74,7 +74,7 @@ arg_parser.add_argument("--workers", "-w", help="number of workers to load batch
 arg_parser.add_argument("--batch-size", "-b", help="batch size to use during training/validation/testing", type=int, default=8)
 arg_parser.add_argument("--epoch-count", "-e", help="how many epochs to run during training", type=int, default=100)
 arg_parser.add_argument("--fine-tune-count", "-u", help="how many epochs to run during fine-tuning", type=int, default=10)
-arg_parser.add_argument("--animate", "-a", help="id of a data point to generate intermediary pdb for")
+arg_parser.add_argument("--animate", "-a", help="id of a data point to generate intermediary pdb for", nargs="+")
 arg_parser.add_argument("--structures-path", "-s", help="an additional structures hdf5 file to measure RMSD on")
 arg_parser.add_argument("--classification", "-c", help="do classification instead of regression", action="store_const", const=True, default=False)
 arg_parser.add_argument("data_path", help="path to the train, validation & test hdf5", nargs="+")
@@ -110,8 +110,6 @@ class Trainer:
                data: TensorDict,
                fine_tune: bool,
                pdb_output_directory: Optional[str] = None,
-               animated_complex_id: Optional[str] = None
-
     ) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
 
         optimizer.zero_grad()
@@ -188,17 +186,66 @@ class Trainer:
         with torch.no_grad():
             output = model(data)
 
-        id_ = data["ids"][0]
-        animation_path = f"{output_directory}/{id_}-animation.hdf5"
+        for index, id_ in enumerate(data["ids"]):
 
-        with h5py.File(animation_path, "a") as animation_file:
+            animation_path = f"{output_directory}/{id_}-animation.hdf5"
 
-            # for convenience, store the true structure in the animation file also
-            if "true" not in animation_file:
-                true_group = animation_file.require_group("true")
+            with h5py.File(animation_path, "a") as animation_file:
+
+                # for convenience, store the true structure in the animation file also
+                if "true" not in animation_file:
+                    true_group = animation_file.require_group("true")
+                    structure = recreate_structure(id_,
+                                                   [("P", data["loop_residue_numbers"][index], data["loop_sequence_onehot"][index], data["loop_atom14_gt_positions"][index]),
+                                                    ("M", data["protein_residue_numbers"][index], data["protein_sequence_onehot"][index], data["protein_atom14_gt_positions"][index])])
+                    pdbio = PDBIO()
+                    pdbio.set_structure(structure)
+                    with StringIO() as sio:
+                        pdbio.save(sio)
+                        structure_data = numpy.array([bytes(line + "\n", encoding="utf-8")
+                                                      for line in sio.getvalue().split('\n')
+                                                      if len(line.strip()) > 0],
+                                                     dtype=numpy.dtype("bytes"))
+                    true_group.create_dataset("structure",
+                                               data=structure_data,
+                                               compression="lzf")
+
+                frame_group = animation_file.require_group(frame_id)
+
+                # save loop attentions heatmaps
+                #loop_self_attention = output["loop_self_attention"].cpu()
+                #frame_group.create_dataset("loop_attention", data=loop_self_attention[index], compression="lzf")
+
+                # save loop embeddings heatmaps
+                loop_embd = output["loop_embd"].cpu()
+                frame_group.create_dataset("loop_embd", data=loop_embd[index], compression="lzf")
+
+                #loop_pos_enc = output["loop_pos_enc"].cpu()
+                #frame_group.create_dataset("loop_pos_enc", data=loop_pos_enc[index], compression="lzf")
+
+                loop_init = output["loop_init"].cpu()
+                frame_group.create_dataset("loop_init", data=loop_init[index], compression="lzf")
+
+                # save protein attentions heatmaps
+                protein_self_attention = output["protein_self_attention"].cpu()
+                protein_self_attention_sd = output["protein_self_attention_sd"].cpu()
+                protein_self_attention_b = output["protein_self_attention_b"].cpu()
+                frame_group.create_dataset("protein_attention", data=protein_self_attention[index], compression="lzf")
+                frame_group.create_dataset("protein_attention_sd", data=protein_self_attention_sd[index], compression="lzf")
+                frame_group.create_dataset("protein_attention_b", data=protein_self_attention_b[index], compression="lzf")
+
+                # save cross attentions heatmaps
+                cross_attention = output["cross_attention"].cpu()
+                cross_attention_sd = output["cross_attention_sd"].cpu()
+                cross_attention_pts = output["cross_attention_pts"].cpu()
+                frame_group.create_dataset("cross_attention", data=cross_attention[index], compression="lzf")
+                frame_group.create_dataset("cross_attention_sd", data=cross_attention_sd[index], compression="lzf")
+                frame_group.create_dataset("cross_attention_pts", data=cross_attention_pts[index], compression="lzf")
+
+                # save pdb
                 structure = recreate_structure(id_,
-                                               [("P", data["loop_residue_numbers"][0], data["loop_sequence_onehot"][0], data["loop_atom14_gt_positions"][0]),
-                                                ("M", data["protein_residue_numbers"][0], data["protein_sequence_onehot"][0], data["protein_atom14_gt_positions"][0])])
+                                               [("P", data["loop_residue_numbers"][index], data["loop_sequence_onehot"][index], output["final_positions"][index]),
+                                                ("M", data["protein_residue_numbers"][index], data["protein_sequence_onehot"][index], data["protein_atom14_gt_positions"][index])])
                 pdbio = PDBIO()
                 pdbio.set_structure(structure)
                 with StringIO() as sio:
@@ -207,64 +254,16 @@ class Trainer:
                                                   for line in sio.getvalue().split('\n')
                                                   if len(line.strip()) > 0],
                                                  dtype=numpy.dtype("bytes"))
-                true_group.create_dataset("structure",
+                frame_group.create_dataset("structure",
                                            data=structure_data,
                                            compression="lzf")
 
-            frame_group = animation_file.require_group(frame_id)
+                # save the residue numbering, for later lookup
+                for key in ("protein_cross_residues_mask", "loop_cross_residues_mask",
+                            "protein_residue_numbers", "loop_residue_numbers"):
 
-            # save loop attentions heatmaps
-            #loop_self_attention = output["loop_self_attention"].cpu()
-            #frame_group.create_dataset("loop_attention", data=loop_self_attention[0], compression="lzf")
-
-            # save loop embeddings heatmaps
-            loop_embd = output["loop_embd"].cpu()
-            frame_group.create_dataset("loop_embd", data=loop_embd[0], compression="lzf")
-
-            #loop_pos_enc = output["loop_pos_enc"].cpu()
-            #frame_group.create_dataset("loop_pos_enc", data=loop_pos_enc[0], compression="lzf")
-
-            loop_init = output["loop_init"].cpu()
-            frame_group.create_dataset("loop_init", data=loop_init[0], compression="lzf")
-
-            # save protein attentions heatmaps
-            protein_self_attention = output["protein_self_attention"].cpu()
-            protein_self_attention_sd = output["protein_self_attention_sd"].cpu()
-            protein_self_attention_b = output["protein_self_attention_b"].cpu()
-            frame_group.create_dataset("protein_attention", data=protein_self_attention[0], compression="lzf")
-            frame_group.create_dataset("protein_attention_sd", data=protein_self_attention_sd[0], compression="lzf")
-            frame_group.create_dataset("protein_attention_b", data=protein_self_attention_b[0], compression="lzf")
-
-            # save cross attentions heatmaps
-            cross_attention = output["cross_attention"].cpu()
-            cross_attention_sd = output["cross_attention_sd"].cpu()
-            cross_attention_pts = output["cross_attention_pts"].cpu()
-            frame_group.create_dataset("cross_attention", data=cross_attention[0], compression="lzf")
-            frame_group.create_dataset("cross_attention_sd", data=cross_attention_sd[0], compression="lzf")
-            frame_group.create_dataset("cross_attention_pts", data=cross_attention_pts[0], compression="lzf")
-
-            # save pdb
-            structure = recreate_structure(id_,
-                                           [("P", data["loop_residue_numbers"][0], data["loop_sequence_onehot"][0], output["final_positions"][0]),
-                                            ("M", data["protein_residue_numbers"][0], data["protein_sequence_onehot"][0], data["protein_atom14_gt_positions"][0])])
-            pdbio = PDBIO()
-            pdbio.set_structure(structure)
-            with StringIO() as sio:
-                pdbio.save(sio)
-                structure_data = numpy.array([bytes(line + "\n", encoding="utf-8")
-                                              for line in sio.getvalue().split('\n')
-                                              if len(line.strip()) > 0],
-                                             dtype=numpy.dtype("bytes"))
-            frame_group.create_dataset("structure",
-                                       data=structure_data,
-                                       compression="lzf")
-
-            # save the residue numbering, for later lookup
-            for key in ("protein_cross_residues_mask", "loop_cross_residues_mask",
-                        "protein_residue_numbers", "loop_residue_numbers"):
-
-                if not key in animation_file:
-                    animation_file.create_dataset(key, data=data[key][0].cpu())
+                    if not key in animation_file:
+                        animation_file.create_dataset(key, data=data[key][index].cpu())
 
     def _epoch(self,
                epoch_index: int,
@@ -469,13 +468,19 @@ class Trainer:
         self._output_metrics(run_id, "structures", -1, structures_data)
 
     @staticmethod
-    def _get_single_data_batch(datasets: List[ProteinLoopDataset], name: str) -> Dict[str, torch.Tensor]:
+    def _get_selection_data_batch(datasets: List[ProteinLoopDataset], names: List[str]) -> Dict[str, torch.Tensor]:
 
-        for dataset in datasets:
-            if dataset.has_entry(name):
-                return ProteinLoopDataset.collate([dataset.get_entry(name)])
+        entries = []
+        for name in names:
+            for dataset in datasets:
+                if dataset.has_entry(name):
+                    entries.append(dataset.get_entry(name))
+                    break
 
-        raise ValueError(f"entry no found in datasets: {name}")
+            else:
+                raise ValueError(f"entry not found in datasets: {name}")
+
+        return ProteinLoopDataset.collate(entries)
 
     def train(self,
               train_loader: DataLoader,
@@ -486,7 +491,7 @@ class Trainer:
               pretrained_model_path: Optional[str] = None,
               pretrained_protein_ipa_path: Optional[str] = None,
 
-              animated_complex_id: Optional[str] = None,
+              animated_complex_ids: Optional[List[str]] = None,
               structures_loader: Optional[DataLoader] = None):
 
         # Set up the model
@@ -518,13 +523,13 @@ class Trainer:
         lowest_loss = float("inf")
 
         animated_data = None
-        if animated_complex_id is not None:
+        if animated_complex_ids is not None:
             # make snapshots for animation
             datasets = [train_loader.dataset, valid_loader.dataset, test_loader.dataset]
             if structures_loader is not None:
                 datasets.append(structures_loader.dataset)
 
-            animated_data = self._get_single_data_batch(datasets, animated_complex_id)
+            animated_data = self._get_selection_data_batch(datasets, animated_complex_ids)
 
             self._snapshot("0.0",
                            model,

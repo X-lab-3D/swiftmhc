@@ -132,9 +132,12 @@ class ProteinLoopDataset(Dataset):
     @staticmethod
     def collate(data_entries: List[Dict[str, torch.Tensor]]) -> Dict[str, torch.Tensor]:
 
-        keys = set([])
+        keys = None
         for e in data_entries:
-            keys |= e.keys()
+            if keys is None:
+                keys = e.keys()
+            else:
+                keys &= e.keys()
 
         result = {}
         for key in keys:

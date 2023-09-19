@@ -98,8 +98,9 @@ def _read_mask_data(path: str) -> List[Tuple[str, int, AminoAcid]]:
 
                 chain_id = row[0]
                 residue_number = int(row[1])
+                amino_acid = amino_acids_by_code[row[2]]
 
-                mask_data.append((chain_id, residue_number))
+                mask_data.append((chain_id, residue_number, amino_acid))
 
     return mask_data
 
@@ -132,7 +133,13 @@ def _get_blosum_encoding(amino_acid_indexes: List[int], blosum_index: int) -> Li
     return torch.tensor(encoding)
 
 
-def _mask_residues(residues: List[Residue], mask_ids: List[Tuple[str, int]]) -> torch.Tensor:
+def _mask_residues(residues: List[Residue], mask_ids: List[Tuple[str, int, AminoAcid]]) -> torch.Tensor:
+
+    mask_by_residue_id = {(chain_id, residue_number): amino_acid
+                           for chain_id, residue_number, amino_acid in mask_ids}
+
+    aa_match_count = 0
+    aa_count = 0
 
     mask = []
     for residue in residues:
@@ -146,13 +153,24 @@ def _mask_residues(residues: List[Residue], mask_ids: List[Tuple[str, int]]) -> 
         residue_number = residue_id[1]
 
         residue_id = (chain_id, residue_number)
+        residue_amino_acid = amino_acids_by_code[residue.get_resname()]
 
-        mask.append(residue_id in mask_ids)
+        if residue_id in mask_by_residue_id:
+            aa_count += 1
+
+            if residue_amino_acid == mask_by_residue_id[residue_id]:
+                aa_match_count += 1
+
+        mask.append(residue_id in mask_by_residue_id)
 
     mask = torch.tensor(mask, dtype=torch.bool)
 
     if not torch.any(mask):
         raise ValueError(f"none found of {mask_ids}")
+
+    pid = 100.0 * aa_match_count / aa_count
+    if pid < 85.0:
+        raise ValueError(f"mask identity is only {pid} %")
 
     return mask
 
