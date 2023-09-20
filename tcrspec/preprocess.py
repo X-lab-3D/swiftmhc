@@ -170,7 +170,7 @@ def _mask_residues(residues: List[Residue], mask_ids: List[Tuple[str, int, Amino
 
     pid = 100.0 * aa_match_count / aa_count
     if pid < 85.0:
-        raise ValueError(f"mask identity is only {pid} %")
+        _log.warning(f"mask identity is only {pid} %")
 
     return mask
 
@@ -285,6 +285,9 @@ def preprocess(table_path: str,
 
         # parse the pdb file
         model_path = os.path.join(models_path, f"{id_}.pdb")
+        if not os.path.isfile(model_path):
+            _log.warning(f"file not found: {model_path}")
+            continue
 
         pdb_parser = PDBParser()
 
