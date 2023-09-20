@@ -27,16 +27,34 @@ from .modules.sequence_encoding import mask_loop_left_center_right
 _log = logging.getLogger(__name__)
 
 
+def get_entry_names(hdf5_path: str) -> List[str]:
+    with h5py.File(hdf5_path, 'r') as hdf5_file:
+        return list(hdf5_file.keys())
+
+
 class ProteinLoopDataset(Dataset):
-    def __init__(self, hdf5_path: str, device: torch.device, model_type: ModelType, loop_maxlen: int, protein_maxlen: int):
+    def __init__(self,
+                 hdf5_path: str,
+                 device: torch.device,
+                 model_type: ModelType,
+                 loop_maxlen: int,
+                 protein_maxlen: int,
+                 entry_names: Optional[List[str]] = None,
+    ):
         self._hdf5_path = hdf5_path
         self._device = device
         self._loop_maxlen = loop_maxlen
         self._protein_maxlen = protein_maxlen
         self._model_type = model_type
 
-        with h5py.File(self._hdf5_path, 'r') as hdf5_file:
-            self._entry_names = list(hdf5_file.keys())
+        if entry_names is not None:
+            self._entry_names = entry_names
+        else:
+            self._entry_names = get_entry_names(self._hdf5_path)
+
+    @property
+    def entry_names(self) -> List[str]:
+        return self._entry_names
 
     def __len__(self) -> int:
         return len(self._entry_names)

@@ -5,7 +5,6 @@ from argparse import ArgumentParser
 import logging
 from uuid import uuid4
 from typing import Tuple, Union, Optional, List, Dict, Set, Any
-import random
 from math import log, sqrt
 import h5py
 import numpy
@@ -52,7 +51,7 @@ from openfold.utils.tensor_utils import permute_final_dims
 
 from tcrspec.time import Timer
 from tcrspec.preprocess import preprocess
-from tcrspec.dataset import ProteinLoopDataset
+from tcrspec.dataset import ProteinLoopDataset, get_entry_names
 from tcrspec.modules.predictor import Predictor
 from tcrspec.models.complex import ComplexClass
 from tcrspec.models.amino_acid import AminoAcid
@@ -70,7 +69,6 @@ arg_parser.add_argument("--debug", "-d", help="generate debug files", action='st
 arg_parser.add_argument("--log-stdout", "-l", help="log to stdout", action='store_const', const=True, default=False)
 arg_parser.add_argument("--pretrained-model", "-m", help="use a given pretrained model state")
 arg_parser.add_argument("--pretrained-protein-ipa", "-p", help="use a given pretrained protein ipa state")
-arg_parser.add_argument("--test-only", "-t", help="skip training and test on a pretrained model", action='store_const', const=True, default=False)
 arg_parser.add_argument("--workers", "-w", help="number of workers to load batches", type=int, default=5)
 arg_parser.add_argument("--batch-size", "-b", help="batch size to use during training/validation/testing", type=int, default=8)
 arg_parser.add_argument("--epoch-count", "-e", help="how many epochs to run during training", type=int, default=100)
@@ -79,7 +77,8 @@ arg_parser.add_argument("--animate", "-a", help="id of a data point to generate 
 arg_parser.add_argument("--structures-path", "-s", help="an additional structures hdf5 file to measure RMSD on")
 arg_parser.add_argument("--classification", "-c", help="do classification instead of regression", action="store_const", const=True, default=False)
 arg_parser.add_argument("--pdb-output", help="store resulting pdb files in an hdf5 file", action="store_const", const=True, default=False)
-arg_parser.add_argument("data_path", help="path to the train, validation & test hdf5", nargs="+")
+arg_parser.add_argument("data_path", help="path to a hdf5 file", nargs="+")
+arg_parser.add_argument("--test-subset-path", help="path to list of entry ids that should be excluded for testing", nargs="+")
 
 
 _log = logging.getLogger(__name__)
@@ -696,11 +695,13 @@ class Trainer:
     def get_data_loader(self,
                         data_path: str,
                         batch_size: int,
-                        device: torch.device) -> DataLoader:
+                        device: torch.device,
+                        entry_ids: Optional[List[str]] = None) -> DataLoader:
 
         dataset = ProteinLoopDataset(data_path, device, self._model_type,
                                      loop_maxlen=self.loop_maxlen,
-                                     protein_maxlen=self.protein_maxlen)
+                                     protein_maxlen=self.protein_maxlen,
+                                     entry_names=entry_ids)
 
         loader = DataLoader(dataset,
                             collate_fn=ProteinLoopDataset.collate,
@@ -708,6 +709,38 @@ class Trainer:
                             num_workers=self.workers_count)
 
         return loader
+
+
+    def store_entry_names(self, run_id: str, subset_name: str, entry_names: List[str]):
+        with open(os.path.join(run_id, f"{subset_name}-entry-names.txt"), 'wt') as output_file:
+            for entry_name in entry_names:
+                output_file.write(f"{entry_name}\n")
+
+
+def read_ids_from(path: str) -> List[str]:
+    ids = []
+    with open(path) as file_:
+        for line in file_:
+            ids += line.strip().split()
+    return ids
+
+
+def random_subdivision(ids: List[str], fraction: float) -> Tuple[List[str], List[str]]:
+
+    n = int(round(fraction * len(ids)))
+
+    shuffled = torch.randperm(ids)
+
+    return shuffled[:-n], shuffled[-n:]
+
+
+def get_excluded(names_from: List[str], names_exclude: List[str]) -> List[str]:
+    remaining_names = []
+    for name in names_from:
+        if name not in names_exclude:
+            remaining_names.append(name)
+
+    return remaining_names
 
 
 if __name__ == "__main__":
@@ -747,12 +780,14 @@ if __name__ == "__main__":
     torch.multiprocessing.set_start_method('spawn')
 
     trainer = Trainer(device, args.workers, model_type)
+    model_path = trainer.get_model_path(run_id)
 
     structures_loader = None
     if args.structures_path is not None:
         structures_loader = trainer.get_data_loader(args.structures_path, args.batch_size, device)
 
-    if args.test_only:
+    if len(args.data_path) == 1 and os.path.isfile(model_path):
+        # presume that we will only do a test run
 
         test_path = args.data_path[0]
 
@@ -760,13 +795,42 @@ if __name__ == "__main__":
 
         trainer.test(test_loader, structures_loader, run_id, args.pdb_output, True)
 
-    else:  # train & test
+    else:  # train, validate, test
 
-        train_path, valid_path, test_path = args.data_path
+        if len(args.data_path) >= 3:
+            train_path, valid_path, test_path = args.data_path[:3]
 
-        train_loader = trainer.get_data_loader(train_path, args.batch_size, device)
-        valid_loader = trainer.get_data_loader(valid_path, args.batch_size, device)
-        test_loader = trainer.get_data_loader(test_path, args.batch_size, device)
+            train_loader = trainer.get_data_loader(train_path, args.batch_size, device)
+            valid_loader = trainer.get_data_loader(valid_path, args.batch_size, device)
+            test_loader = trainer.get_data_loader(test_path, args.batch_size, device)
+
+        elif len(args.data_path) == 2:
+
+            train_entry_names, valid_entry_names = random_subdivision(get_entry_names(args.data_path[0]), 0.1)
+            train_loader = trainer.get_data_loader(args.data_path[0], args.batch_size, device, train_entry_names)
+            valid_loader = trainer.get_data_loader(args.data_path[0], args.batch_size, device, valid_entry_names)
+            test_loader = trainer.get_data_loader(args.data_path[1], args.batch_size, device)
+
+            trainer.store_entry_names(run_id, 'train', train_entry_names)
+            trainer.store_entry_names(run_id, 'valid', valid_entry_names)
+
+        else:  # only one hdf5 file
+
+            if args.test_subset_path is not None:
+                test_entry_names = read_ids_from(args.test_subset_path)
+                train_valid_entry_names = get_excluded(get_entry_names(args.data_path[0]), test_entry_names)
+                train_entry_names, valid_entry_names = random_subdivision(train_valid_entry_names, 0.1)
+            else:
+                train_entry_names, valid_test_entry_names = random_subdivision(get_entry_names(args.data_path[0]), 0.2)
+                valid_entry_names, test_entry_names = random_subdivision(valid_test_entry_names, 0.5)
+
+            train_loader = trainer.get_data_loader(args.data_path[0], args.batch_size, device, train_entry_names)
+            valid_loader = trainer.get_data_loader(args.data_path[0], args.batch_size, device, valid_entry_names)
+            test_loader = trainer.get_data_loader(args.data_path[0], args.batch_size, device, test_entry_names)
+
+            trainer.store_entry_names(run_id, 'train', train_entry_names)
+            trainer.store_entry_names(run_id, 'valid', valid_entry_names)
+            trainer.store_entry_names(run_id, 'test', test_entry_names)
 
         trainer.train(train_loader, valid_loader, test_loader,
                       args.epoch_count, args.fine_tune_count,
