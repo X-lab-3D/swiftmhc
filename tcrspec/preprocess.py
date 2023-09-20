@@ -170,7 +170,7 @@ def _mask_residues(residues: List[Residue], mask_ids: List[Tuple[str, int, Amino
 
     pid = 100.0 * aa_match_count / aa_count
     if pid < 85.0:
-        _log.warning(f"mask identity is only {pid} %")
+        _log.warning(f"mask identity is only {pid:.1f} %")
 
     return mask
 
