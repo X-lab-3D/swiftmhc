@@ -25,6 +25,7 @@ from torch.nn.utils import clip_grad_norm_
 from torch.nn import DataParallel
 
 from Bio.PDB.PDBIO import PDBIO
+from Bio.PDB.Structure import Structure
 
 from openfold.np.residue_constants import (restype_atom14_ambiguous_atoms as openfold_restype_atom14_ambiguous_atoms,
                                            atom_types as openfold_atom_types,
@@ -77,6 +78,7 @@ arg_parser.add_argument("--fine-tune-count", "-u", help="how many epochs to run 
 arg_parser.add_argument("--animate", "-a", help="id of a data point to generate intermediary pdb for", nargs="+")
 arg_parser.add_argument("--structures-path", "-s", help="an additional structures hdf5 file to measure RMSD on")
 arg_parser.add_argument("--classification", "-c", help="do classification instead of regression", action="store_const", const=True, default=False)
+arg_parser.add_argument("--pdb-output", help="store resulting pdb files in an hdf5 file", action="store_const", const=True, default=False)
 arg_parser.add_argument("data_path", help="path to the train, validation & test hdf5", nargs="+")
 
 
@@ -177,6 +179,46 @@ class Trainer:
             for loop_index in range(loop_positions.shape[0]):
                 table_file.write(f"loop residue {loop_index} is predicted at {loop_positions[loop_index]}\n")
 
+    @staticmethod
+    def _pdb_to_array(structure: Structure) -> numpy.ndarray:
+        """
+        makes every pdb line a byte string in the output array
+        """
+
+        pdbio = PDBIO()
+        pdbio.set_structure(structure)
+        with StringIO() as sio:
+            pdbio.save(sio)
+            array = numpy.array([bytes(line + "\n", encoding="utf-8")
+                                 for line in sio.getvalue().split('\n')
+                                 if len(line.strip()) > 0],
+                                dtype=numpy.dtype("bytes"))
+
+        return array
+
+    def _store_pdb_results(self,
+                           hdf5_path: str,
+                           data: Dict[str, torch.Tensor],
+                           output: Dict[str, torch.Tensor]):
+        """
+        Silently overwrites existing data with the same identifier!
+        """
+
+        with h5py.File(hdf5_path, 'a') as hdf5_file:
+            for index, id_ in enumerate(data["ids"]):
+                pdb_group = hdf5_file.require_group(id_)
+
+                structure = recreate_structure(id_,
+                                               [("P", data["loop_residue_numbers"][index], data["loop_sequence_onehot"][index], output["final_positions"][index]),
+                                                ("M", data["protein_residue_numbers"][index], data["protein_sequence_onehot"][index], data["protein_atom14_gt_positions"][index])])
+                structure_data = self._pdb_to_array(structure)
+
+                if "structure" in pdb_group:
+                    pdb_group["structure"][:] = structure_data
+                else:
+                    pdb_group.create_dataset("structure", data=structure_data, compression="lzf")
+
+
     def _snapshot(self,
                   frame_id: str,
                   model: Predictor,
@@ -198,14 +240,7 @@ class Trainer:
                     structure = recreate_structure(id_,
                                                    [("P", data["loop_residue_numbers"][index], data["loop_sequence_onehot"][index], data["loop_atom14_gt_positions"][index]),
                                                     ("M", data["protein_residue_numbers"][index], data["protein_sequence_onehot"][index], data["protein_atom14_gt_positions"][index])])
-                    pdbio = PDBIO()
-                    pdbio.set_structure(structure)
-                    with StringIO() as sio:
-                        pdbio.save(sio)
-                        structure_data = numpy.array([bytes(line + "\n", encoding="utf-8")
-                                                      for line in sio.getvalue().split('\n')
-                                                      if len(line.strip()) > 0],
-                                                     dtype=numpy.dtype("bytes"))
+                    structure_data = self._pdb_to_array(structure)
                     true_group.create_dataset("structure",
                                                data=structure_data,
                                                compression="lzf")
@@ -246,14 +281,7 @@ class Trainer:
                 structure = recreate_structure(id_,
                                                [("P", data["loop_residue_numbers"][index], data["loop_sequence_onehot"][index], output["final_positions"][index]),
                                                 ("M", data["protein_residue_numbers"][index], data["protein_sequence_onehot"][index], data["protein_atom14_gt_positions"][index])])
-                pdbio = PDBIO()
-                pdbio.set_structure(structure)
-                with StringIO() as sio:
-                    pdbio.save(sio)
-                    structure_data = numpy.array([bytes(line + "\n", encoding="utf-8")
-                                                  for line in sio.getvalue().split('\n')
-                                                  if len(line.strip()) > 0],
-                                                 dtype=numpy.dtype("bytes"))
+                structure_data = self._pdb_to_array(structure)
                 frame_group.create_dataset("structure",
                                            data=structure_data,
                                            compression="lzf")
@@ -311,6 +339,7 @@ class Trainer:
                   model: Predictor,
                   data_loader: DataLoader,
                   fine_tune: bool,
+                  pdb_output_path: Optional[str] = None,
     ) -> Dict[str, Any]:
 
         valid_data = {}
@@ -336,6 +365,9 @@ class Trainer:
 
                 sd += sum_
                 n += count
+
+                if pdb_output_path is not None:
+                    self._store_pdb_results(pdb_output_path, batch_data, batch_output)
 
         valid_data["binders_c_alpha_rmsd"] = sqrt(sd / n)
 
@@ -445,9 +477,14 @@ class Trainer:
 
         table.to_csv(output_path, index=False)
 
-    def test(self, test_loader: DataLoader, structures_loader: Union[DataLoader, None], run_id: str):
+    def test(self,
+             test_loader: DataLoader,
+             structures_loader: Union[DataLoader, None],
+             run_id: str,
+             output_pdb: bool,
+             output_metrics: bool):
 
-        model_path = f"{run_id}/best-predictor.pth"
+        model_path = self.get_model_path(run_id)
         model = Predictor(self._model_type,
                           self.loop_maxlen,
                           self.protein_maxlen,
@@ -458,14 +495,21 @@ class Trainer:
         model.eval()
         model.load_state_dict(torch.load(model_path))
 
-        test_data = self._validate(-1, model, test_loader, True, run_id)
+        output_pdb_path = None
+        if output_pdb:
+            output_pdb_path = os.path.join(run_id, "pdb-output.hdf5")
+
+        test_data = self._validate(-1, model, test_loader, True, output_pdb_path)
 
         structures_data = None
         if structures_loader is not None:
-            structures_data = self._validate(-1, model, structures_loader, True, run_id)
+            structures_data = self._validate(-1, model, structures_loader, True, output_pdb_path)
 
-        self._output_metrics(run_id, "test", -1, test_data)
-        self._output_metrics(run_id, "structures", -1, structures_data)
+        if output_metrics:
+            self._output_metrics(run_id, "test", -1, test_data)
+
+            if structures_data is not None:
+                self._output_metrics(run_id, "structures", -1, structures_data)
 
     @staticmethod
     def _get_selection_data_batch(datasets: List[ProteinLoopDataset], names: List[str]) -> Dict[str, torch.Tensor]:
@@ -481,6 +525,10 @@ class Trainer:
                 raise ValueError(f"entry not found in datasets: {name}")
 
         return ProteinLoopDataset.collate(entries)
+
+    @staticmethod
+    def get_model_path(run_id: str) -> str:
+        return f"{run_id}/best-predictor.pth"
 
     def train(self,
               train_loader: DataLoader,
@@ -516,7 +564,7 @@ class Trainer:
         # scheduler = StepLR(optimizer, step_size=10, gamma=0.1)
 
         # define model paths
-        model_path = f"{run_id}/best-predictor.pth"
+        model_path = self.get_model_path(run_id)
         protein_ipa_path = f"{run_id}/best-protein-ipa.pth"
 
         # Keep track of the lowest loss value.
@@ -710,7 +758,7 @@ if __name__ == "__main__":
 
         test_loader = trainer.get_data_loader(test_path, args.batch_size, device)
 
-        trainer.test(test_loader, structures_loader, run_id=run_id)
+        trainer.test(test_loader, structures_loader, run_id, args.pdb_output, True)
 
     else:  # train & test
 
@@ -724,3 +772,7 @@ if __name__ == "__main__":
                       args.epoch_count, args.fine_tune_count,
                       run_id, args.pretrained_model, args.pretrained_protein_ipa,
                       args.animate, structures_loader)
+
+        if args.pdb_output:
+            trainer.test(test_loader, None, run_id, True, False)
+
