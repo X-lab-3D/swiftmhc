@@ -276,12 +276,22 @@ def preprocess(table_path: str,
                protein_cross_mask_path: str,
                output_path: str):
 
+    # in case we're writing to an existing file:
+    entries_present = set([])
+    if os.path.isfile(output_path):
+        with h5py.File(output_path, 'r') as output_file:
+            entries_present = set(output_file.keys())
+
+    _log.debug(f"{len(entries_present)} entries already present in {output_path}")
+
     targets_by_id = _read_targets_by_id(table_path)
 
     protein_residues_self_mask = _read_mask_data(protein_self_mask_path)
     protein_residues_cross_mask = _read_mask_data(protein_cross_mask_path)
 
     for id_, target in targets_by_id:
+        if id_ in entries_present:
+            continue
 
         # parse the pdb file
         model_path = os.path.join(models_path, f"{id_}.pdb")
