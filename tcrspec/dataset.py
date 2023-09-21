@@ -63,7 +63,10 @@ class ProteinLoopDataset(Dataset):
 
         entry_name = self._entry_names[index]
 
-        return self.get_entry(entry_name)
+        try:
+            return self.get_entry(entry_name)
+        except Exception as e:
+            raise RuntimeError(f"in entry {entry_name}: {str(e)}")
 
     def has_entry(self,  entry_name: str) -> bool:
         return entry_name in self._entry_names
