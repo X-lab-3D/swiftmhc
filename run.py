@@ -77,7 +77,8 @@ arg_parser.add_argument("--animate", "-a", help="id of a data point to generate 
 arg_parser.add_argument("--structures-path", "-s", help="an additional structures hdf5 file to measure RMSD on")
 arg_parser.add_argument("--classification", "-c", help="do classification instead of regression", action="store_const", const=True, default=False)
 arg_parser.add_argument("--pdb-output", help="store resulting pdb files in an hdf5 file", action="store_const", const=True, default=False)
-arg_parser.add_argument("data_path", help="path to a hdf5 file", nargs="+")
+arg_parser.add_argument("--data-path", "-f", help="path to a hdf5 file", nargs="+")
+arg_parser.add_argument("--test-only", "-t", help="do not train, only run tests", const=True, default=False, action='store_const')
 arg_parser.add_argument("--test-subset-path", help="path to list of entry ids that should be excluded for testing", nargs="+")
 
 
@@ -129,54 +130,6 @@ class Trainer:
         optimizer.step()
 
         return (losses.detach(), output)
-
-    @staticmethod
-    def _save_cross_matrix(file_path: str,
-                           loop_amino_acids: List[AminoAcid],
-                           struct_amino_acids: List[AminoAcid],
-                           cross_weight_matrix: torch.Tensor):
-        """
-        Args:
-            cross_weight_matrix: [struct_len, loop_len]
-            loop_amino_acids: must be of loop length
-            struct_amino_acids: must be of struct length
-        """
-
-        column_names = []
-        for res_index, amino_acid in enumerate(loop_amino_acids):
-            if amino_acid is not None:
-                column_names.append(f"{res_index + 1} {amino_acid.three_letter_code}")
-            else:
-                column_names.append(f"{res_index + 1} <gap>")
-
-        row_names = []
-        for res_index, amino_acid in enumerate(struct_amino_acids):
-            if amino_acid is not None:
-                row_names.append(f"{res_index + 1} {amino_acid.three_letter_code}")
-            else:
-                row_names.append(f"{res_index + 1} <gap>")
-
-        data_frame = pandas.DataFrame(cross_weight_matrix.numpy(force=True),
-                                      columns=column_names, index=row_names)
-        data_frame.to_csv(file_path)
-
-    @staticmethod
-    def _save_model_output(file_path: str,
-                           target_name: str,
-                           loop_sequence: str,
-                           loop_positions: torch.Tensor,
-                           probability: Union[float, torch.Tensor]):
-        """
-        Args:
-            loop_positions: [loop_len, 3]
-            probability: 1 or 2 numbers between {0.0 - 1.0}
-        """
-
-        with open(file_path, 'wt') as table_file:
-            table_file.write(f"{target_name} sequence {loop_sequence} has predicted probability {probability}\n")
-
-            for loop_index in range(loop_positions.shape[0]):
-                table_file.write(f"loop residue {loop_index} is predicted at {loop_positions[loop_index]}\n")
 
     @staticmethod
     def _pdb_to_array(structure: Structure) -> numpy.ndarray:
@@ -379,15 +332,27 @@ class Trainer:
                              truth: Dict[str, Any]
     ) -> Dict[str, Any]:
         """
-        Stores the data needed to generate output files.
+        Args:
+            old_data: the old dictionary of epoch data
+            losses: the dictionary of loss values for the batch
+            output: the batch output
+            truth: the batch truth data
+        Returns: the new dictionary of epoch data
+
+        Stores the batch data needed to generate output files.
+        This will create a dictionary with epoch data, which can only
+        contain a limited number of fields. (because of memory usage)
         """
 
+        # store the old data in the new dictionary
         output_data = {}
         for key in old_data:
             output_data[key] = old_data[key]
 
+        # determine batch size from the number of ids
         batch_size = len(truth["ids"])
 
+        # store the new loss data in the new dictionary
         for loss_name, loss_value in losses.items():
             loss_name += " loss"
 
@@ -396,6 +361,7 @@ class Trainer:
             else:
                 output_data[loss_name] += loss_value.item() * batch_size
 
+        # store output that is present.
         if "affinity" in truth:
             if "affinity" not in output_data:
                 output_data["affinity"] = []
@@ -434,12 +400,22 @@ class Trainer:
 
     @staticmethod
     def _save_outputs_as_csv(output_path: str, data: Dict[str, Any]):
+        """
+        This function was made for debugging. It stores the model's output per data point in a file.
 
+        Args:
+            output_path: where to store it
+            data: model's output for a batch
+        """
+
+        # determine the batch size from the number of ids
         batch_size = len(data["ids"])
 
         if os.path.isfile(output_path):
+            # read the table, if it's already present, to overwrite
             table = pandas.read_csv(output_path)
         else:
+            # otherwise, make an empty table
             table = pandas.DataFrame(data={"id": [], "loop": []})
             if "affinity" in data:
                 table["output affinity"] = []
@@ -452,6 +428,7 @@ class Trainer:
 
             table.set_index("id")
 
+        # store the batch data
         for batch_index in range(batch_size):
 
             id_ = data["ids"][batch_index]
@@ -469,19 +446,29 @@ class Trainer:
                 row_data["output 1"] = [data["output classification"][batch_index, 1]]
                 row_data["true class"] = [data["class"][batch_index]]
 
+            # add the data point's row to the table
             row = pandas.DataFrame(row_data)
             row.set_index("id")
-
             table = pandas.concat((table, row))
 
         table.to_csv(output_path, index=False)
 
     def test(self,
              test_loader: DataLoader,
-             structures_loader: Union[DataLoader, None],
              run_id: str,
-             output_pdb: bool,
-             output_metrics: bool):
+             output_metrics_name: Optional[str],
+             animated_complex_ids: List[str],
+             output_pdb_path: Optional[str],
+    ):
+        """
+        Call this function instead of train, when you just want to test the model.
+
+        Args:
+            test_loader: test data
+            run_id: run directory, where the model file is stored
+            output_pdb_name: where to to save pdb files, resulting from individual data points
+            output_metrics: where to to save metrics data in a csv file
+        """
 
         model_path = self.get_model_path(run_id)
         model = Predictor(self._model_type,
@@ -492,23 +479,20 @@ class Trainer:
 
         model.to(device=self._device)
         model.eval()
-        model.load_state_dict(torch.load(model_path))
-
-        output_pdb_path = None
-        if output_pdb:
-            output_pdb_path = os.path.join(run_id, "pdb-output.hdf5")
+        model.load_state_dict(torch.load(model_path,  map_location=self._device))
 
         test_data = self._validate(-1, model, test_loader, True, output_pdb_path)
 
-        structures_data = None
-        if structures_loader is not None:
-            structures_data = self._validate(-1, model, structures_loader, True, output_pdb_path)
+        if output_metrics_name is not None:
+            self._output_metrics(run_id, output_metrics_name, -1, test_data)
 
-        if output_metrics:
-            self._output_metrics(run_id, "test", -1, test_data)
+        if len(animated_complex_ids) > 0:
+            animated_data = self._get_selection_data_batch([test_loader.dataset], animated_complex_ids)
 
-            if structures_data is not None:
-                self._output_metrics(run_id, "structures", -1, structures_data)
+            self._snapshot("test",
+                           model,
+                           run_id, animated_data)
+
 
     @staticmethod
     def _get_selection_data_batch(datasets: List[ProteinLoopDataset], names: List[str]) -> Dict[str, torch.Tensor]:
@@ -537,10 +521,10 @@ class Trainer:
               run_id: Optional[str] = None,
               pretrained_model_path: Optional[str] = None,
               pretrained_protein_ipa_path: Optional[str] = None,
-
               animated_complex_ids: Optional[List[str]] = None,
-              structures_loader: Optional[DataLoader] = None):
-
+              structures_loader: Optional[DataLoader] = None,
+              output_pdb_path: Optional[str] = None,
+    ):
         # Set up the model
         model = Predictor(self._model_type,
                           self.loop_maxlen,
@@ -639,6 +623,14 @@ class Trainer:
 
         # write the final test output
         self._save_outputs_as_csv(os.path.join(run_id, "outputs.csv"), test_data)
+
+        # write the output pdb models
+        if output_pdb_path is not None:
+            model.load_state_dict(torch.load(model_path, map_location=self._device))
+
+            for loader in [train_loader, valid_loader, test_loader, structures_loader]:
+                if loader is not None:
+                    self._validate(-1, model, loader, True, output_pdb_path)
 
     @staticmethod
     def _init_metrics_dataframe():
@@ -776,6 +768,10 @@ if __name__ == "__main__":
 
         device = torch.device("cpu")
 
+    pdb_output_path = None
+    if args.pdb_output:
+        pdb_output_path = os.path.join(run_id, "pdb-output.hdf5")
+
     _log.debug(f"using {args.workers} workers")
     torch.multiprocessing.set_start_method('spawn')
 
@@ -786,14 +782,14 @@ if __name__ == "__main__":
     if args.structures_path is not None:
         structures_loader = trainer.get_data_loader(args.structures_path, args.batch_size, device)
 
-    if len(args.data_path) == 1 and os.path.isfile(model_path):
-        # presume that we will only do a test run
+    if args.test_only:
+        if not os.path.isfile(model_path):
+            raise FileNotFoundError(model_path)
 
-        test_path = args.data_path[0]
-
-        test_loader = trainer.get_data_loader(test_path, args.batch_size, device)
-
-        trainer.test(test_loader, structures_loader, run_id, args.pdb_output, True)
+        for test_path in args.data_path:
+            data_name = os.path.splitext(os.path.basename(test_path))[0]
+            test_loader = trainer.get_data_loader(test_path, args.batch_size, device)
+            trainer.test(test_loader, run_id, data_name, args.animate, pdb_output_path)
 
     else:  # train, validate, test
 
@@ -835,8 +831,6 @@ if __name__ == "__main__":
         trainer.train(train_loader, valid_loader, test_loader,
                       args.epoch_count, args.fine_tune_count,
                       run_id, args.pretrained_model, args.pretrained_protein_ipa,
-                      args.animate, structures_loader)
-
-        if args.pdb_output:
-            trainer.test(test_loader, None, run_id, True, False)
+                      args.animate, structures_loader,
+                      pdb_output_path)
 
