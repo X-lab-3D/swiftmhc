@@ -100,12 +100,22 @@ def to_frame(structure: Structure, png_path: str, rotation_y: float):
         pymol_cmd.reinitialize()
         pymol_cmd.load(pdb_path)
 
-        pymol_cmd.hide("cartoon")
-        pymol_cmd.show("sphere")
+        models = pymol_cmd.get_object_list('all')
+
+        pymol_cmd.create("peptide", "chain P")
+        pymol_cmd.create("mhc", "chain M")
+
+        for model in models:
+            pymol_cmd.delete(model)
+
+        pymol_cmd.hide("cartoon", "chain P")
+        pymol_cmd.show("stick", "chain P")
 
         pymol_cmd.set("transparency", 0.3)
-        pymol_cmd.show("surface")
+        pymol_cmd.show("surface", "chain M")
 
+        pymol_cmd.center("chain P")
+        pymol_cmd.zoom("all")
         pymol_cmd.color("blue", "chain M")
 
         pymol_cmd.rotate("x", -90)
