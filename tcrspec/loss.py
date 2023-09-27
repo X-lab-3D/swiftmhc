@@ -437,25 +437,27 @@ def get_calpha_square_deviation(output_data: Dict[str, torch.Tensor],
     else:
         raise ValueError("Cannot compute RMSD without class or affinity output")
 
+    # [n_binders, max_loop_len, n_atoms, 3]
     output_positions = output_data["final_positions"][binders_index]
     true_positions = batch_data["loop_atom14_gt_positions"][binders_index]
+ 
+    # [n_binders, max_loop_len]
     mask = batch_data["loop_cross_residues_mask"][binders_index]
 
     # take C-alpha only
+    # [n_binders, max_loop_len, 3]
     output_positions = output_positions[..., 1, :]
     true_positions = true_positions[..., 1, :]
 
-    # [n_binders, max_loop_len, 1, 1]
-    mask = mask[..., None]
-
-    _log.debug(f"shape of output_positions is {output_positions.shape}")
-    _log.debug(f"shape of true_positions is {true_positions.shape}")
-    _log.debug(f"shape of mask is {mask.shape}")
-
+    # [n_binders, max_loop_len, 3]
     diff = output_positions - true_positions
 
-    sum_ = torch.sum((diff * mask) ** 2)
-    count = torch.sum(mask.int())
+    sum_ = torch.sum((diff * mask.unsqueeze(-1)) ** 2).item()
+    count = mask.sum().item()
+
+    if count > 0:
+        _log.debug(f"calculated CA rmsd {sqrt(sum_ / count)} for a batch of {count} binders")
+
     return sum_, count
 
 
