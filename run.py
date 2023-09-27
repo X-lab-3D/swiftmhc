@@ -74,7 +74,7 @@ arg_parser.add_argument("--workers", "-w", help="number of workers to load batch
 arg_parser.add_argument("--batch-size", "-b", help="batch size to use during training/validation/testing", type=int, default=8)
 arg_parser.add_argument("--epoch-count", "-e", help="how many epochs to run during training", type=int, default=100)
 arg_parser.add_argument("--fine-tune-count", "-u", help="how many epochs to run during fine-tuning", type=int, default=10)
-arg_parser.add_argument("--animate", "-a", help="id of a data point to generate intermediary pdb for")
+arg_parser.add_argument("--animate", "-a", help="id of a data point to generate intermediary pdb for", nargs="+")
 arg_parser.add_argument("--structures-path", "-s", help="an additional structures hdf5 file to measure RMSD on")
 arg_parser.add_argument("--classification", "-c", help="do classification instead of regression", action="store_const", const=True, default=False)
 arg_parser.add_argument("data_path", help="path to the train, validation & test hdf5", nargs="+")
