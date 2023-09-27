@@ -429,11 +429,11 @@ class Trainer:
             loop_sequence = data["loop_sequence"][batch_index]
 
             row_data = {"id": [id_], "loop": [loop_sequence]}
-            if "affinity" in data:
+            if "affinity" in data and "output affinity" in data:
                 row_data["output affinity"] = [data["output affinity"][batch_index]]
                 row_data["true affinity"] = [data["affinity"][batch_index]]
 
-            if "class" in data:
+            if "class" in data and "output class" in data:
                 row_data["output class"] = [data["output class"][batch_index]]
                 row_data["output 0"] = [data["output classification"][batch_index, 0]]
                 row_data["output 1"] = [data["output classification"][batch_index, 1]]
