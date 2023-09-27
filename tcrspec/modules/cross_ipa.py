@@ -62,9 +62,6 @@ class CrossInvariantPointAttention(torch.nn.Module):
 
         hpv = self.no_heads * self.no_v_points * 3
 
-        self.head_weights = torch.nn.Parameter(torch.zeros((no_heads)))
-        ipa_point_weights_init_(self.head_weights)
-
         concat_out_dim = self.no_heads * (
             self.c_hidden + self.no_v_points * 4
         )
@@ -74,6 +71,16 @@ class CrossInvariantPointAttention(torch.nn.Module):
         self.softplus = torch.nn.Softplus()
 
         self.inf = 1e22
+
+    @staticmethod
+    def _standardize_pts_attention(a: torch.Tensor) -> torch.Tensor:
+
+        dims = (1, 2, 3)
+
+        m = a.mean(dim=dims)
+        s = a.std(dim=dims)
+
+        return (a - m[:, None, None, None]) / s[:, None, None, None]
 
     def forward(
         self,
@@ -193,12 +200,9 @@ class CrossInvariantPointAttention(torch.nn.Module):
 
         # [batch_size, len_dst, len_src, H, P_q]
         pt_att = sum(torch.unbind(pt_att, dim=-1))
-        head_weights = self.softplus(self.head_weights).view(
-            *((1,) * len(pt_att.shape[:-2]) + (-1, 1))
-        )
 
         # only two terms in attention weight, so divide by two
-        head_weights = head_weights * math.sqrt(
+        head_weights = math.sqrt(
             1.0 / (2 * (self.no_qk_points * 9.0 / 2))
         )
         if(inplace_safe):
@@ -208,6 +212,7 @@ class CrossInvariantPointAttention(torch.nn.Module):
 
         # [batch_size, len_dst, len_src, H]
         pt_att = torch.sum(pt_att, dim=-1) * (-0.5)
+        pt_att = self._standardize_pts_attention(pt_att)
 
         # [batch_size, len_dst, len_src]
         square_mask = dst_mask.unsqueeze(-1) * src_mask.unsqueeze(-2)
