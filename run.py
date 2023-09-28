@@ -161,24 +161,6 @@ class Trainer:
                                       columns=column_names, index=row_names)
         data_frame.to_csv(file_path)
 
-    @staticmethod
-    def _save_model_output(file_path: str,
-                           target_name: str,
-                           loop_sequence: str,
-                           loop_positions: torch.Tensor,
-                           probability: Union[float, torch.Tensor]):
-        """
-        Args:
-            loop_positions: [loop_len, 3]
-            probability: 1 or 2 numbers between {0.0 - 1.0}
-        """
-
-        with open(file_path, 'wt') as table_file:
-            table_file.write(f"{target_name} sequence {loop_sequence} has predicted probability {probability}\n")
-
-            for loop_index in range(loop_positions.shape[0]):
-                table_file.write(f"loop residue {loop_index} is predicted at {loop_positions[loop_index]}\n")
-
     def _snapshot(self,
                   frame_id: str,
                   model: Predictor,
