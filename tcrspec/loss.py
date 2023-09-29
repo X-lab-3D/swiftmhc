@@ -140,7 +140,7 @@ def _compute_cross_distance_loss(output: TensorDict, batch: TensorDict) -> torch
 
 
 def _compute_cross_violation_loss(output: TensorDict, batch: TensorDict,
-                                  config: ml_collections.ConfigDict) -> torch.Tensor:
+                                  config: ml_collections.ConfigDict) -> Dict[str, torch.Tensor]:
 
     # Compute the between residue clash loss. (include both loop and protein)
     residx_atom14_to_atom37 = torch.cat((batch["loop_residx_atom14_to_atom37"], batch["protein_residx_atom14_to_atom37"]), dim=1)
@@ -215,15 +215,20 @@ def _compute_cross_violation_loss(output: TensorDict, batch: TensorDict,
     loop_num_atoms = torch.sum(batch["loop_atom14_gt_exists"])
     num_atoms = loop_num_atoms + torch.sum(batch["protein_atom14_gt_exists"])
 
-    l_clash = torch.sum(violations_between_residues_clashes_per_atom_loss_sum) / (config.eps + num_atoms) + \
-              torch.sum(violations_within_residues_per_atom_loss_sum) / (config.eps + loop_num_atoms)
+    between_residues_clash = torch.sum(violations_between_residues_clashes_per_atom_loss_sum) / (config.eps + num_atoms)
+    within_residues_clash = torch.sum(violations_within_residues_per_atom_loss_sum) / (config.eps + loop_num_atoms)
 
-    loss = (
-        violations_between_residues_bonds_c_n_loss_mean +
-        violations_between_residues_angles_ca_c_n_loss_mean +
-        violations_between_residues_angles_c_n_ca_loss_mean +
-        l_clash
-    )
+    loss = {
+        "bond": violations_between_residues_bonds_c_n_loss_mean,
+        "CA-C-N-angles": violations_between_residues_angles_ca_c_n_loss_mean,
+        "C-N-CA-angles": violations_between_residues_angles_c_n_ca_loss_mean,
+        "between-residues-clash": between_residues_clash,
+        "within-residues-clash": within_residues_clash,
+        "total": (violations_between_residues_bonds_c_n_loss_mean +
+                  violations_between_residues_angles_ca_c_n_loss_mean +
+                  violations_between_residues_angles_c_n_ca_loss_mean +
+                  between_residues_clash + within_residues_clash)
+    }
 
     return loss
 
@@ -398,7 +403,7 @@ def get_loss(output: TensorDict, batch: TensorDict,
                                    openfold_config.loss.fape)
 
     # compute violations loss, using an adjusted function
-    violation_loss = _compute_cross_violation_loss(output, batch, openfold_config.loss.violation)
+    violation_losses = _compute_cross_violation_loss(output, batch, openfold_config.loss.violation)
 
     # combine the loss terms
     total_loss = 1.0 * affinity_loss + \
@@ -406,19 +411,23 @@ def get_loss(output: TensorDict, batch: TensorDict,
                  1.0 * fape_loss
 
     if fine_tune:
-        total_loss += 1.0 * violation_loss
+        total_loss += 1.0 * violation_lossses["total"]
 
     # for true non-binders, the total loss is simply affinity-based
     total_loss[non_binders_index] = 1.0 * affinity_loss[non_binders_index]
 
     # average losses over batch dimension
-    return TensorDict({
+    result = TensorDict({
         "total": total_loss.mean(dim=0),
         "affinity": affinity_loss.mean(dim=0),
         "fape": fape_loss.mean(dim=0),
         "chi": chi_loss.mean(dim=0),
-        "violation": violation_loss.mean(dim=0),
     })
+
+    for component_id, loss_tensor in violation_losses.items():
+        result[f"{component_id} violation"] = loss_tensor.mean(dim=0)
+
+    return result
 
 
 def get_calpha_square_deviation(output_data: Dict[str, torch.Tensor],
