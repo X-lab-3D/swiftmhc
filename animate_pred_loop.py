@@ -4,6 +4,7 @@ import logging
 import os
 import sys
 import re
+from typing import Optional
 from argparse import ArgumentParser
 from glob import glob
 from tempfile import mkdtemp
@@ -28,6 +29,7 @@ _log = logging.getLogger(__name__)
 
 arg_parser = ArgumentParser(description="combine multiple snapshot structures into an animation")
 arg_parser.add_argument("hdf5_path", help="path to the hdf5 data file")
+arg_parser.add_argument("--align-ref-pdb", "-r", help="path to a pdb structure to align the video to")
 
 
 font = ImageFont.truetype("DejaVuSans.ttf", 48)
@@ -86,7 +88,8 @@ def add_text(png_path: str, text: str):
     image.save(png_path)
 
 
-def to_frame(structure: Structure, png_path: str, rotation_y: float):
+def to_frame(structure: Structure, png_path: str, rotation_y: float,
+             ref_align_pdb_path: Optional[str] = None):
 
     work_dir = mkdtemp()
 
@@ -97,10 +100,17 @@ def to_frame(structure: Structure, png_path: str, rotation_y: float):
         pdbio.set_structure(structure)
         pdbio.save(pdb_path)
 
-        pymol_cmd.reinitialize()
+        if ref_align_pdb_path:
+            pymol_cmd.load(ref_align_pdb_path)
+        else:
+            pymol_cmd.reinitialize()
         pymol_cmd.load(pdb_path)
 
         models = pymol_cmd.get_object_list('all')
+
+        if ref_align_pdb_path:
+            pymol_cmd.align("combined", "ref")
+            pymol_cmd.remove("ref")
 
         pymol_cmd.create("peptide", "chain P")
         pymol_cmd.create("mhc", "chain M")
@@ -117,8 +127,6 @@ def to_frame(structure: Structure, png_path: str, rotation_y: float):
         pymol_cmd.center("chain P")
         pymol_cmd.zoom("all")
         pymol_cmd.color("blue", "chain M")
-
-        pymol_cmd.rotate("x", -90)
 
         pymol_cmd.rotate("y", rotation_y)
 
@@ -151,6 +159,10 @@ if __name__ == "__main__":
     rotation_y_max = 20.0
 
     output_name = os.path.basename(args.hdf5_path).replace(".hdf5", "").replace("-animation", "")
+    output_dir = output_name
+
+    if not os.path.isdir(output_name):
+        os.mkdir(output_name)
 
     parser = PDBParser()
 
@@ -167,15 +179,17 @@ if __name__ == "__main__":
             frac = float(frame_index) / len(frame_ids)
             rotation_y = rotation_y_min + (rotation_y_max - rotation_y_min) * frac
 
-            png_path = f"{output_name}-{frame_id}.png"
+            png_path = os.path.join(output_name, f"{output_name}-{frame_id}.png")
 
             snapshot_structure_s = "".join([b.decode("utf-8") for b in hdf5_file[f"{frame_id}/structure"][:].tolist()])
 
             snapshot_structure = parser.get_structure(frame_id, StringIO(snapshot_structure_s))
 
             rmsd = get_rmsd(snapshot_structure, true_structure)
+            with open(os.path.join(output_name, "rmsd.csv"), 'at') as rmsd_file:
+                rmsd_file.write(f"{frame_id},{rmsd:.3f}\n")
 
-            to_frame(snapshot_structure, png_path, rotation_y)
+            to_frame(snapshot_structure, png_path, rotation_y, args.align_ref_pdb)
             add_text(png_path, f"rmsd: {rmsd:.3f}, epoch: {get_frame_number(frame_id):.3f}")
 
             png_paths.append(png_path)
