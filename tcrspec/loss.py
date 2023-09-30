@@ -158,7 +158,11 @@ def _compute_cross_violation_loss(output: TensorDict, batch: TensorDict,
     atomtype_radius = atom14_pred_positions.new_tensor(atomtype_radius)
 
     atom14_atom_radius = atom14_atom_exists * atomtype_radius[residx_atom14_to_atom37]
-    residue_index = torch.cat((batch["loop_residue_index"], batch["protein_residue_index"]), dim=1)
+
+    loop_residue_index = batch["loop_residue_index"]
+    protein_residue_index = batch["protein_residue_index"]
+
+    residue_index = torch.cat((loop_residue_index, protein_residue_index), dim=1)
 
     between_residue_clashes = openfold_between_residue_clash_loss(
         atom14_pred_positions=atom14_pred_positions,
@@ -194,7 +198,7 @@ def _compute_cross_violation_loss(output: TensorDict, batch: TensorDict,
     connection_violations = openfold_between_residue_bond_loss(
         pred_atom_positions=output["final_positions"],
         pred_atom_mask=batch["loop_atom14_gt_exists"],
-        residue_index=batch["loop_residue_index"],
+        residue_index=loop_residue_index,
         aatype=batch["loop_aatype"],
         tolerance_factor_soft=config.violation_tolerance_factor,
         tolerance_factor_hard=config.violation_tolerance_factor,
@@ -213,9 +217,9 @@ def _compute_cross_violation_loss(output: TensorDict, batch: TensorDict,
 
     # Calculate loss, as in openfold
     loop_num_atoms = torch.sum(batch["loop_atom14_gt_exists"])
-    num_atoms = loop_num_atoms + torch.sum(batch["protein_atom14_gt_exists"])
+    #num_atoms = loop_num_atoms + torch.sum(batch["protein_atom14_gt_exists"])
 
-    between_residues_clash = torch.sum(violations_between_residues_clashes_per_atom_loss_sum) / (config.eps + num_atoms)
+    between_residues_clash = torch.sum(violations_between_residues_clashes_per_atom_loss_sum) / (config.eps + loop_num_atoms)
     within_residues_clash = torch.sum(violations_within_residues_per_atom_loss_sum) / (config.eps + loop_num_atoms)
 
     loss = {

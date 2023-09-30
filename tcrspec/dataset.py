@@ -67,8 +67,8 @@ class ProteinLoopDataset(Dataset):
             elif PREPROCESS_CLASS_NAME in entry_group:
                 result["class"] = torch.tensor(entry_group[PREPROCESS_CLASS_NAME][()], device=self._device, dtype=torch.long)
 
-            for prefix, max_length in [(PREPROCESS_PROTEIN_NAME, self._protein_maxlen),
-                                       (PREPROCESS_LOOP_NAME, self._loop_maxlen)]:
+            for prefix, max_length, start_index in [(PREPROCESS_PROTEIN_NAME, self._protein_maxlen, self._loop_maxlen + 3),
+                                                    (PREPROCESS_LOOP_NAME, self._loop_maxlen, 0)]:
 
                 aatype_data = entry_group[prefix]["aatype"][:]
                 length = aatype_data.shape[0]
@@ -97,7 +97,12 @@ class ProteinLoopDataset(Dataset):
                         # If no mask, then set all present residues to True.
                         result[f"{prefix}_{interfix}_residues_mask"][index] = True
 
-                result[f"{prefix}_residue_index"] = torch.arange(0, max_length, 1, device=self._device, dtype=torch.long)
+                # alphafold needs each connected pair of residues to be one index apart
+                result[f"{prefix}_residue_index"] = torch.zeros(max_length, dtype=torch.long, device=self._device)
+                result[f"{prefix}_residue_index"][index] = torch.arange(start_index,
+                                                                        start_index + length,
+                                                                        1, device=self._device)
+
                 result[f"{prefix}_residue_numbers"] = torch.zeros(max_length, dtype=torch.int, device=self._device)
                 result[f"{prefix}_residue_numbers"][index] = torch.tensor(entry_group[prefix]["residue_numbers"][:], dtype=torch.int, device=self._device)
 
