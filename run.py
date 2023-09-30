@@ -525,6 +525,8 @@ class Trainer:
             # flip this setting after the given number of epochs
             fine_tune = (epoch_index >= epoch_count)
 
+            _log.debug("entering epoch {epoch_index} with fine_tune set to {fine_tune}")
+
             # train during epoch
             with Timer(f"train epoch {epoch_index}") as t:
                 train_data = self._epoch(epoch_index, optimizer, model, train_loader, fine_tune,
