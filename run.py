@@ -9,6 +9,7 @@ import random
 from math import log, sqrt
 import h5py
 import numpy
+import shutil
 from io import StringIO
 
 from sklearn.metrics import matthews_corrcoef
@@ -603,7 +604,8 @@ class Trainer:
 
         metrics_dataframe.at[epoch_index, "epoch"] = int(epoch_index)
 
-        for loss_name in ("total loss", "affinity loss", "chi loss", "fape loss", "violation loss"):
+        for loss_name in filter(lambda s: s.endswith(" loss"), data.keys()):
+
             normalized_loss = data[loss_name] / len(data["ids"])
 
             metrics_dataframe.at[epoch_index, f"{pass_name} {loss_name}"] = round(normalized_loss, 3)
@@ -655,11 +657,15 @@ if __name__ == "__main__":
 
     if args.run_id is not None:
         run_id = args.run_id
+
+        suffix = 0
+        while os.path.isdir(run_id):
+            suffix += 1
+            run_id = f"{args.run_id}-{suffix}"
     else:
         run_id = str(uuid4())
 
-    if not os.path.isdir(run_id):
-        os.mkdir(run_id)
+    os.mkdir(run_id)
 
     if args.log_stdout:
         logging.basicConfig(stream=sys.stdout,

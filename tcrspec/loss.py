@@ -411,7 +411,7 @@ def get_loss(output: TensorDict, batch: TensorDict,
                  1.0 * fape_loss
 
     if fine_tune:
-        total_loss += 1.0 * violation_lossses["total"]
+        total_loss += 1.0 * violation_losses["total"]
 
     # for true non-binders, the total loss is simply affinity-based
     total_loss[non_binders_index] = 1.0 * affinity_loss[non_binders_index]
