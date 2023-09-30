@@ -51,6 +51,11 @@ if __name__ == "__main__":
     else:
         output_name = os.path.basename(args.hdf5_path).replace(".hdf5","").replace("-animation", "") + f"-{args.data_type}"
 
+    dirname = os.path.basename(args.hdf5_path).replace(".hdf5","").replace("-animation", "")
+
+    if not os.path.isdir(dirname):
+        os.mkdir(dirname)
+
     with h5py.File(args.hdf5_path, 'r') as hdf5_file:
         frame_ids = sorted(filter(is_frame_id, hdf5_file.keys()), key=get_epoch_number)
 
@@ -73,7 +78,7 @@ if __name__ == "__main__":
             figure.colorbar(heatmap)
             pyplot.title(f"{output_name}, epoch:{epoch_number:.3f}")
 
-            png_path = f"{output_name}-{frame_id}.png"
+            png_path = os.path.join(dirname, f"{output_name}-{frame_id}.png")
 
             figure.savefig(png_path, format="png")
             png_files.append(png_path)
