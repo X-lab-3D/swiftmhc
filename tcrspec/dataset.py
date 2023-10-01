@@ -133,7 +133,7 @@ class ProteinLoopDataset(Dataset):
                     t = torch.zeros([max_length] + list(data.shape[1:]), device=self._device, dtype=torch.bool)
                     t[index] = torch.tensor(data, device=self._device, dtype=torch.bool)
 
-                    result[f"{prefix}_{field_name}"] = t
+                    result[f"{prefix}_{field_name}"] = t.long()
 
             prox_data = entry_group[PREPROCESS_PROTEIN_NAME]["proximities"][:]
             result["protein_proximities"] = torch.zeros(self._protein_maxlen, self._protein_maxlen, 1,
