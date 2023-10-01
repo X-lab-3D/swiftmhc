@@ -9,6 +9,7 @@ import random
 from math import log, sqrt
 import h5py
 import numpy
+import shutil
 from io import StringIO
 
 from sklearn.metrics import matthews_corrcoef
@@ -77,6 +78,7 @@ arg_parser.add_argument("--fine-tune-count", "-u", help="how many epochs to run 
 arg_parser.add_argument("--animate", "-a", help="id of a data point to generate intermediary pdb for", nargs="+")
 arg_parser.add_argument("--structures-path", "-s", help="an additional structures hdf5 file to measure RMSD on")
 arg_parser.add_argument("--classification", "-c", help="do classification instead of regression", action="store_const", const=True, default=False)
+arg_parser.add_argument("--lr", help="learning rate setting", type=float, default=0.001)
 arg_parser.add_argument("data_path", help="path to the train, validation & test hdf5", nargs="+")
 
 
@@ -87,7 +89,10 @@ class Trainer:
     def __init__(self,
                  device: torch.device,
                  workers_count: int,
-                 model_type: ModelType):
+                 model_type: ModelType,
+                 lr: float):
+
+        self._lr = lr
 
         self._model_type = model_type
 
@@ -495,7 +500,7 @@ class Trainer:
             model.module.protein_ipa.load_state_dict(torch.load(pretrained_protein_ipa_path,
                                                     map_location=self._device))
 
-        optimizer = Adam(model.parameters(), lr=0.001)
+        optimizer = Adam(model.parameters(), lr=self._lr)
         # scheduler = StepLR(optimizer, step_size=10, gamma=0.1)
 
         # define model paths
@@ -523,6 +528,8 @@ class Trainer:
 
             # flip this setting after the given number of epochs
             fine_tune = (epoch_index >= epoch_count)
+
+            _log.debug("entering epoch {epoch_index} with fine_tune set to {fine_tune}")
 
             # train during epoch
             with Timer(f"train epoch {epoch_index}") as t:
@@ -603,7 +610,8 @@ class Trainer:
 
         metrics_dataframe.at[epoch_index, "epoch"] = int(epoch_index)
 
-        for loss_name in ("total loss", "affinity loss", "chi loss", "fape loss", "violation loss"):
+        for loss_name in filter(lambda s: s.endswith(" loss"), data.keys()):
+
             normalized_loss = data[loss_name] / len(data["ids"])
 
             metrics_dataframe.at[epoch_index, f"{pass_name} {loss_name}"] = round(normalized_loss, 3)
@@ -655,11 +663,15 @@ if __name__ == "__main__":
 
     if args.run_id is not None:
         run_id = args.run_id
+
+        suffix = 0
+        while os.path.isdir(run_id):
+            suffix += 1
+            run_id = f"{args.run_id}-{suffix}"
     else:
         run_id = str(uuid4())
 
-    if not os.path.isdir(run_id):
-        os.mkdir(run_id)
+    os.mkdir(run_id)
 
     if args.log_stdout:
         logging.basicConfig(stream=sys.stdout,
@@ -681,7 +693,7 @@ if __name__ == "__main__":
     _log.debug(f"using {args.workers} workers")
     torch.multiprocessing.set_start_method('spawn')
 
-    trainer = Trainer(device, args.workers, model_type)
+    trainer = Trainer(device, args.workers, model_type, args.lr)
 
     structures_loader = None
     if args.structures_path is not None:

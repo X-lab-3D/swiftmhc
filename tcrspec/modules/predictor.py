@@ -119,7 +119,6 @@ class Predictor(torch.nn.Module):
             Returns:
                 single:               [batch_size, loop_len, c_s]
                 aatype:               [batch_size, loop_len]  (int)
-                residue_index:        [batch_size, loop_len]  (int)
                 affinity:             [batch_size]
 
                 frames:               [n_blocks, batch_size, loop_len, 4, 4]
@@ -197,15 +196,6 @@ class Predictor(torch.nn.Module):
         # amino acid sequence: [1, 0, 2, ... ] meaning : Ala, Met, Cys
         # [batch_size, loop_len]
         output["aatype"] = batch["loop_aatype"]
-
-        # alphafold needs this variable:
-        # amino acid sequence index: [0, 1, 2, 3, 4, ... ], representing the order of amino acids
-        # [batch_size, loop_len]
-        output["residue_index"] = torch.arange(0,
-                                               loop_seq.shape[1], 1,
-                                               dtype=torch.int64,
-                                               device=loop_seq.device
-        ).unsqueeze(dim=0).expand(batch_size, -1)
 
         # whether the heavy atoms exists or not
         # for each loop residue

@@ -215,6 +215,7 @@ class CrossStructureModule(torch.nn.Module):
 
             s_loop = preds["loop_states"]
             s_protein = preds["protein_states"]
+
             T_loop = Rigid.from_tensor_7(preds["unscaled_frames"])
 
             outputs.append(preds)
