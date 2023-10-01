@@ -112,9 +112,13 @@ def _compute_fape_loss(output: TensorDict, batch: TensorDict,
                                               alt_naming_is_better=renamed_truth["alt_naming_is_better"],
                                               **config.sidechain)
 
-    loss = 0.5 * bb_loss + 0.5 * sc_loss
+    total_loss = 0.5 * bb_loss + 0.5 * sc_loss
 
-    return loss
+    return {
+        "total": total_loss,
+        "backbone": bb_loss,
+        "sidechain": sc_loss,
+    }
 
 
 def _compute_cross_distance_loss(output: TensorDict, batch: TensorDict) -> torch.Tensor:
@@ -241,7 +245,8 @@ def _compute_cross_violation_loss(output: TensorDict, batch: TensorDict,
         "total": (violations_between_residues_bonds_c_n_loss_mean +
                   violations_between_residues_angles_ca_c_n_loss_mean +
                   violations_between_residues_angles_c_n_ca_loss_mean +
-                  between_residues_clash + within_residues_clash)
+                  between_residues_clash +
+                  within_residues_clash)
     }
 
     return loss
@@ -413,7 +418,7 @@ def get_loss(output: TensorDict, batch: TensorDict,
                                     **openfold_config.loss.supervised_chi)
 
     # compute fape loss, as in openfold
-    fape_loss = _compute_fape_loss(output, batch,
+    fape_losses = _compute_fape_loss(output, batch,
                                    openfold_config.loss.fape)
 
     # compute violations loss, using an adjusted function
@@ -422,7 +427,7 @@ def get_loss(output: TensorDict, batch: TensorDict,
     # combine the loss terms
     total_loss = 1.0 * affinity_loss + \
                  1.0 * chi_loss + \
-                 1.0 * fape_loss
+                 1.0 * fape_losses["total"]
 
     if fine_tune:
         total_loss += 1.0 * violation_losses["total"]
@@ -434,9 +439,11 @@ def get_loss(output: TensorDict, batch: TensorDict,
     result = TensorDict({
         "total": total_loss.mean(dim=0),
         "affinity": affinity_loss.mean(dim=0),
-        "fape": fape_loss.mean(dim=0),
         "chi": chi_loss.mean(dim=0),
     })
+
+    for component_id, loss_tensor in fape_losses.items():
+        result[f"{component_id} fape"] = loss_tensor.mean(dim=0)
 
     for component_id, loss_tensor in violation_losses.items():
         result[f"{component_id} violation"] = loss_tensor.mean(dim=0)
