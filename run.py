@@ -78,6 +78,7 @@ arg_parser.add_argument("--fine-tune-count", "-u", help="how many epochs to run 
 arg_parser.add_argument("--animate", "-a", help="id of a data point to generate intermediary pdb for", nargs="+")
 arg_parser.add_argument("--structures-path", "-s", help="an additional structures hdf5 file to measure RMSD on")
 arg_parser.add_argument("--classification", "-c", help="do classification instead of regression", action="store_const", const=True, default=False)
+arg_parser.add_argument("--lr", help="learning rate setting", type=float, default=0.001)
 arg_parser.add_argument("data_path", help="path to the train, validation & test hdf5", nargs="+")
 
 
@@ -88,7 +89,10 @@ class Trainer:
     def __init__(self,
                  device: torch.device,
                  workers_count: int,
-                 model_type: ModelType):
+                 model_type: ModelType,
+                 lr: float):
+
+        self._lr = lr
 
         self._model_type = model_type
 
@@ -496,7 +500,7 @@ class Trainer:
             model.module.protein_ipa.load_state_dict(torch.load(pretrained_protein_ipa_path,
                                                     map_location=self._device))
 
-        optimizer = Adam(model.parameters(), lr=0.001)
+        optimizer = Adam(model.parameters(), lr=self._lr)
         # scheduler = StepLR(optimizer, step_size=10, gamma=0.1)
 
         # define model paths
@@ -689,7 +693,7 @@ if __name__ == "__main__":
     _log.debug(f"using {args.workers} workers")
     torch.multiprocessing.set_start_method('spawn')
 
-    trainer = Trainer(device, args.workers, model_type)
+    trainer = Trainer(device, args.workers, model_type, args.lr)
 
     structures_loader = None
     if args.structures_path is not None:
