@@ -143,25 +143,35 @@ def _compute_cross_violation_loss(output: TensorDict, batch: TensorDict,
                                   config: ml_collections.ConfigDict) -> Dict[str, torch.Tensor]:
 
     # Compute the between residue clash loss. (include both loop and protein)
-    residx_atom14_to_atom37 = torch.cat((batch["loop_residx_atom14_to_atom37"], batch["protein_residx_atom14_to_atom37"]), dim=1)
+    # [batch_size, loop_maxlen + protein_maxlen, 14]
+    residx_atom14_to_atom37 = torch.cat((batch["loop_residx_atom14_to_atom37"],
+                                         batch["protein_residx_atom14_to_atom37"]), dim=1)
 
-    atom14_pred_positions = torch.cat((output["final_positions"], batch["protein_atom14_gt_positions"]), dim=1)
-    atom14_atom_exists = torch.cat((batch["loop_atom14_gt_exists"], batch["protein_atom14_gt_exists"]), dim=1)
+    # [batch_size, loop_maxlen + protein_maxlen, 14, 3]
+    atom14_pred_positions = torch.cat((output["final_positions"],
+                                       batch["protein_atom14_gt_positions"]), dim=1)
+
+    # [batch_size, loop_maxlen + protein_maxlen, 14]
+    atom14_atom_exists = torch.cat((batch["loop_atom14_gt_exists"],
+                                    batch["protein_atom14_gt_exists"]), dim=1)
 
     # Compute the Van der Waals radius for every atom
     # (the first letter of the atom name is the element type).
-    # Shape: (N, 14).
+    # [37]
     atomtype_radius = [
         openfold_van_der_waals_radius[name[0]]
         for name in openfold_atom_types
     ]
+    # [37]
     atomtype_radius = atom14_pred_positions.new_tensor(atomtype_radius)
 
+    # [batch_size, loop_maxlen + protein_maxlen, 14]
     atom14_atom_radius = atom14_atom_exists * atomtype_radius[residx_atom14_to_atom37]
 
     loop_residue_index = batch["loop_residue_index"]
     protein_residue_index = batch["protein_residue_index"]
 
+    # [batch_size, loop_maxlen + protein_maxlen]
     residue_index = torch.cat((loop_residue_index, protein_residue_index), dim=1)
 
     between_residue_clashes = openfold_between_residue_clash_loss(
