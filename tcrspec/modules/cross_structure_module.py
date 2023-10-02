@@ -213,8 +213,7 @@ class CrossStructureModule(torch.nn.Module):
                 loop_mask, protein_mask,
             )
 
-            s_loop = preds["loop_states"]
-            s_protein = preds["protein_states"]
+            s_loop = preds["states"]
 
             T_loop = Rigid.from_tensor_7(preds["unscaled_frames"])
 
@@ -266,17 +265,6 @@ class CrossStructureModule(torch.nn.Module):
         s_loop = self.loop_layer_norm_ipa(s_loop)
         s_loop = self.loop_transition(s_loop)
 
-        # [batch_size, loop_len, c_s]
-        s_upd, ipa_att, ipa_att_sd, ipa_att_pts = self.protein_ipa(
-            s_protein, s_loop,
-            T_protein, T_loop,
-            protein_mask, loop_mask,
-        )
-        s_protein = s_protein + s_upd
-        s_protein = self.protein_ipa_dropout(s_protein)
-        s_protein = self.protein_layer_norm_ipa(s_protein)
-        s_protein = self.protein_transition(s_protein)
-
         # [batch_size, loop_len]
         T_loop = T_loop.compose_q_update_vec(self.bb_update(s_loop))
 
@@ -318,8 +306,7 @@ class CrossStructureModule(torch.nn.Module):
             "unnormalized_angles": unnormalized_angles,
             "angles": angles,
             "positions": pred_xyz,
-            "loop_states": s_loop,
-            "protein_states": s_protein,
+            "states": s_loop,
         }
 
         T_loop = T_loop.stop_rot_gradient()
