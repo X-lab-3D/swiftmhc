@@ -272,7 +272,7 @@ class Predictor(torch.nn.Module):
         #cross_att = output["cross_attention"]
 
         # [batch_size, loop_maxlen, c_s]
-        loop_embd = output["single"]
+        loop_embd = loop_embd + output["single"]
         loop_embd = self.aff_norm(loop_embd)
         loop_embd = self.aff_dropout(loop_embd)
 
