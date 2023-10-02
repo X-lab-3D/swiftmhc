@@ -399,7 +399,7 @@ def get_loss(output: TensorDict, batch: TensorDict,
     # compute our own affinity-based loss
     if "class" in output:
         affinity_loss = _classification_loss_function(output["classification"], batch["class"])
-        non_binders_index = batch["class"]
+        non_binders_index = torch.logical_not(batch["class"])
 
     elif "affinity" in output:
         affinity_loss = _affinity_loss_function(output["affinity"], batch["affinity"])
