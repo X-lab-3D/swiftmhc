@@ -100,7 +100,15 @@ class CrossStructureModule(torch.nn.Module):
         self.linear_in_loop = Linear(self.c_s, self.c_s)
         self.linear_in_protein = Linear(self.c_s, self.c_s)
 
-        self.ipa = CrossInvariantPointAttention(
+        self.loop_ipa = CrossInvariantPointAttention(
+            self.c_s,
+            self.c_ipa,
+            self.no_heads_ipa,
+            self.no_qk_points,
+            self.no_v_points,
+            eps=self.epsilon,
+        )
+        self.protein_ipa = CrossInvariantPointAttention(
             self.c_s,
             self.c_ipa,
             self.no_heads_ipa,
@@ -109,11 +117,18 @@ class CrossStructureModule(torch.nn.Module):
             eps=self.epsilon,
         )
 
-        self.ipa_dropout = torch.nn.Dropout(self.dropout_rate)
-        self.layer_norm_ipa = LayerNorm(self.c_s)
-        self.transition = StructureModuleTransition(self.c_s,
-                                                    self.n_transition_layers,
-                                                    self.dropout_rate)
+        self.loop_ipa_dropout = torch.nn.Dropout(self.dropout_rate)
+        self.loop_layer_norm_ipa = LayerNorm(self.c_s)
+        self.loop_transition = StructureModuleTransition(self.c_s,
+                                                         self.n_transition_layers,
+                                                         self.dropout_rate)
+
+        self.protein_ipa_dropout = torch.nn.Dropout(self.dropout_rate)
+        self.protein_layer_norm_ipa = LayerNorm(self.c_s)
+        self.protein_transition = StructureModuleTransition(self.c_s,
+                                                            self.n_transition_layers,
+                                                            self.dropout_rate)
+
 
         self.bb_update = BackboneUpdate(self.c_s)
 
@@ -198,7 +213,9 @@ class CrossStructureModule(torch.nn.Module):
                 loop_mask, protein_mask,
             )
 
-            s_loop = preds["states"]
+            s_loop = preds["loop_states"]
+            s_protein = preds["protein_states"]
+
             T_loop = Rigid.from_tensor_7(preds["unscaled_frames"])
 
             outputs.append(preds)
@@ -210,7 +227,7 @@ class CrossStructureModule(torch.nn.Module):
         outputs = dict_multimap(torch.stack, outputs)
 
         r = {}
-        r["single"] = outputs["states"][-1]
+        r["single"] = outputs["loop_states"][-1]
 
         # [batch_size, n_block, n_head, dst_len, src_len]
         r["cross_attention"] = torch.stack(atts).transpose(0, 1)
@@ -239,16 +256,26 @@ class CrossStructureModule(torch.nn.Module):
         t0 = T_loop_initial.get_trans().unsqueeze(1).repeat(1, s_loop.shape[1], 1)
 
         # [batch_size, loop_len, c_s]
-        s_upd, ipa_att, ipa_att_sd, ipa_att_pts = self.ipa(
+        s_upd, ipa_att, ipa_att_sd, ipa_att_pts = self.loop_ipa(
             s_loop, s_protein,
             T_loop, T_protein,
             loop_mask, protein_mask,
         )
-
         s_loop = s_loop + s_upd
-        s_loop = self.ipa_dropout(s_loop)
-        s_loop = self.layer_norm_ipa(s_loop)
-        s_loop = self.transition(s_loop)
+        s_loop = self.loop_ipa_dropout(s_loop)
+        s_loop = self.loop_layer_norm_ipa(s_loop)
+        s_loop = self.loop_transition(s_loop)
+
+        # [batch_size, loop_len, c_s]
+        s_upd, ipa_att, ipa_att_sd, ipa_att_pts = self.protein_ipa(
+            s_protein, s_loop,
+            T_protein, T_loop,
+            protein_mask, loop_mask,
+        )
+        s_protein = s_protein + s_upd
+        s_protein = self.protein_ipa_dropout(s_protein)
+        s_protein = self.protein_layer_norm_ipa(s_protein)
+        s_protein = self.protein_transition(s_protein)
 
         # [batch_size, loop_len]
         T_loop = T_loop.compose_q_update_vec(self.bb_update(s_loop))
@@ -291,7 +318,8 @@ class CrossStructureModule(torch.nn.Module):
             "unnormalized_angles": unnormalized_angles,
             "angles": angles,
             "positions": pred_xyz,
-            "states": s_loop,
+            "loop_states": s_loop,
+            "protein_states": s_protein,
         }
 
         T_loop = T_loop.stop_rot_gradient()
