@@ -210,7 +210,7 @@ class CrossStructureModule(torch.nn.Module):
         outputs = dict_multimap(torch.stack, outputs)
 
         r = {}
-        r["single"] = outputs["loop_states"][-1]
+        r["single"] = outputs["states"][-1]
 
         # [batch_size, n_block, n_head, dst_len, src_len]
         r["cross_attention"] = torch.stack(atts).transpose(0, 1)
