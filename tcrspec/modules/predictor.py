@@ -71,8 +71,6 @@ class Predictor(torch.nn.Module):
             torch.nn.Linear(transition_depth, transition_depth),
             torch.nn.ReLU(),
             torch.nn.Linear(transition_depth, structure_module_config.c_s),
-            torch.nn.Dropout(p=0.1),
-            LayerNorm(structure_module_config.c_s),
         )
 
         self.n_block = structure_module_config.no_blocks
@@ -248,6 +246,8 @@ class Predictor(torch.nn.Module):
 
         output["loop_embd"] = loop_embd
         output["loop_init"] = loop_seq
+        output["loop_self_attention"] = loop_att
+        output["loop_pos_enc"] = get_relative_position_encoding(loop_mask, self.position_encoding_depth)
         output["protein_self_attention"] = protein_as
         output["protein_self_attention_sd"] = protein_as_sd
         output["protein_self_attention_b"] = protein_as_b
