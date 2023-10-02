@@ -108,27 +108,11 @@ class CrossStructureModule(torch.nn.Module):
             self.no_v_points,
             eps=self.epsilon,
         )
-        self.protein_ipa = CrossInvariantPointAttention(
-            self.c_s,
-            self.c_ipa,
-            self.no_heads_ipa,
-            self.no_qk_points,
-            self.no_v_points,
-            eps=self.epsilon,
-        )
-
         self.loop_ipa_dropout = torch.nn.Dropout(self.dropout_rate)
         self.loop_layer_norm_ipa = LayerNorm(self.c_s)
         self.loop_transition = StructureModuleTransition(self.c_s,
                                                          self.n_transition_layers,
                                                          self.dropout_rate)
-
-        self.protein_ipa_dropout = torch.nn.Dropout(self.dropout_rate)
-        self.protein_layer_norm_ipa = LayerNorm(self.c_s)
-        self.protein_transition = StructureModuleTransition(self.c_s,
-                                                            self.n_transition_layers,
-                                                            self.dropout_rate)
-
 
         self.bb_update = BackboneUpdate(self.c_s)
 
