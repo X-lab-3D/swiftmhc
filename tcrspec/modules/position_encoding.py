@@ -9,45 +9,52 @@ from torch.nn.functional import one_hot
 _log = logging.getLogger(__name__)
 
 
-def get_relative_positions(s: torch.Tensor) -> torch.Tensor:
+def onehot_bin(x: torch.Tensor, bins: torch.Tensor) -> torch.Tensor:
+    n_bins = bins.shape[0]
+
+    b = torch.argmin(torch.abs(x.unsqueeze(-1).repeat([1] * len(x.shape) + [n_bins]) - bins), dim=-1)
+    return one_hot(b, num_classes=n_bins)
+
+
+def get_relative_position_encoding(sequence_mask: torch.Tensor, encoding_depth: int) -> torch.Tensor:
     """
     Args:
-        s: [n_sequences, max_length, ?]
-    Returns:
-        [n_sequences, max_length] ranging (0 - 1)
+        sequence_mask: B x N (bool)
+
+    D = encoding_depth
+
+    Returns: a B x N x N x D tensor
     """
 
-    # [n_sequences, max_length] (booleans)
-    sequences_not_gap = torch.any(s != 0.0, dim=2)
+    # [B]
+    sequence_lengths = sequence_mask.sum(dim=-1)
 
-    # [n_sequences] (integers)
-    sequences_lengths = torch.count_nonzero(sequences_not_gap, dim=1)
+    bin_min = int(encoding_depth / 2) - 1
+    bin_max = encoding_depth - bin_min
+    bin_min = -bin_min
 
-    # [n_sequences, max_length]
-    relative_positions = torch.zeros((s.shape[0], s.shape[1]))
-    for sequence_index in range(s.shape[0]):
+    # [D]
+    bins = torch.arange(bin_min, bin_max, 1, device=sequence_mask.device)
 
-        step_size = 1.0 / (sequences_lengths[sequence_index] - 1.0)
+    encs = []
+    for index, length in enumerate(sequence_lengths):
+        # [N]
+        positions = torch.zeros(sequence_mask.shape[-1], device=sequence_mask.device, dtype=torch.long)
+        positions[sequence_mask[index]] = torch.arange(0, length, 1, device=bins.device)
 
-        relative_positions[sequence_index, sequences_not_gap[sequence_index]] = torch.arange(sequences_lengths[sequence_index]) * step_size
+        # [N, N]
+        d = positions.unsqueeze(-2) - positions.unsqueeze(-1)
 
-    return relative_positions
+        # [N, N]
+        sqr_mask = sequence_mask[index].unsqueeze(-2) * sequence_mask[index].unsqueeze(-1)
 
+        # [N, N, D]
+        enc = onehot_bin(d, bins)
+        enc[torch.logical_not(sqr_mask), :] = 0
 
-def get_onehot_positions(s: torch.Tensor) -> torch.Tensor:
-    """
-    Args:
-        s: [n_sequences, max_length, ?]
-    Returns:
-        [n_sequences, max_length, max_length]
-    """
+        encs.append(enc)
 
-    encodings = torch.zeros(s.shape[0], s.shape[1], s.shape[1], dtype=float)
-
-    for index in range(s.shape[1]):
-        encodings[:,index, index] = 1.0
-
-    return encodings
+    return torch.stack(encs).float()
 
 
 class PositionalEncoding(torch.nn.Module):
