@@ -689,6 +689,9 @@ if __name__ == "__main__":
         logging.basicConfig(filename=f"{run_id}/tcrspec.log", filemode="a",
                             level=logging.DEBUG if args.debug else logging.INFO)
 
+    if args.debug:
+        torch.autograd.set_detect_anomaly(True)
+
     if torch.cuda.is_available():
         device_count = torch.cuda.device_count()
         _log.debug(f"using {device_count} cuda devices")

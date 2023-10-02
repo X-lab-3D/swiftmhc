@@ -199,8 +199,8 @@ class Predictor(torch.nn.Module):
         loop_upd, loop_att = self._loop_self_attention(loop_seq, loop_mask)
 
         loop_embd = loop_seq + loop_upd
-        loop_embd = self.loop_dropout(loop_embd)
         loop_embd = self.loop_norm(loop_embd)
+        loop_embd = self.loop_dropout(loop_embd)
         loop_embd = self.loop_transition(loop_embd)
 
         # structure-based self-attention on the protein
@@ -273,7 +273,8 @@ class Predictor(torch.nn.Module):
 
         # [batch_size, loop_maxlen, c_s]
         loop_embd = output["single"]
-        loop_embd = self.aff_dropout(self.aff_norm(loop_embd))
+        loop_embd = self.aff_norm(loop_embd)
+        loop_embd = self.aff_dropout(loop_embd)
 
         output["aff_input"] = loop_embd
 
@@ -284,15 +285,12 @@ class Predictor(torch.nn.Module):
             # [batch_size]
             output["affinity"] = self.output_linear(loop_embd).reshape(batch_size)
 
-            if torch.any(torch.isnan(output["affinity"])):
-                raise RuntimeError(f"got NaN output")
-
         elif self.model_type == ModelType.CLASSIFICATION:
+
+            # [batch_size, 2]
             output["classification"] = self.output_linear(loop_embd)
 
-            if torch.any(torch.isnan(output["classification"])):
-                raise RuntimeError(f"got NaN output")
-
+            # [batch_size]
             output["class"] = torch.argmax(output["classification"], dim=1)
 
         return output
