@@ -117,21 +117,12 @@ class ProteinLoopDataset(Dataset):
                 for field_name in ["backbone_rigid_tensor",
                                    "torsion_angles_sin_cos", "alt_torsion_angles_sin_cos",
                                    "atom14_gt_positions", "atom14_alt_gt_positions",
-                                   "all_atom_positions"]:
+                                   "all_atom_positions",
+                                   "torsion_angles_mask", "atom14_gt_exists", "all_atom_mask"]:
 
                     data = entry_group[prefix][field_name][:]
-                    length = data.shape[0]
                     t = torch.zeros([max_length] + list(data.shape[1:]), device=self._device, dtype=torch.float)
                     t[index] = torch.tensor(data, device=self._device, dtype=torch.float)
-
-                    result[f"{prefix}_{field_name}"] = t
-
-                for field_name in ["torsion_angles_mask", "atom14_gt_exists", "all_atom_mask"]:
-
-                    data = entry_group[prefix][field_name][:]
-                    length = data.shape[0]
-                    t = torch.zeros([max_length] + list(data.shape[1:]), device=self._device, dtype=torch.bool)
-                    t[index] = torch.tensor(data, device=self._device, dtype=torch.bool)
 
                     result[f"{prefix}_{field_name}"] = t
 
