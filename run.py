@@ -209,6 +209,9 @@ class Trainer:
                 loop_embd = output["loop_embd"].cpu()
                 frame_group.create_dataset("loop_embd", data=loop_embd[index], compression="lzf")
 
+                aff_input = output["aff_input"].cpu()
+                frame_group.create_dataset("aff_input", data=aff_input[index], compression="lzf")
+
                 loop_pos_enc = output["loop_pos_enc"].cpu()
                 frame_group.create_dataset("loop_pos_enc", data=loop_pos_enc[index], compression="lzf")
 

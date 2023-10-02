@@ -64,13 +64,15 @@ class Predictor(torch.nn.Module):
         self.linear_o = torch.nn.Linear(loop_multihead_dim, structure_module_config.c_s, bias=False)
 
         self.loop_dropout = torch.nn.Dropout(p=0.1)
-        self.loop_norm = LayerNorm(structure_module_config.c_s)
+        self.loop_norm = torch.nn.LayerNorm((self.loop_maxlen, structure_module_config.c_s))
         self.loop_transition = torch.nn.Sequential(
             torch.nn.Linear(structure_module_config.c_s, transition_depth),
             torch.nn.ReLU(),
             torch.nn.Linear(transition_depth, transition_depth),
             torch.nn.ReLU(),
             torch.nn.Linear(transition_depth, structure_module_config.c_s),
+            torch.nn.LayerNorm(structure_module_config.c_s),
+            torch.nn.Dropout(p=0.1)
         )
 
         self.n_block = structure_module_config.no_blocks
@@ -90,11 +92,12 @@ class Predictor(torch.nn.Module):
 
         self.protein_norm = torch.nn.Sequential(
             torch.nn.Dropout(p=0.1),
-            LayerNorm(structure_module_config.c_s)
+            torch.nn.LayerNorm((self.protein_maxlen, structure_module_config.c_s))
         )
 
         self.cross = CrossStructureModule(**structure_module_config)
 
+        self.aff_dropout = torch.nn.Dropout(p=0.1)
         self.aff_norm = torch.nn.LayerNorm((self.loop_maxlen, structure_module_config.c_s))
 
         self.aff_trans = torch.nn.Sequential(
@@ -270,7 +273,9 @@ class Predictor(torch.nn.Module):
 
         # [batch_size, loop_maxlen, c_s]
         loop_embd = output["single"]
-        loop_embd = self.aff_norm(loop_embd)
+        loop_embd = self.aff_dropout(self.aff_norm(loop_embd))
+
+        output["aff_input"] = loop_embd
 
         # [batch_size, loop_maxlen]
         loop_embd = self.aff_trans(loop_embd).reshape(batch_size, loop_maxlen)
