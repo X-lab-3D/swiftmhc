@@ -423,8 +423,8 @@ class Trainer:
 
             if "class" in data and "output class" in data:
                 row_data["output class"] = [data["output class"][batch_index]]
-                row_data["output 0"] = [data["output classification"][batch_index, 0]]
-                row_data["output 1"] = [data["output classification"][batch_index, 1]]
+                row_data["output 0"] = [data["output classification"][batch_index][0]]
+                row_data["output 1"] = [data["output classification"][batch_index][1]]
                 row_data["true class"] = [data["class"][batch_index]]
 
             row = pandas.DataFrame(row_data)
@@ -434,7 +434,10 @@ class Trainer:
 
         table.to_csv(output_path, index=False)
 
-    def test(self, test_loader: DataLoader, structures_loader: Union[DataLoader, None], run_id: str):
+    def test(self,
+             test_loader: DataLoader,
+             structures_loader: Union[DataLoader, None],
+             run_id: str):
 
         model_path = f"{run_id}/best-predictor.pth"
         model = Predictor(self._model_type,
@@ -455,6 +458,8 @@ class Trainer:
 
         self._output_metrics(run_id, "test", -1, test_data)
         self._output_metrics(run_id, "structures", -1, structures_data)
+
+        self._save_outputs_as_csv(os.path.join(run_id, "test-output.csv"), test_data)
 
     @staticmethod
     def _get_selection_data_batch(datasets: List[ProteinLoopDataset], names: List[str]) -> Dict[str, torch.Tensor]:
@@ -580,8 +585,9 @@ class Trainer:
 
             # scheduler.step()
 
-        # write the final test output
-        self._save_outputs_as_csv(os.path.join(run_id, "outputs.csv"), test_data)
+            self._save_outputs_as_csv(os.path.join(run_id, f"epoch-{epoch_index}-train-output.csv"), train_data)
+            self._save_outputs_as_csv(os.path.join(run_id, f"epoch-{epoch_index}-valid-output.csv"), valid_data)
+            self._save_outputs_as_csv(os.path.join(run_id, f"epoch-{epoch_index}-test-output.csv"), test_data)
 
     @staticmethod
     def _init_metrics_dataframe():
