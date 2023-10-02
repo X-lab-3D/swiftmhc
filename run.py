@@ -544,19 +544,19 @@ class Trainer:
 
             # validate
             with Timer(f"valid epoch {epoch_index}") as t:
-                valid_data = self._validate(epoch_index, model, valid_loader, fine_tune)
+                valid_data = self._validate(epoch_index, model, valid_loader, True)
                 t.add_to_title(f"on {len(valid_loader.dataset)} data points")
 
             # test
             with Timer(f"test epoch {epoch_index}") as t:
-                test_data = self._validate(epoch_index, model, test_loader, fine_tune)
+                test_data = self._validate(epoch_index, model, test_loader, True)
                 t.add_to_title(f"on {len(test_loader.dataset)} data points")
 
             # structures
             structures_data = None
             if structures_loader is not None:
                 with Timer(f"structures epoch {epoch_index}") as t:
-                    structures_data = self._validate(epoch_index, model, structures_loader, fine_tune)
+                    structures_data = self._validate(epoch_index, model, structures_loader, True)
                     t.add_to_title(f"on {len(structures_loader.dataset)} data points")
 
             # write the metrics
