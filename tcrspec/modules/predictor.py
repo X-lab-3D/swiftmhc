@@ -68,8 +68,6 @@ class Predictor(torch.nn.Module):
         self.loop_transition = torch.nn.Sequential(
             torch.nn.Linear(structure_module_config.c_s, transition_depth),
             torch.nn.ReLU(),
-            torch.nn.Linear(transition_depth, transition_depth),
-            torch.nn.ReLU(),
             torch.nn.Linear(transition_depth, structure_module_config.c_s),
             torch.nn.LayerNorm(structure_module_config.c_s),
             torch.nn.Dropout(p=0.1)
@@ -103,8 +101,6 @@ class Predictor(torch.nn.Module):
         self.aff_trans = torch.nn.Sequential(
             torch.nn.Linear(structure_module_config.c_s, transition_depth),
             torch.nn.ReLU(),
-            torch.nn.Linear(transition_depth, transition_depth),
-            torch.nn.ReLU(),
             torch.nn.Linear(transition_depth, 1),
         )
 
@@ -114,7 +110,7 @@ class Predictor(torch.nn.Module):
         elif self.model_type == ModelType.CLASSIFICATION:
             output_size = 2
 
-        self.output_linear = torch.nn.Linear(self.loop_maxlen, output_size)
+        self.output_linear = torch.nn.Linear(self.loop_maxlen, output_size, bias=False)
 
     def _loop_self_attention(self,
         loop_embd: torch.Tensor,
