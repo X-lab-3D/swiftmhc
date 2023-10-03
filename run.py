@@ -12,7 +12,6 @@ import numpy
 import shutil
 from io import StringIO
 
-from sklearn.metrics import matthews_corrcoef
 from scipy.stats import pearsonr
 import ml_collections
 import pandas
@@ -77,7 +76,6 @@ arg_parser.add_argument("--epoch-count", "-e", help="how many epochs to run duri
 arg_parser.add_argument("--fine-tune-count", "-u", help="how many epochs to run during fine-tuning", type=int, default=10)
 arg_parser.add_argument("--animate", "-a", help="id of a data point to generate intermediary pdb for", nargs="+")
 arg_parser.add_argument("--structures-path", "-s", help="an additional structures hdf5 file to measure RMSD on")
-arg_parser.add_argument("--classification", "-c", help="do classification instead of regression", action="store_const", const=True, default=False)
 arg_parser.add_argument("--lr", help="learning rate setting", type=float, default=0.001)
 arg_parser.add_argument("data_path", help="path to the train, validation & test hdf5", nargs="+")
 
@@ -89,12 +87,9 @@ class Trainer:
     def __init__(self,
                  device: torch.device,
                  workers_count: int,
-                 model_type: ModelType,
                  lr: float):
 
         self._lr = lr
-
-        self._model_type = model_type
 
         self._device = device
 
@@ -354,29 +349,6 @@ class Trainer:
             else:
                 output_data[loss_name] += loss_value.item() * batch_size
 
-        if "affinity" in truth:
-            if "affinity" not in output_data:
-                output_data["affinity"] = []
-            output_data["affinity"] += truth["affinity"].tolist()
-
-        if "class" in truth:
-            if "class" not in output_data:
-                output_data["class"] = []
-            output_data["class"] += truth["class"].tolist()
-
-        if "affinity" in output:
-            if "output affinity" not in output_data:
-                output_data["output affinity"] = []
-            output_data["output affinity"] += output["affinity"].tolist()
-
-        if "class" in output:
-            if "output class" not in output_data:
-                output_data["output class"] = []
-            output_data["output class"] += output["class"].tolist()
-            if "output classification" not in output_data:
-                output_data["output classification"] = []
-            output_data["output classification"] += output["classification"].tolist()
-
         if "ids" not in output_data:
             output_data["ids"] = []
         output_data["ids"] += truth["ids"]
@@ -390,58 +362,13 @@ class Trainer:
 
         return output_data
 
-    @staticmethod
-    def _save_outputs_as_csv(output_path: str, data: Dict[str, Any]):
-
-        batch_size = len(data["ids"])
-
-        if os.path.isfile(output_path):
-            table = pandas.read_csv(output_path)
-        else:
-            table = pandas.DataFrame(data={"id": [], "loop": []})
-            if "affinity" in data:
-                table["output affinity"] = []
-                table["true affinity"] = []
-            elif "class" in data:
-                table["output class"] = []
-                table["output 0"] = []
-                table["output 1"] = []
-                table["true class"] = []
-
-            table.set_index("id")
-
-        for batch_index in range(batch_size):
-
-            id_ = data["ids"][batch_index]
-
-            loop_sequence = data["loop_sequence"][batch_index]
-
-            row_data = {"id": [id_], "loop": [loop_sequence]}
-            if "affinity" in data and "output affinity" in data:
-                row_data["output affinity"] = [data["output affinity"][batch_index]]
-                row_data["true affinity"] = [data["affinity"][batch_index]]
-
-            if "class" in data and "output class" in data:
-                row_data["output class"] = [data["output class"][batch_index]]
-                row_data["output 0"] = [data["output classification"][batch_index][0]]
-                row_data["output 1"] = [data["output classification"][batch_index][1]]
-                row_data["true class"] = [data["class"][batch_index]]
-
-            row = pandas.DataFrame(row_data)
-            row.set_index("id")
-
-            table = pandas.concat((table, row))
-
-        table.to_csv(output_path, index=False)
-
     def test(self,
              test_loader: DataLoader,
              structures_loader: Union[DataLoader, None],
              run_id: str):
 
         model_path = f"{run_id}/best-predictor.pth"
-        model = Predictor(self._model_type,
-                          self.loop_maxlen,
+        model = Predictor(self.loop_maxlen,
                           self.protein_maxlen,
                           openfold_config.model)
         model = DataParallel(model)
@@ -458,8 +385,6 @@ class Trainer:
 
         self._output_metrics(run_id, "test", -1, test_data)
         self._output_metrics(run_id, "structures", -1, structures_data)
-
-        self._save_outputs_as_csv(os.path.join(run_id, "test-output.csv"), test_data)
 
     @staticmethod
     def _get_selection_data_batch(datasets: List[ProteinLoopDataset], names: List[str]) -> Dict[str, torch.Tensor]:
@@ -488,8 +413,7 @@ class Trainer:
               structures_loader: Optional[DataLoader] = None):
 
         # Set up the model
-        model = Predictor(self._model_type,
-                          self.loop_maxlen,
+        model = Predictor(self.loop_maxlen,
                           self.protein_maxlen,
                           openfold_config.model)
         model = DataParallel(model)
@@ -585,10 +509,6 @@ class Trainer:
 
             # scheduler.step()
 
-            self._save_outputs_as_csv(os.path.join(run_id, f"epoch-{epoch_index}-train-output.csv"), train_data)
-            self._save_outputs_as_csv(os.path.join(run_id, f"epoch-{epoch_index}-valid-output.csv"), valid_data)
-            self._save_outputs_as_csv(os.path.join(run_id, f"epoch-{epoch_index}-test-output.csv"), test_data)
-
     @staticmethod
     def _init_metrics_dataframe():
 
@@ -622,22 +542,6 @@ class Trainer:
 
             metrics_dataframe.at[epoch_index, f"{pass_name} {loss_name}"] = round(normalized_loss, 3)
 
-        if "output class" in data:
-            try:
-                mcc = matthews_corrcoef(data["output class"], data["class"])
-                metrics_dataframe.at[epoch_index, f"{pass_name} matthews correlation"] = round(mcc, 3)
-            except:
-                output_class = data["output class"]
-                _log.exception(f"running matthews_corrcoef on {output_class}")
-
-        elif "output affinity" in data:
-            try:
-                pcc = pearsonr(data["output affinity"], data["affinity"]).statistic
-                metrics_dataframe.at[epoch_index, f"{pass_name} affinity pearson correlation"] = round(pcc, 3)
-            except:
-                output_aff = data["output affinity"]
-                _log.exception(f"running pearsonr on {output_aff}")
-
         metrics_dataframe.at[epoch_index, f"{pass_name} binders C-alpha RMSD"] = round(data["binders_c_alpha_rmsd"], 3)
 
         metrics_dataframe.to_csv(metrics_path, sep=",", index=False)
@@ -647,7 +551,7 @@ class Trainer:
                         batch_size: int,
                         device: torch.device) -> DataLoader:
 
-        dataset = ProteinLoopDataset(data_path, device, self._model_type,
+        dataset = ProteinLoopDataset(data_path, device,
                                      loop_maxlen=self.loop_maxlen,
                                      protein_maxlen=self.protein_maxlen)
 
@@ -662,10 +566,6 @@ class Trainer:
 if __name__ == "__main__":
 
     args = arg_parser.parse_args()
-
-    model_type = ModelType.REGRESSION
-    if args.classification:
-        model_type = ModelType.CLASSIFICATION
 
     if args.run_id is not None:
         run_id = args.run_id
@@ -699,7 +599,7 @@ if __name__ == "__main__":
     _log.debug(f"using {args.workers} workers")
     torch.multiprocessing.set_start_method('spawn')
 
-    trainer = Trainer(device, args.workers, model_type, args.lr)
+    trainer = Trainer(device, args.workers, args.lr)
 
     structures_loader = None
     if args.structures_path is not None:
