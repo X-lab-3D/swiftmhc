@@ -633,7 +633,7 @@ class Trainer:
                 output_class = data["output class"]
                 _log.exception(f"running matthews_corrcoef on {output_class}")
 
-            count_correct = (data["output class"] == data["class"]).float().sum()
+            count_correct = (torch.tensor(data["output class"]) == torch.tensor(data["class"])).float().sum()
             acc = count_correct / data["class"].shape[0]
             metrics_dataframe.at[epoch_index, f"{pass_name} accuracy"] = round(acc, 3)
 
