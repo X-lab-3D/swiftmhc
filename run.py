@@ -582,9 +582,13 @@ class Trainer:
 
             # scheduler.step()
 
-            self._save_outputs_as_csv(os.path.join(run_id, f"epoch-{epoch_index}-train-output.csv"), train_data)
-            self._save_outputs_as_csv(os.path.join(run_id, f"epoch-{epoch_index}-valid-output.csv"), valid_data)
-            self._save_outputs_as_csv(os.path.join(run_id, f"epoch-{epoch_index}-test-output.csv"), test_data)
+            output_files_dir = os.path.join(run_id, "output")
+            if not os.path.isdir(output_files_dir):
+                os.mkdir(output_files_dir)
+
+            self._save_outputs_as_csv(os.path.join(output_files_dir, f"epoch-{epoch_index}-train.csv"), train_data)
+            self._save_outputs_as_csv(os.path.join(output_files_dir, f"epoch-{epoch_index}-valid.csv"), valid_data)
+            self._save_outputs_as_csv(os.path.join(output_files_dir, f"epoch-{epoch_index}-test.csv"), test_data)
 
     @staticmethod
     def _init_metrics_dataframe():
