@@ -69,7 +69,6 @@ arg_parser.add_argument("--run-id", "-r", help="name of the run and the director
 arg_parser.add_argument("--debug", "-d", help="generate debug files", action='store_const', const=True, default=False)
 arg_parser.add_argument("--log-stdout", "-l", help="log to stdout", action='store_const', const=True, default=False)
 arg_parser.add_argument("--pretrained-model", "-m", help="use a given pretrained model state")
-arg_parser.add_argument("--pretrained-protein-ipa", "-p", help="use a given pretrained protein ipa state")
 arg_parser.add_argument("--test-only", "-t", help="skip training and test on a pretrained model", action='store_const', const=True, default=False)
 arg_parser.add_argument("--workers", "-w", help="number of workers to load batches", type=int, default=5)
 arg_parser.add_argument("--batch-size", "-b", help="batch size to use during training/validation/testing", type=int, default=8)
@@ -485,7 +484,6 @@ class Trainer:
               epoch_count: int, fine_tune_count: int,
               run_id: Optional[str] = None,
               pretrained_model_path: Optional[str] = None,
-              pretrained_protein_ipa_path: Optional[str] = None,
 
               animated_complex_ids: Optional[List[str]] = None,
               structures_loader: Optional[DataLoader] = None):
@@ -503,10 +501,6 @@ class Trainer:
         if pretrained_model_path is not None:
             model.load_state_dict(torch.load(pretrained_model_path,
                                              map_location=self._device))
-
-        if pretrained_protein_ipa_path is not None:
-            model.module.protein_ipa.load_state_dict(torch.load(pretrained_protein_ipa_path,
-                                                    map_location=self._device))
 
         optimizer = Adam(model.parameters(), lr=self._lr)
         # scheduler = StepLR(optimizer, step_size=10, gamma=0.1)
@@ -733,5 +727,5 @@ if __name__ == "__main__":
 
         trainer.train(train_loader, valid_loader, test_loader,
                       args.epoch_count, args.fine_tune_count,
-                      run_id, args.pretrained_model, args.pretrained_protein_ipa,
+                      run_id, args.pretrained_model,
                       args.animate, structures_loader)
