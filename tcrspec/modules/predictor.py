@@ -63,15 +63,15 @@ class Predictor(torch.nn.Module):
         self.linear_v = torch.nn.Linear(structure_module_config.c_s, loop_multihead_dim, bias=False)
         self.linear_o = torch.nn.Linear(loop_multihead_dim, structure_module_config.c_s, bias=False)
 
-        self.loop_dropout = torch.nn.Dropout(p=0.1)
-        self.loop_norm = torch.nn.LayerNorm((self.loop_maxlen, structure_module_config.c_s))
+        self.loop_dropout1 = torch.nn.Dropout(p=0.1)
+        self.loop_norm1 = torch.nn.LayerNorm((self.loop_maxlen, structure_module_config.c_s))
         self.loop_transition = torch.nn.Sequential(
             torch.nn.Linear(structure_module_config.c_s, transition_depth),
             torch.nn.ReLU(),
             torch.nn.Linear(transition_depth, structure_module_config.c_s),
-            torch.nn.LayerNorm(structure_module_config.c_s),
-            torch.nn.Dropout(p=0.1)
         )
+        self.loop_dropout2 = torch.nn.Dropout(p=0.1)
+        self.loop_norm2 = torch.nn.LayerNorm((self.loop_maxlen, structure_module_config.c_s))
 
         self.n_block = structure_module_config.no_blocks
 
@@ -195,9 +195,11 @@ class Predictor(torch.nn.Module):
         loop_upd, loop_att = self._loop_self_attention(loop_seq, loop_mask)
 
         loop_embd = loop_seq + loop_upd
-        loop_embd = self.loop_norm(loop_embd)
-        loop_embd = self.loop_dropout(loop_embd)
-        loop_embd = self.loop_transition(loop_embd)
+        loop_embd = self.loop_norm1(loop_embd)
+        loop_embd = self.loop_dropout1(loop_embd)
+        loop_embd = loop_embd + self.loop_transition(loop_embd)
+        loop_embd = self.loop_norm2(loop_embd)
+        loop_embd = self.loop_dropout2(loop_embd)
 
         # structure-based self-attention on the protein
         protein_T = Rigid.from_tensor_4x4(batch["protein_backbone_rigid_tensor"])
