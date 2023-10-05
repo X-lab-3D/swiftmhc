@@ -438,7 +438,7 @@ def get_loss(output: TensorDict, batch: TensorDict,
     if affinity_tune:
         total_loss[non_binders_index] = 1.0 * affinity_loss[non_binders_index]
     else:
-        total_loss[non_binders_index] = affinity_loss.new_zeros(affinity_loss.shape)
+        total_loss[non_binders_index] = affinity_loss.new_zeros(non_binders_index.sum())
 
     # average losses over batch dimension
     result = TensorDict({
