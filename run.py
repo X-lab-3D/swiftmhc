@@ -77,9 +77,9 @@ arg_parser.add_argument("--animate", "-a", help="id of a data point to generate 
 arg_parser.add_argument("--structures-path", "-s", help="an additional structures hdf5 file to measure RMSD on")
 arg_parser.add_argument("--classification", "-c", help="do classification instead of regression", action="store_const", const=True, default=False)
 arg_parser.add_argument("--pdb-output", help="store resulting pdb files in an hdf5 file", action="store_const", const=True, default=False)
-arg_parser.add_argument("--data-path", "-f", help="path to a hdf5 file", nargs="+")
 arg_parser.add_argument("--test-only", "-t", help="do not train, only run tests", const=True, default=False, action='store_const')
 arg_parser.add_argument("--test-subset-path", help="path to list of entry ids that should be excluded for testing", nargs="+")
+arg_parser.add_argument("data_path", help="path to a hdf5 file", nargs="+")
 
 
 _log = logging.getLogger(__name__)
@@ -436,11 +436,11 @@ class Trainer:
             loop_sequence = data["loop_sequence"][batch_index]
 
             row_data = {"id": [id_], "loop": [loop_sequence]}
-            if "affinity" in data:
+            if "affinity" in data and "output affinity" in data:
                 row_data["output affinity"] = [data["output affinity"][batch_index]]
                 row_data["true affinity"] = [data["affinity"][batch_index]]
 
-            if "class" in data:
+            if "class" in data and "output class" in data:
                 row_data["output class"] = [data["output class"][batch_index]]
                 row_data["output 0"] = [data["output classification"][batch_index, 0]]
                 row_data["output 1"] = [data["output classification"][batch_index, 1]]
