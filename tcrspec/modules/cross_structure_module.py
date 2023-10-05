@@ -100,7 +100,7 @@ class CrossStructureModule(torch.nn.Module):
         self.linear_in_loop = Linear(self.c_s, self.c_s)
         self.linear_in_protein = Linear(self.c_s, self.c_s)
 
-        self.ipa = CrossInvariantPointAttention(
+        self.loop_ipa = CrossInvariantPointAttention(
             self.c_s,
             self.c_ipa,
             self.no_heads_ipa,
@@ -108,12 +108,11 @@ class CrossStructureModule(torch.nn.Module):
             self.no_v_points,
             eps=self.epsilon,
         )
-
-        self.ipa_dropout = torch.nn.Dropout(self.dropout_rate)
-        self.layer_norm_ipa = LayerNorm(self.c_s)
-        self.transition = StructureModuleTransition(self.c_s,
-                                                    self.n_transition_layers,
-                                                    self.dropout_rate)
+        self.loop_ipa_dropout = torch.nn.Dropout(self.dropout_rate)
+        self.loop_layer_norm_ipa = LayerNorm(self.c_s)
+        self.loop_transition = StructureModuleTransition(self.c_s,
+                                                         self.n_transition_layers,
+                                                         self.dropout_rate)
 
         self.bb_update = BackboneUpdate(self.c_s)
 
@@ -198,6 +197,8 @@ class CrossStructureModule(torch.nn.Module):
                 loop_mask, protein_mask,
             )
 
+            s_loop = preds["states"]
+
             T_loop = Rigid.from_tensor_7(preds["unscaled_frames"])
 
             outputs.append(preds)
@@ -238,16 +239,15 @@ class CrossStructureModule(torch.nn.Module):
         t0 = T_loop_initial.get_trans().unsqueeze(1).repeat(1, s_loop.shape[1], 1)
 
         # [batch_size, loop_len, c_s]
-        s_upd, ipa_att, ipa_att_sd, ipa_att_pts = self.ipa(
+        s_upd, ipa_att, ipa_att_sd, ipa_att_pts = self.loop_ipa(
             s_loop, s_protein,
             T_loop, T_protein,
             loop_mask, protein_mask,
         )
-
         s_loop = s_loop + s_upd
-        s_loop = self.ipa_dropout(s_loop)
-        s_loop = self.layer_norm_ipa(s_loop)
-        s_loop = self.transition(s_loop)
+        s_loop = self.loop_ipa_dropout(s_loop)
+        s_loop = self.loop_layer_norm_ipa(s_loop)
+        s_loop = self.loop_transition(s_loop)
 
         # [batch_size, loop_len]
         T_loop = T_loop.compose_q_update_vec(self.bb_update(s_loop))

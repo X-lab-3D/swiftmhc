@@ -112,9 +112,13 @@ def _compute_fape_loss(output: TensorDict, batch: TensorDict,
                                               alt_naming_is_better=renamed_truth["alt_naming_is_better"],
                                               **config.sidechain)
 
-    loss = 0.5 * bb_loss + 0.5 * sc_loss
+    total_loss = 0.5 * bb_loss + 0.5 * sc_loss
 
-    return loss
+    return {
+        "total": total_loss,
+        "backbone": bb_loss,
+        "sidechain": sc_loss,
+    }
 
 
 def _compute_cross_distance_loss(output: TensorDict, batch: TensorDict) -> torch.Tensor:
@@ -140,25 +144,39 @@ def _compute_cross_distance_loss(output: TensorDict, batch: TensorDict) -> torch
 
 
 def _compute_cross_violation_loss(output: TensorDict, batch: TensorDict,
-                                  config: ml_collections.ConfigDict) -> torch.Tensor:
+                                  config: ml_collections.ConfigDict) -> Dict[str, torch.Tensor]:
 
     # Compute the between residue clash loss. (include both loop and protein)
-    residx_atom14_to_atom37 = torch.cat((batch["loop_residx_atom14_to_atom37"], batch["protein_residx_atom14_to_atom37"]), dim=1)
+    # [batch_size, loop_maxlen + protein_maxlen, 14]
+    residx_atom14_to_atom37 = torch.cat((batch["loop_residx_atom14_to_atom37"],
+                                         batch["protein_residx_atom14_to_atom37"]), dim=1)
 
-    atom14_pred_positions = torch.cat((output["final_positions"], batch["protein_atom14_gt_positions"]), dim=1)
-    atom14_atom_exists = torch.cat((batch["loop_atom14_gt_exists"], batch["protein_atom14_gt_exists"]), dim=1)
+    # [batch_size, loop_maxlen + protein_maxlen, 14, 3]
+    atom14_pred_positions = torch.cat((output["final_positions"],
+                                       batch["protein_atom14_gt_positions"]), dim=1)
+
+    # [batch_size, loop_maxlen + protein_maxlen, 14]
+    atom14_atom_exists = torch.cat((batch["loop_atom14_gt_exists"],
+                                    batch["protein_atom14_gt_exists"]), dim=1)
 
     # Compute the Van der Waals radius for every atom
     # (the first letter of the atom name is the element type).
-    # Shape: (N, 14).
+    # [37]
     atomtype_radius = [
         openfold_van_der_waals_radius[name[0]]
         for name in openfold_atom_types
     ]
+    # [37]
     atomtype_radius = atom14_pred_positions.new_tensor(atomtype_radius)
 
+    # [batch_size, loop_maxlen + protein_maxlen, 14]
     atom14_atom_radius = atom14_atom_exists * atomtype_radius[residx_atom14_to_atom37]
-    residue_index = torch.cat((batch["loop_residue_index"], batch["protein_residue_index"]), dim=1)
+
+    loop_residue_index = batch["loop_residue_index"]
+    protein_residue_index = batch["protein_residue_index"]
+
+    # [batch_size, loop_maxlen + protein_maxlen]
+    residue_index = torch.cat((loop_residue_index, protein_residue_index), dim=1)
 
     between_residue_clashes = openfold_between_residue_clash_loss(
         atom14_pred_positions=atom14_pred_positions,
@@ -194,7 +212,7 @@ def _compute_cross_violation_loss(output: TensorDict, batch: TensorDict,
     connection_violations = openfold_between_residue_bond_loss(
         pred_atom_positions=output["final_positions"],
         pred_atom_mask=batch["loop_atom14_gt_exists"],
-        residue_index=batch["loop_residue_index"],
+        residue_index=loop_residue_index,
         aatype=batch["loop_aatype"],
         tolerance_factor_soft=config.violation_tolerance_factor,
         tolerance_factor_hard=config.violation_tolerance_factor,
@@ -213,17 +231,23 @@ def _compute_cross_violation_loss(output: TensorDict, batch: TensorDict,
 
     # Calculate loss, as in openfold
     loop_num_atoms = torch.sum(batch["loop_atom14_gt_exists"])
-    num_atoms = loop_num_atoms + torch.sum(batch["protein_atom14_gt_exists"])
+    #num_atoms = loop_num_atoms + torch.sum(batch["protein_atom14_gt_exists"])
 
-    l_clash = torch.sum(violations_between_residues_clashes_per_atom_loss_sum) / (config.eps + num_atoms) + \
-              torch.sum(violations_within_residues_per_atom_loss_sum) / (config.eps + loop_num_atoms)
+    between_residues_clash = torch.sum(violations_between_residues_clashes_per_atom_loss_sum) / (config.eps + loop_num_atoms)
+    within_residues_clash = torch.sum(violations_within_residues_per_atom_loss_sum) / (config.eps + loop_num_atoms)
 
-    loss = (
-        violations_between_residues_bonds_c_n_loss_mean +
-        violations_between_residues_angles_ca_c_n_loss_mean +
-        violations_between_residues_angles_c_n_ca_loss_mean +
-        l_clash
-    )
+    loss = {
+        "bond": violations_between_residues_bonds_c_n_loss_mean,
+        "CA-C-N-angles": violations_between_residues_angles_ca_c_n_loss_mean,
+        "C-N-CA-angles": violations_between_residues_angles_c_n_ca_loss_mean,
+        "between-residues-clash": between_residues_clash,
+        "within-residues-clash": within_residues_clash,
+        "total": (violations_between_residues_bonds_c_n_loss_mean +
+                  violations_between_residues_angles_ca_c_n_loss_mean +
+                  violations_between_residues_angles_c_n_ca_loss_mean +
+                  between_residues_clash +
+                  within_residues_clash)
+    }
 
     return loss
 
@@ -370,12 +394,13 @@ _classification_loss_function = CrossEntropyLoss(reduction="none")
 
 
 def get_loss(output: TensorDict, batch: TensorDict,
+             affinity_tune: bool,
              fine_tune: bool) -> TensorDict:
 
     # compute our own affinity-based loss
     if "class" in output:
         affinity_loss = _classification_loss_function(output["classification"], batch["class"])
-        non_binders_index = batch["class"]
+        non_binders_index = torch.logical_not(batch["class"])
 
     elif "affinity" in output:
         affinity_loss = _affinity_loss_function(output["affinity"], batch["affinity"])
@@ -394,31 +419,42 @@ def get_loss(output: TensorDict, batch: TensorDict,
                                     **openfold_config.loss.supervised_chi)
 
     # compute fape loss, as in openfold
-    fape_loss = _compute_fape_loss(output, batch,
+    fape_losses = _compute_fape_loss(output, batch,
                                    openfold_config.loss.fape)
 
     # compute violations loss, using an adjusted function
-    violation_loss = _compute_cross_violation_loss(output, batch, openfold_config.loss.violation)
+    violation_losses = _compute_cross_violation_loss(output, batch, openfold_config.loss.violation)
 
     # combine the loss terms
-    total_loss = 1.0 * affinity_loss + \
-                 1.0 * chi_loss + \
-                 1.0 * fape_loss
+    total_loss = 1.0 * chi_loss + 1.0 * fape_losses["total"]
+
+    if affinity_tune:
+        total_loss += 1.0 * affinity_loss
 
     if fine_tune:
-        total_loss += 1.0 * violation_loss
+        total_loss += 1.0 * violation_losses["total"]
 
-    # for true non-binders, the total loss is simply affinity-based
-    total_loss[non_binders_index] = 1.0 * affinity_loss[non_binders_index]
+    # for true non-binders, the total loss has no structural component
+    if affinity_tune:
+        total_loss[non_binders_index] = 1.0 * affinity_loss[non_binders_index]
+    else:
+        total_loss[non_binders_index] = affinity_loss.new_zeros(non_binders_index.sum())
 
     # average losses over batch dimension
-    return TensorDict({
+    result = TensorDict({
         "total": total_loss.mean(dim=0),
         "affinity": affinity_loss.mean(dim=0),
-        "fape": fape_loss.mean(dim=0),
         "chi": chi_loss.mean(dim=0),
-        "violation": violation_loss.mean(dim=0),
     })
+
+    # add these separate components to the result too:
+    for component_id, loss_tensor in fape_losses.items():
+        result[f"{component_id} fape"] = loss_tensor.mean(dim=0)
+
+    for component_id, loss_tensor in violation_losses.items():
+        result[f"{component_id} violation"] = loss_tensor.mean(dim=0)
+
+    return result
 
 
 def get_calpha_square_deviation(output_data: Dict[str, torch.Tensor],
@@ -437,25 +473,27 @@ def get_calpha_square_deviation(output_data: Dict[str, torch.Tensor],
     else:
         raise ValueError("Cannot compute RMSD without class or affinity output")
 
+    # [n_binders, max_loop_len, n_atoms, 3]
     output_positions = output_data["final_positions"][binders_index]
     true_positions = batch_data["loop_atom14_gt_positions"][binders_index]
+ 
+    # [n_binders, max_loop_len]
     mask = batch_data["loop_cross_residues_mask"][binders_index]
 
     # take C-alpha only
+    # [n_binders, max_loop_len, 3]
     output_positions = output_positions[..., 1, :]
     true_positions = true_positions[..., 1, :]
 
-    # [n_binders, max_loop_len, 1, 1]
-    mask = mask[..., None]
-
-    _log.debug(f"shape of output_positions is {output_positions.shape}")
-    _log.debug(f"shape of true_positions is {true_positions.shape}")
-    _log.debug(f"shape of mask is {mask.shape}")
-
+    # [n_binders, max_loop_len, 3]
     diff = output_positions - true_positions
 
-    sum_ = torch.sum((diff * mask) ** 2)
-    count = torch.sum(mask.int())
+    sum_ = torch.sum((diff * mask.unsqueeze(-1)) ** 2).item()
+    count = mask.sum().item()
+
+    if count > 0:
+        _log.debug(f"calculated CA rmsd {sqrt(sum_ / count)} for a batch of {count} binders")
+
     return sum_, count
 
 

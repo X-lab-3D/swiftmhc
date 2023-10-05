@@ -9,6 +9,7 @@ import random
 from math import log, sqrt
 import h5py
 import numpy
+import shutil
 from io import StringIO
 
 from sklearn.metrics import matthews_corrcoef
@@ -68,13 +69,13 @@ arg_parser.add_argument("--run-id", "-r", help="name of the run and the director
 arg_parser.add_argument("--debug", "-d", help="generate debug files", action='store_const', const=True, default=False)
 arg_parser.add_argument("--log-stdout", "-l", help="log to stdout", action='store_const', const=True, default=False)
 arg_parser.add_argument("--pretrained-model", "-m", help="use a given pretrained model state")
-arg_parser.add_argument("--pretrained-protein-ipa", "-p", help="use a given pretrained protein ipa state")
 arg_parser.add_argument("--test-only", "-t", help="skip training and test on a pretrained model", action='store_const', const=True, default=False)
 arg_parser.add_argument("--workers", "-w", help="number of workers to load batches", type=int, default=5)
 arg_parser.add_argument("--batch-size", "-b", help="batch size to use during training/validation/testing", type=int, default=8)
-arg_parser.add_argument("--epoch-count", "-e", help="how many epochs to run during training", type=int, default=100)
-arg_parser.add_argument("--fine-tune-count", "-u", help="how many epochs to run during fine-tuning", type=int, default=10)
-arg_parser.add_argument("--animate", "-a", help="id of a data point to generate intermediary pdb for")
+arg_parser.add_argument("--warmup-count", "-j", help="how many epochs to run during warmup, thus without affinity prediction", type=int, default=2)
+arg_parser.add_argument("--epoch-count", "-e", help="how many epochs to run during training", type=int, default=20)
+arg_parser.add_argument("--fine-tune-count", "-u", help="how many epochs to run during fine-tuning, at the end", type=int, default=10)
+arg_parser.add_argument("--animate", "-a", help="id of a data point to generate intermediary pdb for", nargs="+")
 arg_parser.add_argument("--structures-path", "-s", help="an additional structures hdf5 file to measure RMSD on")
 arg_parser.add_argument("--classification", "-c", help="do classification instead of regression", action="store_const", const=True, default=False)
 arg_parser.add_argument("data_path", help="path to the train, validation & test hdf5", nargs="+")
@@ -87,7 +88,8 @@ class Trainer:
     def __init__(self,
                  device: torch.device,
                  workers_count: int,
-                 model_type: ModelType):
+                 model_type: ModelType,
+    ):
 
         self._model_type = model_type
 
@@ -108,7 +110,7 @@ class Trainer:
                optimizer: Optimizer,
                model: Predictor,
                data: TensorDict,
-               fine_tune: bool,
+               affinity_tune: bool, fine_tune: bool,
                pdb_output_directory: Optional[str] = None,
                animated_complex_id: Optional[str] = None
 
@@ -118,7 +120,7 @@ class Trainer:
 
         output = model(data)
 
-        losses = get_loss(output, data, fine_tune)
+        losses = get_loss(output, data, affinity_tune, fine_tune)
 
         loss = losses["total"]
 
@@ -161,24 +163,6 @@ class Trainer:
                                       columns=column_names, index=row_names)
         data_frame.to_csv(file_path)
 
-    @staticmethod
-    def _save_model_output(file_path: str,
-                           target_name: str,
-                           loop_sequence: str,
-                           loop_positions: torch.Tensor,
-                           probability: Union[float, torch.Tensor]):
-        """
-        Args:
-            loop_positions: [loop_len, 3]
-            probability: 1 or 2 numbers between {0.0 - 1.0}
-        """
-
-        with open(file_path, 'wt') as table_file:
-            table_file.write(f"{target_name} sequence {loop_sequence} has predicted probability {probability}\n")
-
-            for loop_index in range(loop_positions.shape[0]):
-                table_file.write(f"loop residue {loop_index} is predicted at {loop_positions[loop_index]}\n")
-
     def _snapshot(self,
                   frame_id: str,
                   model: Predictor,
@@ -188,17 +172,66 @@ class Trainer:
         with torch.no_grad():
             output = model(data)
 
-        id_ = data["ids"][0]
-        animation_path = f"{output_directory}/{id_}-animation.hdf5"
+        for index, id_ in enumerate(data["ids"]):
 
-        with h5py.File(animation_path, "a") as animation_file:
+            animation_path = f"{output_directory}/{id_}-animation.hdf5"
 
-            # for convenience, store the true structure in the animation file also
-            if "true" not in animation_file:
-                true_group = animation_file.require_group("true")
+            with h5py.File(animation_path, "a") as animation_file:
+
+                # for convenience, store the true structure in the animation file also
+                if "true" not in animation_file:
+                    true_group = animation_file.require_group("true")
+                    structure = recreate_structure(id_,
+                                                   [("P", data["loop_residue_numbers"][index], data["loop_sequence_onehot"][index], data["loop_atom14_gt_positions"][index]),
+                                                    ("M", data["protein_residue_numbers"][index], data["protein_sequence_onehot"][index], data["protein_atom14_gt_positions"][index])])
+                    pdbio = PDBIO()
+                    pdbio.set_structure(structure)
+                    with StringIO() as sio:
+                        pdbio.save(sio)
+                        structure_data = numpy.array([bytes(line + "\n", encoding="utf-8")
+                                                      for line in sio.getvalue().split('\n')
+                                                      if len(line.strip()) > 0],
+                                                     dtype=numpy.dtype("bytes"))
+                    true_group.create_dataset("structure",
+                                               data=structure_data,
+                                               compression="lzf")
+
+                frame_group = animation_file.require_group(frame_id)
+
+                # save loop attentions heatmaps
+                #loop_self_attention = output["loop_self_attention"].cpu()
+                #frame_group.create_dataset("loop_attention", data=loop_self_attention[index], compression="lzf")
+
+                # save loop embeddings heatmaps
+                loop_embd = output["loop_embd"].cpu()
+                frame_group.create_dataset("loop_embd", data=loop_embd[index], compression="lzf")
+
+                #loop_pos_enc = output["loop_pos_enc"].cpu()
+                #frame_group.create_dataset("loop_pos_enc", data=loop_pos_enc[index], compression="lzf")
+
+                loop_init = output["loop_init"].cpu()
+                frame_group.create_dataset("loop_init", data=loop_init[index], compression="lzf")
+
+                # save protein attentions heatmaps
+                protein_self_attention = output["protein_self_attention"].cpu()
+                protein_self_attention_sd = output["protein_self_attention_sd"].cpu()
+                protein_self_attention_b = output["protein_self_attention_b"].cpu()
+                frame_group.create_dataset("protein_attention", data=protein_self_attention[index], compression="lzf")
+                frame_group.create_dataset("protein_attention_sd", data=protein_self_attention_sd[index], compression="lzf")
+                frame_group.create_dataset("protein_attention_b", data=protein_self_attention_b[index], compression="lzf")
+
+                # save cross attentions heatmaps
+                cross_attention = output["cross_attention"].cpu()
+                cross_attention_sd = output["cross_attention_sd"].cpu()
+                cross_attention_pts = output["cross_attention_pts"].cpu()
+                frame_group.create_dataset("cross_attention", data=cross_attention[index], compression="lzf")
+                frame_group.create_dataset("cross_attention_sd", data=cross_attention_sd[index], compression="lzf")
+                frame_group.create_dataset("cross_attention_pts", data=cross_attention_pts[index], compression="lzf")
+
+                # save pdb
                 structure = recreate_structure(id_,
-                                               [("P", data["loop_residue_numbers"][0], data["loop_sequence_onehot"][0], data["loop_atom14_gt_positions"][0]),
-                                                ("M", data["protein_residue_numbers"][0], data["protein_sequence_onehot"][0], data["protein_atom14_gt_positions"][0])])
+                                               [("P", data["loop_residue_numbers"][index], data["loop_sequence_onehot"][index], output["final_positions"][index]),
+                                                ("M", data["protein_residue_numbers"][index], data["protein_sequence_onehot"][index], data["protein_atom14_gt_positions"][index])])
                 pdbio = PDBIO()
                 pdbio.set_structure(structure)
                 with StringIO() as sio:
@@ -207,71 +240,23 @@ class Trainer:
                                                   for line in sio.getvalue().split('\n')
                                                   if len(line.strip()) > 0],
                                                  dtype=numpy.dtype("bytes"))
-                true_group.create_dataset("structure",
+                frame_group.create_dataset("structure",
                                            data=structure_data,
                                            compression="lzf")
 
-            frame_group = animation_file.require_group(frame_id)
+                # save the residue numbering, for later lookup
+                for key in ("protein_cross_residues_mask", "loop_cross_residues_mask",
+                            "protein_residue_numbers", "loop_residue_numbers"):
 
-            # save loop attentions heatmaps
-            #loop_self_attention = output["loop_self_attention"].cpu()
-            #frame_group.create_dataset("loop_attention", data=loop_self_attention[0], compression="lzf")
-
-            # save loop embeddings heatmaps
-            loop_embd = output["loop_embd"].cpu()
-            frame_group.create_dataset("loop_embd", data=loop_embd[0], compression="lzf")
-
-            #loop_pos_enc = output["loop_pos_enc"].cpu()
-            #frame_group.create_dataset("loop_pos_enc", data=loop_pos_enc[0], compression="lzf")
-
-            loop_init = output["loop_init"].cpu()
-            frame_group.create_dataset("loop_init", data=loop_init[0], compression="lzf")
-
-            # save protein attentions heatmaps
-            protein_self_attention = output["protein_self_attention"].cpu()
-            protein_self_attention_sd = output["protein_self_attention_sd"].cpu()
-            protein_self_attention_b = output["protein_self_attention_b"].cpu()
-            frame_group.create_dataset("protein_attention", data=protein_self_attention[0], compression="lzf")
-            frame_group.create_dataset("protein_attention_sd", data=protein_self_attention_sd[0], compression="lzf")
-            frame_group.create_dataset("protein_attention_b", data=protein_self_attention_b[0], compression="lzf")
-
-            # save cross attentions heatmaps
-            cross_attention = output["cross_attention"].cpu()
-            cross_attention_sd = output["cross_attention_sd"].cpu()
-            cross_attention_pts = output["cross_attention_pts"].cpu()
-            frame_group.create_dataset("cross_attention", data=cross_attention[0], compression="lzf")
-            frame_group.create_dataset("cross_attention_sd", data=cross_attention_sd[0], compression="lzf")
-            frame_group.create_dataset("cross_attention_pts", data=cross_attention_pts[0], compression="lzf")
-
-            # save pdb
-            structure = recreate_structure(id_,
-                                           [("P", data["loop_residue_numbers"][0], data["loop_sequence_onehot"][0], output["final_positions"][0]),
-                                            ("M", data["protein_residue_numbers"][0], data["protein_sequence_onehot"][0], data["protein_atom14_gt_positions"][0])])
-            pdbio = PDBIO()
-            pdbio.set_structure(structure)
-            with StringIO() as sio:
-                pdbio.save(sio)
-                structure_data = numpy.array([bytes(line + "\n", encoding="utf-8")
-                                              for line in sio.getvalue().split('\n')
-                                              if len(line.strip()) > 0],
-                                             dtype=numpy.dtype("bytes"))
-            frame_group.create_dataset("structure",
-                                       data=structure_data,
-                                       compression="lzf")
-
-            # save the residue numbering, for later lookup
-            for key in ("protein_cross_residues_mask", "loop_cross_residues_mask",
-                        "protein_residue_numbers", "loop_residue_numbers"):
-
-                if not key in animation_file:
-                    animation_file.create_dataset(key, data=data[key][0].cpu())
+                    if not key in animation_file:
+                        animation_file.create_dataset(key, data=data[key][index].cpu())
 
     def _epoch(self,
                epoch_index: int,
                optimizer: Optimizer,
                model: Predictor,
                data_loader: DataLoader,
-               fine_tune: bool,
+               affinity_tune: bool, fine_tune: bool,
                pdb_output_directory: Optional[str] = None,
                animated_data: Optional[Dict[str, torch.Tensor]] = None
     ) -> Dict[str, Any]:
@@ -288,7 +273,7 @@ class Trainer:
             batch_loss, batch_output = self._batch(epoch_index,
                                                    batch_index, optimizer, model,
                                                    batch_data,
-                                                   fine_tune)
+                                                   affinity_tune, fine_tune)
 
             if pdb_output_directory is not None and animated_data is not None and (batch_index + 1) % self._snap_period == 0:
 
@@ -311,7 +296,7 @@ class Trainer:
                   epoch_index: int,
                   model: Predictor,
                   data_loader: DataLoader,
-                  fine_tune: bool,
+                  affinity_tune: bool, fine_tune: bool,
     ) -> Dict[str, Any]:
 
         valid_data = {}
@@ -329,7 +314,7 @@ class Trainer:
 
                 batch_output = model(batch_data)
 
-                batch_loss = get_loss(batch_output, batch_data, fine_tune)
+                batch_loss = get_loss(batch_output, batch_data, affinity_tune, fine_tune)
 
                 valid_data = self._store_required_data(valid_data, batch_loss, batch_output, batch_data)
 
@@ -435,8 +420,8 @@ class Trainer:
 
             if "class" in data and "output class" in data:
                 row_data["output class"] = [data["output class"][batch_index]]
-                row_data["output 0"] = [data["output classification"][batch_index, 0]]
-                row_data["output 1"] = [data["output classification"][batch_index, 1]]
+                row_data["output 0"] = [data["output classification"][batch_index][0]]
+                row_data["output 1"] = [data["output classification"][batch_index][1]]
                 row_data["true class"] = [data["class"][batch_index]]
 
             row = pandas.DataFrame(row_data)
@@ -446,7 +431,10 @@ class Trainer:
 
         table.to_csv(output_path, index=False)
 
-    def test(self, test_loader: DataLoader, structures_loader: Union[DataLoader, None], run_id: str):
+    def test(self,
+             test_loader: DataLoader,
+             structures_loader: Union[DataLoader, None],
+             run_id: str):
 
         model_path = f"{run_id}/best-predictor.pth"
         model = Predictor(self._model_type,
@@ -468,25 +456,30 @@ class Trainer:
         self._output_metrics(run_id, "test", -1, test_data)
         self._output_metrics(run_id, "structures", -1, structures_data)
 
+        self._save_outputs_as_csv(os.path.join(run_id, "test-output.csv"), test_data)
+
     @staticmethod
-    def _get_single_data_batch(datasets: List[ProteinLoopDataset], name: str) -> Dict[str, torch.Tensor]:
+    def _get_selection_data_batch(datasets: List[ProteinLoopDataset], names: List[str]) -> Dict[str, torch.Tensor]:
 
-        for dataset in datasets:
-            if dataset.has_entry(name):
-                return ProteinLoopDataset.collate([dataset.get_entry(name)])
+        entries = []
+        for name in names:
+            for dataset in datasets:
+                if dataset.has_entry(name):
+                    entries.append(dataset.get_entry(name))
+                    break
+            else:
+                raise ValueError(f"entry not found in datasets: {name}")
 
-        raise ValueError(f"entry no found in datasets: {name}")
+        return ProteinLoopDataset.collate(entries)
 
     def train(self,
               train_loader: DataLoader,
               valid_loader: DataLoader,
               test_loader: DataLoader,
-              epoch_count: int, fine_tune_count: int,
+              warmup_count: int, epoch_count: int, fine_tune_count: int,
               run_id: Optional[str] = None,
               pretrained_model_path: Optional[str] = None,
-              pretrained_protein_ipa_path: Optional[str] = None,
-
-              animated_complex_id: Optional[str] = None,
+              animated_complex_ids: Optional[List[str]] = None,
               structures_loader: Optional[DataLoader] = None):
 
         # Set up the model
@@ -503,60 +496,61 @@ class Trainer:
             model.load_state_dict(torch.load(pretrained_model_path,
                                              map_location=self._device))
 
-        if pretrained_protein_ipa_path is not None:
-            model.module.protein_ipa.load_state_dict(torch.load(pretrained_protein_ipa_path,
-                                                    map_location=self._device))
-
         optimizer = Adam(model.parameters(), lr=0.001)
         # scheduler = StepLR(optimizer, step_size=10, gamma=0.1)
 
         # define model paths
         model_path = f"{run_id}/best-predictor.pth"
-        protein_ipa_path = f"{run_id}/best-protein-ipa.pth"
 
         # Keep track of the lowest loss value.
         lowest_loss = float("inf")
 
         animated_data = None
-        if animated_complex_id is not None:
+        if animated_complex_ids is not None:
             # make snapshots for animation
             datasets = [train_loader.dataset, valid_loader.dataset, test_loader.dataset]
             if structures_loader is not None:
                 datasets.append(structures_loader.dataset)
 
-            animated_data = self._get_single_data_batch(datasets, animated_complex_id)
+            animated_data = self._get_selection_data_batch(datasets, animated_complex_ids)
 
             self._snapshot("0.0",
                            model,
                            run_id, animated_data)
 
-        total_epochs = epoch_count + fine_tune_count
+        total_epochs = warmup_count + epoch_count + fine_tune_count
         for epoch_index in range(total_epochs):
 
             # flip this setting after the given number of epochs
-            fine_tune = (epoch_index >= epoch_count)
+            affinity_tune = (epoch_index >= warmup_count)
+
+            # flip this setting after the given number of epochs
+            fine_tune = (epoch_index >= (epoch_count + warmup_count))
+
+            _log.debug(f"entering epoch {epoch_index} with affinity_tune set to {affinity_tune} and fine_tune set to {fine_tune}")
 
             # train during epoch
             with Timer(f"train epoch {epoch_index}") as t:
-                train_data = self._epoch(epoch_index, optimizer, model, train_loader, fine_tune,
+                train_data = self._epoch(epoch_index, optimizer, model, train_loader,
+                                         affinity_tune, fine_tune,
                                          run_id, animated_data)
                 t.add_to_title(f"on {len(train_loader.dataset)} data points")
 
             # validate
             with Timer(f"valid epoch {epoch_index}") as t:
-                valid_data = self._validate(epoch_index, model, valid_loader, fine_tune)
+                valid_data = self._validate(epoch_index, model, valid_loader, True, True)
                 t.add_to_title(f"on {len(valid_loader.dataset)} data points")
 
             # test
             with Timer(f"test epoch {epoch_index}") as t:
-                test_data = self._validate(epoch_index, model, test_loader, fine_tune)
+                test_data = self._validate(epoch_index, model, test_loader, True, True)
                 t.add_to_title(f"on {len(test_loader.dataset)} data points")
 
             # structures
             structures_data = None
             if structures_loader is not None:
                 with Timer(f"structures epoch {epoch_index}") as t:
-                    structures_data = self._validate(epoch_index, model, structures_loader, fine_tune)
+                    structures_data = self._validate(epoch_index, model, structures_loader, True, True)
                     t.add_to_title(f"on {len(structures_loader.dataset)} data points")
 
             # write the metrics
@@ -569,24 +563,21 @@ class Trainer:
 
             # early stopping, if no more improvement
             if abs(valid_data["total loss"] - lowest_loss) < self._early_stop_epsilon:
-                if fine_tune:
-                    break
-                else:
-                    epoch_index = epoch_count
+                break
 
             # If the loss improves, save the model.
             if valid_data["total loss"] < lowest_loss:
                 lowest_loss = valid_data["total loss"]
 
                 torch.save(model.state_dict(), model_path)
-                torch.save(model.module.protein_ipa.state_dict(), protein_ipa_path)
             # else:
             #    model.load_state_dict(torch.load(model_path))
 
-            # scheduler.step()
+            #scheduler.step()
 
-        # write the final test output
-        self._save_outputs_as_csv(os.path.join(run_id, "outputs.csv"), test_data)
+            self._save_outputs_as_csv(os.path.join(run_id, f"epoch-{epoch_index}-train-output.csv"), train_data)
+            self._save_outputs_as_csv(os.path.join(run_id, f"epoch-{epoch_index}-valid-output.csv"), valid_data)
+            self._save_outputs_as_csv(os.path.join(run_id, f"epoch-{epoch_index}-test-output.csv"), test_data)
 
     @staticmethod
     def _init_metrics_dataframe():
@@ -615,7 +606,8 @@ class Trainer:
 
         metrics_dataframe.at[epoch_index, "epoch"] = int(epoch_index)
 
-        for loss_name in ("total loss", "affinity loss", "chi loss", "fape loss", "violation loss"):
+        for loss_name in filter(lambda s: s.endswith(" loss"), data.keys()):
+
             normalized_loss = data[loss_name] / len(data["ids"])
 
             metrics_dataframe.at[epoch_index, f"{pass_name} {loss_name}"] = round(normalized_loss, 3)
@@ -667,11 +659,15 @@ if __name__ == "__main__":
 
     if args.run_id is not None:
         run_id = args.run_id
+
+        suffix = 0
+        while os.path.isdir(run_id):
+            suffix += 1
+            run_id = f"{args.run_id}-{suffix}"
     else:
         run_id = str(uuid4())
 
-    if not os.path.isdir(run_id):
-        os.mkdir(run_id)
+    os.mkdir(run_id)
 
     if args.log_stdout:
         logging.basicConfig(stream=sys.stdout,
@@ -716,6 +712,6 @@ if __name__ == "__main__":
         test_loader = trainer.get_data_loader(test_path, args.batch_size, device)
 
         trainer.train(train_loader, valid_loader, test_loader,
-                      args.epoch_count, args.fine_tune_count,
-                      run_id, args.pretrained_model, args.pretrained_protein_ipa,
+                      args.warmup_count, args.epoch_count, args.fine_tune_count,
+                      run_id, args.pretrained_model,
                       args.animate, structures_loader)
