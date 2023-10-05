@@ -573,7 +573,7 @@ class Trainer:
             # else:
             #    model.load_state_dict(torch.load(model_path))
 
-            scheduler.step()
+            #scheduler.step()
 
             self._save_outputs_as_csv(os.path.join(run_id, f"epoch-{epoch_index}-train-output.csv"), train_data)
             self._save_outputs_as_csv(os.path.join(run_id, f"epoch-{epoch_index}-valid-output.csv"), valid_data)
