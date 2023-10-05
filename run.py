@@ -550,7 +550,7 @@ class Trainer:
             structures_data = None
             if structures_loader is not None:
                 with Timer(f"structures epoch {epoch_index}") as t:
-                    structures_data = self._validate(epoch_index, model, structures_loader, True)
+                    structures_data = self._validate(epoch_index, model, structures_loader, True, True)
                     t.add_to_title(f"on {len(structures_loader.dataset)} data points")
 
             # write the metrics
