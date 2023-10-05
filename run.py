@@ -69,16 +69,15 @@ arg_parser.add_argument("--run-id", "-r", help="name of the run and the director
 arg_parser.add_argument("--debug", "-d", help="generate debug files", action='store_const', const=True, default=False)
 arg_parser.add_argument("--log-stdout", "-l", help="log to stdout", action='store_const', const=True, default=False)
 arg_parser.add_argument("--pretrained-model", "-m", help="use a given pretrained model state")
-arg_parser.add_argument("--pretrained-protein-ipa", "-p", help="use a given pretrained protein ipa state")
 arg_parser.add_argument("--test-only", "-t", help="skip training and test on a pretrained model", action='store_const', const=True, default=False)
 arg_parser.add_argument("--workers", "-w", help="number of workers to load batches", type=int, default=5)
 arg_parser.add_argument("--batch-size", "-b", help="batch size to use during training/validation/testing", type=int, default=8)
-arg_parser.add_argument("--epoch-count", "-e", help="how many epochs to run during training", type=int, default=100)
-arg_parser.add_argument("--fine-tune-count", "-u", help="how many epochs to run during fine-tuning", type=int, default=10)
+arg_parser.add_argument("--warmup-count", "-j", help="how many epochs to run during warmup, thus without affinity prediction", type=int, default=2)
+arg_parser.add_argument("--epoch-count", "-e", help="how many epochs to run during training", type=int, default=20)
+arg_parser.add_argument("--fine-tune-count", "-u", help="how many epochs to run during fine-tuning, at the end", type=int, default=10)
 arg_parser.add_argument("--animate", "-a", help="id of a data point to generate intermediary pdb for", nargs="+")
 arg_parser.add_argument("--structures-path", "-s", help="an additional structures hdf5 file to measure RMSD on")
 arg_parser.add_argument("--classification", "-c", help="do classification instead of regression", action="store_const", const=True, default=False)
-arg_parser.add_argument("--lr", help="learning rate setting", type=float, default=0.001)
 arg_parser.add_argument("data_path", help="path to the train, validation & test hdf5", nargs="+")
 
 
@@ -90,9 +89,7 @@ class Trainer:
                  device: torch.device,
                  workers_count: int,
                  model_type: ModelType,
-                 lr: float):
-
-        self._lr = lr
+    ):
 
         self._model_type = model_type
 
@@ -113,7 +110,7 @@ class Trainer:
                optimizer: Optimizer,
                model: Predictor,
                data: TensorDict,
-               fine_tune: bool,
+               affinity_tune: bool, fine_tune: bool,
                pdb_output_directory: Optional[str] = None,
                animated_complex_id: Optional[str] = None
 
@@ -123,7 +120,7 @@ class Trainer:
 
         output = model(data)
 
-        losses = get_loss(output, data, fine_tune)
+        losses = get_loss(output, data, affinity_tune, fine_tune)
 
         loss = losses["total"]
 
@@ -259,7 +256,7 @@ class Trainer:
                optimizer: Optimizer,
                model: Predictor,
                data_loader: DataLoader,
-               fine_tune: bool,
+               affinity_tune: bool, fine_tune: bool,
                pdb_output_directory: Optional[str] = None,
                animated_data: Optional[Dict[str, torch.Tensor]] = None
     ) -> Dict[str, Any]:
@@ -276,7 +273,7 @@ class Trainer:
             batch_loss, batch_output = self._batch(epoch_index,
                                                    batch_index, optimizer, model,
                                                    batch_data,
-                                                   fine_tune)
+                                                   affinity_tune, fine_tune)
 
             if pdb_output_directory is not None and animated_data is not None and (batch_index + 1) % self._snap_period == 0:
 
@@ -299,7 +296,7 @@ class Trainer:
                   epoch_index: int,
                   model: Predictor,
                   data_loader: DataLoader,
-                  fine_tune: bool,
+                  affinity_tune: bool, fine_tune: bool,
     ) -> Dict[str, Any]:
 
         valid_data = {}
@@ -317,7 +314,7 @@ class Trainer:
 
                 batch_output = model(batch_data)
 
-                batch_loss = get_loss(batch_output, batch_data, fine_tune)
+                batch_loss = get_loss(batch_output, batch_data, affinity_tune, fine_tune)
 
                 valid_data = self._store_required_data(valid_data, batch_loss, batch_output, batch_data)
 
@@ -479,11 +476,9 @@ class Trainer:
               train_loader: DataLoader,
               valid_loader: DataLoader,
               test_loader: DataLoader,
-              epoch_count: int, fine_tune_count: int,
+              warmup_count: int, epoch_count: int, fine_tune_count: int,
               run_id: Optional[str] = None,
               pretrained_model_path: Optional[str] = None,
-              pretrained_protein_ipa_path: Optional[str] = None,
-
               animated_complex_ids: Optional[List[str]] = None,
               structures_loader: Optional[DataLoader] = None):
 
@@ -501,16 +496,11 @@ class Trainer:
             model.load_state_dict(torch.load(pretrained_model_path,
                                              map_location=self._device))
 
-        if pretrained_protein_ipa_path is not None:
-            model.module.protein_ipa.load_state_dict(torch.load(pretrained_protein_ipa_path,
-                                                    map_location=self._device))
-
-        optimizer = Adam(model.parameters(), lr=self._lr)
+        optimizer = Adam(model.parameters(), lr=0.001)
         # scheduler = StepLR(optimizer, step_size=10, gamma=0.1)
 
         # define model paths
         model_path = f"{run_id}/best-predictor.pth"
-        protein_ipa_path = f"{run_id}/best-protein-ipa.pth"
 
         # Keep track of the lowest loss value.
         lowest_loss = float("inf")
@@ -528,28 +518,32 @@ class Trainer:
                            model,
                            run_id, animated_data)
 
-        total_epochs = epoch_count + fine_tune_count
+        total_epochs = warmup_count + epoch_count + fine_tune_count
         for epoch_index in range(total_epochs):
 
             # flip this setting after the given number of epochs
-            fine_tune = (epoch_index >= epoch_count)
+            affinity_tune = (epoch_index >= warmup_count)
 
-            _log.debug(f"entering epoch {epoch_index} with fine_tune set to {fine_tune}")
+            # flip this setting after the given number of epochs
+            fine_tune = (epoch_index >= (epoch_count + warmup_count))
+
+            _log.debug(f"entering epoch {epoch_index} with affinity_tune set to {affinity_tune} and fine_tune set to {fine_tune}")
 
             # train during epoch
             with Timer(f"train epoch {epoch_index}") as t:
-                train_data = self._epoch(epoch_index, optimizer, model, train_loader, fine_tune,
+                train_data = self._epoch(epoch_index, optimizer, model, train_loader,
+                                         affinity_tune, fine_tune,
                                          run_id, animated_data)
                 t.add_to_title(f"on {len(train_loader.dataset)} data points")
 
             # validate
             with Timer(f"valid epoch {epoch_index}") as t:
-                valid_data = self._validate(epoch_index, model, valid_loader, True)
+                valid_data = self._validate(epoch_index, model, valid_loader, True, True)
                 t.add_to_title(f"on {len(valid_loader.dataset)} data points")
 
             # test
             with Timer(f"test epoch {epoch_index}") as t:
-                test_data = self._validate(epoch_index, model, test_loader, True)
+                test_data = self._validate(epoch_index, model, test_loader, True, True)
                 t.add_to_title(f"on {len(test_loader.dataset)} data points")
 
             # structures
@@ -569,21 +563,17 @@ class Trainer:
 
             # early stopping, if no more improvement
             if abs(valid_data["total loss"] - lowest_loss) < self._early_stop_epsilon:
-                if fine_tune:
-                    break
-                else:
-                    epoch_index = epoch_count
+                break
 
             # If the loss improves, save the model.
             if valid_data["total loss"] < lowest_loss:
                 lowest_loss = valid_data["total loss"]
 
                 torch.save(model.state_dict(), model_path)
-                torch.save(model.module.protein_ipa.state_dict(), protein_ipa_path)
             # else:
             #    model.load_state_dict(torch.load(model_path))
 
-            # scheduler.step()
+            scheduler.step()
 
             self._save_outputs_as_csv(os.path.join(run_id, f"epoch-{epoch_index}-train-output.csv"), train_data)
             self._save_outputs_as_csv(os.path.join(run_id, f"epoch-{epoch_index}-valid-output.csv"), valid_data)
@@ -699,7 +689,7 @@ if __name__ == "__main__":
     _log.debug(f"using {args.workers} workers")
     torch.multiprocessing.set_start_method('spawn')
 
-    trainer = Trainer(device, args.workers, model_type, args.lr)
+    trainer = Trainer(device, args.workers, model_type)
 
     structures_loader = None
     if args.structures_path is not None:
@@ -722,6 +712,6 @@ if __name__ == "__main__":
         test_loader = trainer.get_data_loader(test_path, args.batch_size, device)
 
         trainer.train(train_loader, valid_loader, test_loader,
-                      args.epoch_count, args.fine_tune_count,
-                      run_id, args.pretrained_model, args.pretrained_protein_ipa,
+                      args.warmup_count, args.epoch_count, args.fine_tune_count,
+                      run_id, args.pretrained_model,
                       args.animate, structures_loader)

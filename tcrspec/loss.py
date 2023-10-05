@@ -394,6 +394,7 @@ _classification_loss_function = CrossEntropyLoss(reduction="none")
 
 
 def get_loss(output: TensorDict, batch: TensorDict,
+             affinity_tune: bool,
              fine_tune: bool) -> TensorDict:
 
     # compute our own affinity-based loss
@@ -425,15 +426,19 @@ def get_loss(output: TensorDict, batch: TensorDict,
     violation_losses = _compute_cross_violation_loss(output, batch, openfold_config.loss.violation)
 
     # combine the loss terms
-    total_loss = 1.0 * affinity_loss + \
-                 1.0 * chi_loss + \
-                 1.0 * fape_losses["total"]
+    total_loss = 1.0 * chi_loss + 1.0 * fape_losses["total"]
+
+    if affinity_tune:
+        total_loss += 1.0 * affinity_loss
 
     if fine_tune:
         total_loss += 1.0 * violation_losses["total"]
 
-    # for true non-binders, the total loss is simply affinity-based
-    total_loss[non_binders_index] = 1.0 * affinity_loss[non_binders_index]
+    # for true non-binders, the total loss has no structural component
+    if affinity_tune:
+        total_loss[non_binders_index] = 1.0 * affinity_loss[non_binders_index]
+    else:
+        total_loss[non_binders_index] = affinity_loss.new_zeros(affinity_loss.shape)
 
     # average losses over batch dimension
     result = TensorDict({
@@ -442,6 +447,7 @@ def get_loss(output: TensorDict, batch: TensorDict,
         "chi": chi_loss.mean(dim=0),
     })
 
+    # add these separate components to the result too:
     for component_id, loss_tensor in fape_losses.items():
         result[f"{component_id} fape"] = loss_tensor.mean(dim=0)
 

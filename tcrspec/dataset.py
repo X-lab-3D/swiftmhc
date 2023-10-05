@@ -75,6 +75,9 @@ class ProteinLoopDataset(Dataset):
                 if length < 3:
                     raise ValueError(f"{entry_name} {prefix} length is {length}")
 
+                elif length > max_length:
+                    raise ValueError(f"{entry_name} {prefix} length is {length}, which is larger than the max {max_length}")
+
                 # For the protein, put all residues leftmost
                 index = torch.zeros(max_length, device=self._device, dtype=torch.bool)
                 index[:length] = True
