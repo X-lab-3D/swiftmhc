@@ -10,6 +10,7 @@ import torch
 from Bio.PDB.PDBParser import PDBParser
 from Bio.PDB.Chain import Chain
 from Bio.PDB.Residue import Residue
+from Bio.pairwise2 import align
 from blosum import BLOSUM
 
 from openfold.np.residue_constants import restype_atom37_mask
@@ -133,44 +134,68 @@ def _get_blosum_encoding(amino_acid_indexes: List[int], blosum_index: int) -> Li
     return torch.tensor(encoding)
 
 
-def _mask_residues(residues: List[Residue], mask_ids: List[Tuple[str, int, AminoAcid]]) -> torch.Tensor:
+def _make_alignment_map(sorted_residues: List[Residue], mask_ids: List[Tuple[str, int, AminoAcid]]) -> Dict[int, int]:
+    """
+    Returns:  a dictionary, mapping mask residue numbers to the sorted residue numbers
+    """
 
-    mask_by_residue_id = {(chain_id, residue_number): amino_acid
-                           for chain_id, residue_number, amino_acid in mask_ids}
+    residues_seq = ""
+    for residue in sorted_residues:
+        residue_amino_acid = amino_acids_by_code[residue.get_resname()]
+        residues_seq += residue_amino_acid.one_letter_code
 
-    aa_match_count = 0
-    aa_count = 0
+    # get the sequence of the mask, sort by residue number
+    mask_seq = ""
+    for chain_id, residue_number, amino_acid in mask_ids:
+        mask_seq += amino_acid.one_letter_code
+
+    alignments = align.globalxx(residues_seq, mask_seq)
+    aligned_residues = alignments[0].seqA
+    aligned_mask = alignments[0].seqB
+    pid = 100.0 * alignments[0].score / len(mask_ids)
+    if pid < 85.0:
+        raise ValueError(f"cannot reliably align mask to structure, identity is only {pid} %")
+
+    map_ = {}
+    for alignment_index in range(max(len(aligned_residues), len(aligned_mask))):
+
+        if aligned_residues[alignment_index].isalpha():  # not a gap in residues list
+
+            residues_index = len(aligned_residues[:alignment_index].replace('-', ''))
+            residue_number = sorted_residues[residues_index].get_full_id()[-1][1]
+
+            if aligned_mask[alignment_index].isalpha():  # not a gap in mask
+
+                mask_index = len(aligned_mask[:alignment_index].replace('-', ''))
+                mask_number = mask_ids[mask_index][1]
+
+                map_[residue_number] = mask_number
+
+    return map_
+
+
+def _mask_residues(residues: List[Residue],
+                   mask_ids: List[Tuple[str, int, AminoAcid]],
+                   alignment_map: Dict[int, int]) -> torch.Tensor:
+
+    mask_residue_numbers = [mask_id[1] for mask_id in mask_ids]
 
     mask = []
     for residue in residues:
 
-        full_id = residue.get_full_id()
-        if len(full_id) == 4:
-            structure_id, model_id, chain_id, residue_id = full_id
+        residue_number = residue.get_full_id()[-1][1]
+
+        if residue_number in alignment_map:
+            mask_number = alignment_map[residue_number]
+
+            mask.append(mask_number in mask_residue_numbers)
         else:
-            chain_id, residue_id = full_id
-
-        residue_number = residue_id[1]
-
-        residue_id = (chain_id, residue_number)
-        residue_amino_acid = amino_acids_by_code[residue.get_resname()]
-
-        if residue_id in mask_by_residue_id:
-            aa_count += 1
-
-            if residue_amino_acid == mask_by_residue_id[residue_id]:
-                aa_match_count += 1
-
-        mask.append(residue_id in mask_by_residue_id)
+            mask.append(False)
 
     mask = torch.tensor(mask, dtype=torch.bool)
 
     if not torch.any(mask):
         raise ValueError(f"none found of {mask_ids}")
-
-    pid = 100.0 * aa_match_count / aa_count
-    if pid < 85.0:
-        _log.warning(f"mask identity is only {pid:.1f} %")
 
     return mask
 
@@ -312,12 +337,16 @@ def preprocess(table_path: str,
 
         # get residues from the protein (chain M)
         protein_chain = chains_by_id["M"]
-        protein_residues = list(protein_chain.get_residues())
+        # order by residue number
+        protein_residues = list(sorted(protein_chain.get_residues(), key=lambda r: r.get_full_id()[-1][1]))
 
         try:
+            # align to structure
+            mask_map = _make_alignment_map(protein_residues, protein_residues_self_mask)
+
             # determine which proteinresidues match with the mask
-            self_residues_mask = _mask_residues(protein_residues, protein_residues_self_mask)
-            cross_residues_mask = _mask_residues(protein_residues, protein_residues_cross_mask)
+            self_residues_mask = _mask_residues(protein_residues, protein_residues_self_mask, mask_map)
+            cross_residues_mask = _mask_residues(protein_residues, protein_residues_cross_mask, mask_map)
 
             # remove the residues that are completely outside of mask range
             combo_mask = torch.logical_or(self_residues_mask, cross_residues_mask)
