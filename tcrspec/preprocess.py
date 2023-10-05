@@ -10,7 +10,7 @@ import torch
 from Bio.PDB.PDBParser import PDBParser
 from Bio.PDB.Chain import Chain
 from Bio.PDB.Residue import Residue
-from Bio.pairwise2 import align
+from Bio.Align import PairwiseAligner
 from blosum import BLOSUM
 
 from openfold.np.residue_constants import restype_atom37_mask
@@ -139,6 +139,10 @@ def _make_alignment_map(sorted_residues: List[Residue], mask_ids: List[Tuple[str
     Returns:  a dictionary, mapping mask residue numbers to the sorted residue numbers
     """
 
+    # do not allow gaps
+    aligner = PairwiseAligner(target_internal_open_gap_score=-1e22,
+                              target_internal_extend_gap_score=-1e22)
+
     residues_seq = ""
     for residue in sorted_residues:
         residue_amino_acid = amino_acids_by_code[residue.get_resname()]
@@ -146,30 +150,36 @@ def _make_alignment_map(sorted_residues: List[Residue], mask_ids: List[Tuple[str
 
     # get the sequence of the mask, sort by residue number
     mask_seq = ""
-    for chain_id, residue_number, amino_acid in mask_ids:
+    for chain_id, residue_number, amino_acid in sorted(mask_ids, key=lambda id_: id_[1]):
         mask_seq += amino_acid.one_letter_code
 
-    alignments = align.globalxx(residues_seq, mask_seq)
-    aligned_residues = alignments[0].seqA
-    aligned_mask = alignments[0].seqB
-    pid = 100.0 * alignments[0].score / len(mask_ids)
+    alignments = aligner.align(residues_seq, mask_seq)
+    alignment = alignments[0]
+    pid = 100.0 * alignment.score / len(mask_ids)
     if pid < 85.0:
         raise ValueError(f"cannot reliably align mask to structure, identity is only {pid} %")
 
+    # we expect no gaps, so there's only one range
+    residues_start = alignment.aligned[0][0][0]
+    residues_end = alignment.aligned[0][0][1]
+
+    mask_start = alignment.aligned[1][0][0]
+    mask_end = alignment.aligned[1][0][1]
+
+    _log.debug(f"alignment made:\nresidues:  {residues_seq[residues_start: residues_end]}\nmask    :  {mask_seq[mask_start: mask_end]}")
+
+    # map the mask to the residues
     map_ = {}
-    for alignment_index in range(max(len(aligned_residues), len(aligned_mask))):
+    alignment_len = residues_end - residues_start
+    for alignment_index in range(alignment_len):
 
-        if aligned_residues[alignment_index].isalpha():  # not a gap in residues list
+        residue_index = residues_start + alignment_index
+        residue_number = sorted_residues[residue_index].get_full_id()[-1][1]
 
-            residues_index = len(aligned_residues[:alignment_index].replace('-', ''))
-            residue_number = sorted_residues[residues_index].get_full_id()[-1][1]
+        mask_index = mask_start + alignment_index
+        mask_number = mask_ids[mask_index][1]
 
-            if aligned_mask[alignment_index].isalpha():  # not a gap in mask
-
-                mask_index = len(aligned_mask[:alignment_index].replace('-', ''))
-                mask_number = mask_ids[mask_index][1]
-
-                map_[residue_number] = mask_number
+        map_[residue_number] = mask_number
 
     return map_
 
@@ -353,6 +363,10 @@ def preprocess(table_path: str,
             combo_mask_nonzero = combo_mask.nonzero()
             mask_start = combo_mask_nonzero.min()
             mask_end = combo_mask_nonzero.max() + 1
+
+            _log.debug(f"protein is masked {combo_mask.tolist()}")
+
+            _log.info(f"{id_}: taking protein residues {mask_start} - {mask_end}")
 
             # apply the limiting protein range, reducing the size of the data that needs to be generated.
             self_residues_mask = self_residues_mask[mask_start: mask_end]
