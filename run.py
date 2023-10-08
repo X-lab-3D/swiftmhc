@@ -12,7 +12,7 @@ import numpy
 import shutil
 from io import StringIO
 
-from sklearn.metrics import matthews_corrcoef
+from sklearn.metrics import matthews_corrcoef, roc_auc_score
 from scipy.stats import pearsonr
 import ml_collections
 import pandas
@@ -630,6 +630,13 @@ class Trainer:
             except:
                 output_class = data["output class"]
                 _log.exception(f"running matthews_corrcoef on {output_class}")
+
+            try:
+                auc = roc_auc_score(data["class"], data["output class"])
+                metrics_dataframe.at[epoch_index, f"{pass_name} ROC AUC"] = round(auc, 3)
+            except:
+                output_class = data["output class"]
+                _log.exception(f"running roc on {output_class}")
 
             count_correct = (torch.tensor(data["output class"]) == torch.tensor(data["class"])).float().sum().item()
             acc = count_correct / len(data["class"])
