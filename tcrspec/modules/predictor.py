@@ -43,6 +43,7 @@ class Predictor(torch.nn.Module):
         structure_module_config.c_z = 1
         structure_module_config.no_blocks = 2
         structure_module_config.no_heads_ipa = 2
+        structure_module_config.no_transition_layers = 4
 
         self.model_type = model_type
         self.loop_maxlen = loop_maxlen
@@ -286,7 +287,7 @@ class Predictor(torch.nn.Module):
         elif self.model_type == ModelType.CLASSIFICATION:
 
             # [batch_size, 2]
-            output["classification"] = self.output_linear(loop_embd)
+            output["classification"] = torch.nn.functional.softmax(self.output_linear(loop_embd), dim=1)
 
             # [batch_size]
             output["class"] = torch.argmax(output["classification"], dim=1)

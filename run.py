@@ -624,31 +624,19 @@ class Trainer:
             metrics_dataframe.at[epoch_index, f"{pass_name} {loss_name}"] = round(normalized_loss, 3)
 
         if "output class" in data:
-            try:
-                mcc = matthews_corrcoef(data["output class"], data["class"])
-                metrics_dataframe.at[epoch_index, f"{pass_name} matthews correlation"] = round(mcc, 3)
-            except:
-                output_class = data["output class"]
-                _log.exception(f"running matthews_corrcoef on {output_class}")
+            mcc = matthews_corrcoef(data["output class"], data["class"])
+            metrics_dataframe.at[epoch_index, f"{pass_name} matthews correlation"] = round(mcc, 3)
 
-            try:
-                auc = roc_auc_score(data["class"], data["output class"])
-                metrics_dataframe.at[epoch_index, f"{pass_name} ROC AUC"] = round(auc, 3)
-            except:
-                output_class = data["output class"]
-                _log.exception(f"running roc on {output_class}")
+            auc = roc_auc_score(data["class"], numpy.array(data["output classification"])[:, 1])
+            metrics_dataframe.at[epoch_index, f"{pass_name} ROC AUC"] = round(auc, 3)
 
             count_correct = (torch.tensor(data["output class"]) == torch.tensor(data["class"])).float().sum().item()
             acc = count_correct / len(data["class"])
             metrics_dataframe.at[epoch_index, f"{pass_name} accuracy"] = round(acc, 3)
 
         elif "output affinity" in data:
-            try:
-                pcc = pearsonr(data["output affinity"], data["affinity"]).statistic
-                metrics_dataframe.at[epoch_index, f"{pass_name} affinity pearson correlation"] = round(pcc, 3)
-            except:
-                output_aff = data["output affinity"]
-                _log.exception(f"running pearsonr on {output_aff}")
+            pcc = pearsonr(data["output affinity"], data["affinity"]).statistic
+            metrics_dataframe.at[epoch_index, f"{pass_name} affinity pearson correlation"] = round(pcc, 3)
 
         metrics_dataframe.at[epoch_index, f"{pass_name} binders C-alpha RMSD"] = round(data["binders_c_alpha_rmsd"], 3)
 
