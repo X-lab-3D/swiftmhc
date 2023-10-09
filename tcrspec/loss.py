@@ -398,16 +398,16 @@ def get_loss(output: TensorDict, batch: TensorDict,
              fine_tune: bool) -> TensorDict:
 
     # compute our own affinity-based loss
-    if "class" in output:
+    if "class" in output and "class" in batch:
         affinity_loss = _classification_loss_function(output["classification"], batch["class"])
         non_binders_index = torch.logical_not(batch["class"])
 
-    elif "affinity" in output:
+    elif "affinity" in output and "affinity" in batch:
         affinity_loss = _affinity_loss_function(output["affinity"], batch["affinity"])
         non_binders_index = batch["affinity"] < AFFINITY_BINDING_TRESHOLD
 
     else:
-        raise ValueError("Cannot compute affinity loss without class or affinity output")
+        raise ValueError("Cannot compute affinity loss without class or affinity in both output and batch data")
 
     # compute chi loss, as in openfold
     chi_loss = _supervised_chi_loss(output["final_angles"],
