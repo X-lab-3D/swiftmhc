@@ -624,11 +624,14 @@ class Trainer:
             metrics_dataframe.at[epoch_index, f"{pass_name} {loss_name}"] = round(normalized_loss, 3)
 
         if "output class" in data:
-            mcc = matthews_corrcoef(data["output class"], data["class"])
-            metrics_dataframe.at[epoch_index, f"{pass_name} matthews correlation"] = round(mcc, 3)
 
-            auc = roc_auc_score(data["class"], numpy.array(data["output classification"])[:, 1])
-            metrics_dataframe.at[epoch_index, f"{pass_name} ROC AUC"] = round(auc, 3)
+            if len(set(data["class"])) > 1:
+
+                mcc = matthews_corrcoef(data["output class"], data["class"])
+                metrics_dataframe.at[epoch_index, f"{pass_name} matthews correlation"] = round(mcc, 3)
+
+                auc = roc_auc_score(data["class"], numpy.array(data["output classification"])[:, 1])
+                metrics_dataframe.at[epoch_index, f"{pass_name} ROC AUC"] = round(auc, 3)
 
             count_correct = (torch.tensor(data["output class"]) == torch.tensor(data["class"])).float().sum().item()
             acc = count_correct / len(data["class"])
