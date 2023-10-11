@@ -72,16 +72,29 @@ arg_parser.add_argument("--pretrained-model", "-m", help="use a given pretrained
 arg_parser.add_argument("--test-only", "-t", help="skip training and test on a pretrained model", action='store_const', const=True, default=False)
 arg_parser.add_argument("--workers", "-w", help="number of workers to load batches", type=int, default=5)
 arg_parser.add_argument("--batch-size", "-b", help="batch size to use during training/validation/testing", type=int, default=8)
-arg_parser.add_argument("--epoch-count", "-e", help="how many epochs to run during training", type=int, default=100)
-arg_parser.add_argument("--fine-tune-count", "-u", help="how many epochs to run during fine-tuning", type=int, default=10)
+arg_parser.add_argument("--warmup-count", "-j", help="how many epochs to run during warmup, thus without affinity prediction", type=int, default=0)
+arg_parser.add_argument("--epoch-count", "-e", help="how many epochs to run during training", type=int, default=20)
+arg_parser.add_argument("--fine-tune-count", "-u", help="how many epochs to run during fine-tuning, at the end", type=int, default=10)
 arg_parser.add_argument("--animate", "-a", help="id of a data point to generate intermediary pdb for", nargs="+")
 arg_parser.add_argument("--structures-path", "-s", help="an additional structures hdf5 file to measure RMSD on")
 arg_parser.add_argument("--classification", "-c", help="do classification instead of regression", action="store_const", const=True, default=False)
-arg_parser.add_argument("--lr", help="learning rate setting", type=float, default=0.001)
+arg_parser.add_argument("--lr", help="optimizer learning rate", type=float, default=0.001)
 arg_parser.add_argument("data_path", help="path to the train, validation & test hdf5", nargs="+")
 
 
 _log = logging.getLogger(__name__)
+
+
+def get_accuracy(output: List[int], truth: List[int]) -> float:
+
+    right = 0
+    for i, o in enumerate(output):
+        t = truth[i]
+
+        if o == t:
+            right += 1
+
+    return float(right) / len(output)
 
 
 class Trainer:
@@ -89,10 +102,10 @@ class Trainer:
                  device: torch.device,
                  workers_count: int,
                  model_type: ModelType,
-                 lr: float):
+                 lr: float,
+    ):
 
         self._lr = lr
-
         self._model_type = model_type
 
         self._device = device
@@ -112,7 +125,7 @@ class Trainer:
                optimizer: Optimizer,
                model: Predictor,
                data: TensorDict,
-               fine_tune: bool,
+               affinity_tune: bool, fine_tune: bool,
                pdb_output_directory: Optional[str] = None,
                animated_complex_id: Optional[str] = None
 
@@ -122,7 +135,7 @@ class Trainer:
 
         output = model(data)
 
-        losses = get_loss(output, data, fine_tune)
+        losses = get_loss(output, data, affinity_tune, fine_tune)
 
         loss = losses["total"]
 
@@ -201,18 +214,15 @@ class Trainer:
                 frame_group = animation_file.require_group(frame_id)
 
                 # save loop attentions heatmaps
-                loop_self_attention = output["loop_self_attention"].cpu()
-                frame_group.create_dataset("loop_attention", data=loop_self_attention[index], compression="lzf")
+                #loop_self_attention = output["loop_self_attention"].cpu()
+                #frame_group.create_dataset("loop_attention", data=loop_self_attention[index], compression="lzf")
 
                 # save loop embeddings heatmaps
                 loop_embd = output["loop_embd"].cpu()
                 frame_group.create_dataset("loop_embd", data=loop_embd[index], compression="lzf")
 
-                aff_input = output["aff_input"].cpu()
-                frame_group.create_dataset("aff_input", data=aff_input[index], compression="lzf")
-
-                loop_pos_enc = output["loop_pos_enc"].cpu()
-                frame_group.create_dataset("loop_pos_enc", data=loop_pos_enc[index], compression="lzf")
+                #loop_pos_enc = output["loop_pos_enc"].cpu()
+                #frame_group.create_dataset("loop_pos_enc", data=loop_pos_enc[index], compression="lzf")
 
                 loop_init = output["loop_init"].cpu()
                 frame_group.create_dataset("loop_init", data=loop_init[index], compression="lzf")
@@ -261,7 +271,7 @@ class Trainer:
                optimizer: Optimizer,
                model: Predictor,
                data_loader: DataLoader,
-               fine_tune: bool,
+               affinity_tune: bool, fine_tune: bool,
                pdb_output_directory: Optional[str] = None,
                animated_data: Optional[Dict[str, torch.Tensor]] = None
     ) -> Dict[str, Any]:
@@ -278,7 +288,7 @@ class Trainer:
             batch_loss, batch_output = self._batch(epoch_index,
                                                    batch_index, optimizer, model,
                                                    batch_data,
-                                                   fine_tune)
+                                                   affinity_tune, fine_tune)
 
             if pdb_output_directory is not None and animated_data is not None and (batch_index + 1) % self._snap_period == 0:
 
@@ -301,7 +311,7 @@ class Trainer:
                   epoch_index: int,
                   model: Predictor,
                   data_loader: DataLoader,
-                  fine_tune: bool,
+                  affinity_tune: bool, fine_tune: bool,
     ) -> Dict[str, Any]:
 
         valid_data = {}
@@ -319,7 +329,7 @@ class Trainer:
 
                 batch_output = model(batch_data)
 
-                batch_loss = get_loss(batch_output, batch_data, fine_tune)
+                batch_loss = get_loss(batch_output, batch_data, affinity_tune, fine_tune)
 
                 valid_data = self._store_required_data(valid_data, batch_loss, batch_output, batch_data)
 
@@ -481,10 +491,9 @@ class Trainer:
               train_loader: DataLoader,
               valid_loader: DataLoader,
               test_loader: DataLoader,
-              epoch_count: int, fine_tune_count: int,
+              warmup_count: int, epoch_count: int, fine_tune_count: int,
               run_id: Optional[str] = None,
               pretrained_model_path: Optional[str] = None,
-
               animated_complex_ids: Optional[List[str]] = None,
               structures_loader: Optional[DataLoader] = None):
 
@@ -502,12 +511,11 @@ class Trainer:
             model.load_state_dict(torch.load(pretrained_model_path,
                                              map_location=self._device))
 
-        optimizer = Adam(model.parameters(), lr=self._lr)
+        optimizer = Adam(model.parameters(), self._lr)
         # scheduler = StepLR(optimizer, step_size=10, gamma=0.1)
 
         # define model paths
         model_path = f"{run_id}/best-predictor.pth"
-        protein_ipa_path = f"{run_id}/best-protein-ipa.pth"
 
         # Keep track of the lowest loss value.
         lowest_loss = float("inf")
@@ -525,35 +533,39 @@ class Trainer:
                            model,
                            run_id, animated_data)
 
-        total_epochs = epoch_count + fine_tune_count
+        total_epochs = warmup_count + epoch_count + fine_tune_count
         for epoch_index in range(total_epochs):
 
             # flip this setting after the given number of epochs
-            fine_tune = (epoch_index >= epoch_count)
+            affinity_tune = (epoch_index >= warmup_count)
 
-            _log.debug(f"entering epoch {epoch_index} with fine_tune set to {fine_tune}")
+            # flip this setting after the given number of epochs
+            fine_tune = (epoch_index >= (epoch_count + warmup_count))
+
+            _log.debug(f"entering epoch {epoch_index} with affinity_tune set to {affinity_tune} and fine_tune set to {fine_tune}")
 
             # train during epoch
             with Timer(f"train epoch {epoch_index}") as t:
-                train_data = self._epoch(epoch_index, optimizer, model, train_loader, fine_tune,
+                train_data = self._epoch(epoch_index, optimizer, model, train_loader,
+                                         affinity_tune, fine_tune,
                                          run_id, animated_data)
                 t.add_to_title(f"on {len(train_loader.dataset)} data points")
 
             # validate
             with Timer(f"valid epoch {epoch_index}") as t:
-                valid_data = self._validate(epoch_index, model, valid_loader, True)
+                valid_data = self._validate(epoch_index, model, valid_loader, True, True)
                 t.add_to_title(f"on {len(valid_loader.dataset)} data points")
 
             # test
             with Timer(f"test epoch {epoch_index}") as t:
-                test_data = self._validate(epoch_index, model, test_loader, True)
+                test_data = self._validate(epoch_index, model, test_loader, True, True)
                 t.add_to_title(f"on {len(test_loader.dataset)} data points")
 
             # structures
             structures_data = None
             if structures_loader is not None:
                 with Timer(f"structures epoch {epoch_index}") as t:
-                    structures_data = self._validate(epoch_index, model, structures_loader, True)
+                    structures_data = self._validate(epoch_index, model, structures_loader, True, True)
                     t.add_to_title(f"on {len(structures_loader.dataset)} data points")
 
             # write the metrics
@@ -566,29 +578,21 @@ class Trainer:
 
             # early stopping, if no more improvement
             if abs(valid_data["total loss"] - lowest_loss) < self._early_stop_epsilon:
-                if fine_tune:
-                    break
-                else:
-                    epoch_index = epoch_count
+                break
 
             # If the loss improves, save the model.
             if valid_data["total loss"] < lowest_loss:
                 lowest_loss = valid_data["total loss"]
 
                 torch.save(model.state_dict(), model_path)
-                torch.save(model.module.protein_ipa.state_dict(), protein_ipa_path)
             # else:
             #    model.load_state_dict(torch.load(model_path))
 
-            # scheduler.step()
+            #scheduler.step()
 
-            output_files_dir = os.path.join(run_id, "output")
-            if not os.path.isdir(output_files_dir):
-                os.mkdir(output_files_dir)
-
-            self._save_outputs_as_csv(os.path.join(output_files_dir, f"epoch-{epoch_index}-train.csv"), train_data)
-            self._save_outputs_as_csv(os.path.join(output_files_dir, f"epoch-{epoch_index}-valid.csv"), valid_data)
-            self._save_outputs_as_csv(os.path.join(output_files_dir, f"epoch-{epoch_index}-test.csv"), test_data)
+            self._save_outputs_as_csv(os.path.join(run_id, f"epoch-{epoch_index}-train-output.csv"), train_data)
+            self._save_outputs_as_csv(os.path.join(run_id, f"epoch-{epoch_index}-valid-output.csv"), valid_data)
+            self._save_outputs_as_csv(os.path.join(run_id, f"epoch-{epoch_index}-test-output.csv"), test_data)
 
     @staticmethod
     def _init_metrics_dataframe():
@@ -623,21 +627,20 @@ class Trainer:
 
             metrics_dataframe.at[epoch_index, f"{pass_name} {loss_name}"] = round(normalized_loss, 3)
 
-        if "output class" in data:
+        if "output class" in data and "class" in data:
 
             if len(set(data["class"])) > 1:
 
                 mcc = matthews_corrcoef(data["output class"], data["class"])
                 metrics_dataframe.at[epoch_index, f"{pass_name} matthews correlation"] = round(mcc, 3)
 
-                auc = roc_auc_score(data["class"], numpy.array(data["output classification"])[:, 1])
+                auc = roc_auc_score(data["class"], [row[1] for row in data["output classification"]])
                 metrics_dataframe.at[epoch_index, f"{pass_name} ROC AUC"] = round(auc, 3)
 
-            count_correct = (torch.tensor(data["output class"]) == torch.tensor(data["class"])).float().sum().item()
-            acc = count_correct / len(data["class"])
+            acc = get_accuracy(data["output class"], data["class"])
             metrics_dataframe.at[epoch_index, f"{pass_name} accuracy"] = round(acc, 3)
 
-        elif "output affinity" in data:
+        elif "output affinity" in data and "affinity" in data:
             pcc = pearsonr(data["output affinity"], data["affinity"]).statistic
             metrics_dataframe.at[epoch_index, f"{pass_name} affinity pearson correlation"] = round(pcc, 3)
 
@@ -689,9 +692,6 @@ if __name__ == "__main__":
         logging.basicConfig(filename=f"{run_id}/tcrspec.log", filemode="a",
                             level=logging.DEBUG if args.debug else logging.INFO)
 
-    if args.debug:
-        torch.autograd.set_detect_anomaly(True)
-
     if torch.cuda.is_available():
         device_count = torch.cuda.device_count()
         _log.debug(f"using {device_count} cuda devices")
@@ -701,6 +701,9 @@ if __name__ == "__main__":
         _log.debug("using cpu device")
 
         device = torch.device("cpu")
+
+    if args.debug:
+        torch.autograd.detect_anomaly(True)
 
     _log.debug(f"using {args.workers} workers")
     torch.multiprocessing.set_start_method('spawn')
@@ -728,6 +731,6 @@ if __name__ == "__main__":
         test_loader = trainer.get_data_loader(test_path, args.batch_size, device)
 
         trainer.train(train_loader, valid_loader, test_loader,
-                      args.epoch_count, args.fine_tune_count,
+                      args.warmup_count, args.epoch_count, args.fine_tune_count,
                       run_id, args.pretrained_model,
                       args.animate, structures_loader)
