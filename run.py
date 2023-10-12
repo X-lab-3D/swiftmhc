@@ -313,7 +313,7 @@ class Trainer:
 
                 rmsds += get_calpha_rmsd(batch_output, batch_data).tolist()
 
-        valid_data["binders_c_alpha_rmsd"] = snumpy.mean(rmsds)
+        valid_data["binders_c_alpha_rmsd"] = numpy.mean(rmsds)
 
         return valid_data
 
