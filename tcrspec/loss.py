@@ -445,10 +445,10 @@ def get_loss(output: TensorDict, batch: TensorDict,
     return result
 
 
-def get_calpha_square_deviation(output_data: Dict[str, torch.Tensor],
-                                batch_data: Dict[str, torch.Tensor]) -> Tuple[float, int]:
+def get_calpha_rmsd(output_data: Dict[str, torch.Tensor],
+                    batch_data: Dict[str, torch.Tensor]) -> torch.Tensor:
     """
-    Returns: (sum of squares, number of squares)
+    Returns: [n_binders] rmsd per binder
     """
 
     # take binders only
@@ -472,17 +472,13 @@ def get_calpha_square_deviation(output_data: Dict[str, torch.Tensor],
     # [n_binders, max_loop_len, 3]
     output_positions = output_positions[..., 1, :]
     true_positions = true_positions[..., 1, :]
-
-    # [n_binders, max_loop_len, 3]
     diff = output_positions - true_positions
 
-    sum_ = torch.sum((diff * mask.unsqueeze(-1)) ** 2).item()
-    count = mask.sum().item()
+    # [batch_size]
+    sum_of_squares = (diff * mask[..., None]).sum(dim=2).sum(dim=1)
+    counts = torch.sum(mask.int(), dim=1)
 
-    if count > 0:
-        _log.debug(f"calculated CA rmsd {sqrt(sum_ / count)} for a batch of {count} binders")
-
-    return sum_, count
+    return torch.sqrt(sum_of_squares / counts)
 
 
 def get_mcc(probabilities: torch.Tensor, targets: torch.Tensor) -> float:
