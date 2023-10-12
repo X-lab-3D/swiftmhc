@@ -56,7 +56,7 @@ from tcrspec.modules.predictor import Predictor
 from tcrspec.models.complex import ComplexClass
 from tcrspec.models.amino_acid import AminoAcid
 from tcrspec.tools.amino_acid import one_hot_decode_sequence
-from tcrspec.loss import get_loss, get_calpha_square_deviation
+from tcrspec.loss import get_loss, get_calpha_rmsd
 from tcrspec.models.data import TensorDict
 from tcrspec.tools.pdb import recreate_structure
 from tcrspec.domain.amino_acid import amino_acids_by_one_hot_index
@@ -259,8 +259,7 @@ class Trainer:
 
         model.train()
 
-        sd = 0.0
-        n = 0
+        rmsds = []
         for batch_index, batch_data in enumerate(data_loader):
 
             # Do the training step.
@@ -277,12 +276,9 @@ class Trainer:
 
             epoch_data = self._store_required_data(epoch_data, batch_loss, batch_output, batch_data)
 
-            sum_, count = get_calpha_square_deviation(batch_output, batch_data)
+            rmsds += get_calpha_rmsd(batch_output, batch_data).tolist()
 
-            sd += sum_
-            n += count
-
-        epoch_data["binders_c_alpha_rmsd"] = sqrt(sd / n)
+        epoch_data["binders_c_alpha_rmsd"] = numpy.mean(rmsds)
 
         return epoch_data
 
@@ -299,8 +295,7 @@ class Trainer:
         # using model.eval() here causes this issue:
         # https://github.com/pytorch/pytorch/pull/98375#issuecomment-1499504721
 
-        sd = 0.0
-        n = 0
+        rmsds = []
         with torch.no_grad():
 
             for batch_index, batch_data in enumerate(data_loader):
@@ -313,15 +308,12 @@ class Trainer:
 
                 valid_data = self._store_required_data(valid_data, batch_loss, batch_output, batch_data)
 
-                sum_, count = get_calpha_square_deviation(batch_output, batch_data)
-
-                sd += sum_
-                n += count
+                rmsds += get_calpha_rmsd(batch_output, batch_data).tolist()
 
                 if pdb_output_path is not None:
                     self._store_pdb_results(pdb_output_path, batch_data, batch_output)
 
-        valid_data["binders_c_alpha_rmsd"] = sqrt(sd / n)
+        valid_data["binders_c_alpha_rmsd"] = numpy.mean(rmsds)
 
         return valid_data
 
