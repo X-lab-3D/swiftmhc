@@ -476,10 +476,10 @@ def get_calpha_rmsd(output_data: Dict[str, torch.Tensor],
     # [n_binders, max_loop_len, 3]
     output_positions = output_positions[..., 1, :]
     true_positions = true_positions[..., 1, :]
-    diff = output_positions - true_positions
+    squares = (output_positions - true_positions) ** 2
 
     # [batch_size]
-    sum_of_squares = (diff * mask[..., None]).sum(dim=2).sum(dim=1)
+    sum_of_squares = (squares * mask[..., None]).sum(dim=2).sum(dim=1)
     counts = torch.sum(mask.int(), dim=1)
 
     return torch.sqrt(sum_of_squares / counts)
