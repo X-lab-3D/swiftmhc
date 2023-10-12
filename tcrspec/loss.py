@@ -461,10 +461,14 @@ def get_calpha_rmsd(output_data: Dict[str, torch.Tensor],
     else:
         raise ValueError("Cannot compute RMSD without class or affinity output")
 
+    # prevent NaN, in case of no binders
+    if not torch.any(binders_index):
+        return torch.tensor([])
+
     # [n_binders, max_loop_len, n_atoms, 3]
     output_positions = output_data["final_positions"][binders_index]
     true_positions = batch_data["loop_atom14_gt_positions"][binders_index]
- 
+
     # [n_binders, max_loop_len]
     mask = batch_data["loop_cross_residues_mask"][binders_index]
 
