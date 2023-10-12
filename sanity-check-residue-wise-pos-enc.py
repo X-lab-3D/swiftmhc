@@ -1,32 +1,21 @@
+#!/usr/bin/env python
+
 import torch
-from typing import Tuple
+from typing import Tuple, Optional
 import h5py
 from math import sqrt, log
 from torch.utils.data import Dataset, DataLoader
 
 from matplotlib import pyplot
 from torch.optim import Adam
+from sklearn.metrics import matthews_corrcoef
 from scipy.stats import pearsonr
+
 
 from tcrspec.modules.position_encoding import PositionalEncoding
 
 
-def _calc_pearson_correlation_coefficient(x: torch.Tensor, y: torch.Tensor) -> float:
-
-    x_mean = x.mean().item()
-    y_mean = y.mean().item()
-
-    nom = torch.sum((x - x_mean) * (y - y_mean)).item()
-    den = sqrt(torch.sum(torch.square(x - x_mean)).item()) * sqrt(torch.sum(torch.square(y - y_mean)).item())
-
-    if nom == 0.0:
-        return 0.0 
-
-    if den == 0.0:
-        return None
-
-    return nom / den
-
+threshold = 1.0 - log(500) / log(50000)
 
 
 class SequenceDataset(Dataset):
@@ -48,9 +37,89 @@ class SequenceDataset(Dataset):
         with h5py.File(self._hdf5_path, 'r') as hdf5_file:
             seq_embd = torch.zeros(9, 32)
             seq_embd[:, :22] = torch.tensor(hdf5_file[entry_name]["loop/sequence_onehot"][:])
-            affinity = 1.0 - log(hdf5_file[entry_name]["kd"][()]) / log(50000)
+            cls = hdf5_file[entry_name]["kd"][()] < 500.0
 
-        return seq_embd, affinity
+        return seq_embd, cls
+
+
+
+class TransformerEncoderLayer(torch.nn.Module):
+    def __init__(self,
+                 depth: int,
+                 n_head: int,
+                 dropout: Optional[float] = 0.1):
+
+        super(TransformerEncoderLayer, self).__init__()
+
+        self.n_head = n_head
+
+        self.dropout = torch.nn.Dropout(dropout)
+
+        self.linear_q = torch.nn.Linear(depth, depth * self.n_head, bias=False)
+        self.linear_k = torch.nn.Linear(depth, depth * self.n_head, bias=False)
+        self.linear_v = torch.nn.Linear(depth, depth * self.n_head, bias=False)
+
+        self.linear_o = torch.nn.Linear(self.n_head * depth, depth, bias=False)
+
+        self.norm_att = torch.nn.LayerNorm(depth)
+
+        self.ff_intermediary_depth = 128 
+
+        self.mlp_ff = torch.nn.Sequential(
+            torch.nn.Linear(depth, self.ff_intermediary_depth),
+            torch.nn.ReLU(),
+            torch.nn.Linear(self.ff_intermediary_depth, depth),
+        )
+
+        self.norm_ff = torch.nn.LayerNorm(depth)
+
+    def self_attention(
+        self,
+        seq: torch.Tensor,
+    ) -> torch.Tensor:
+
+        batch_size, seq_len, d = seq.shape
+
+        # [batch_size, n_head, seq_len, d]
+        q = self.linear_q(seq).reshape(batch_size, seq_len, self.n_head, d).transpose(1, 2)
+        k = self.linear_k(seq).reshape(batch_size, seq_len, self.n_head, d).transpose(1, 2)
+        v = self.linear_v(seq).reshape(batch_size, seq_len, self.n_head, d).transpose(1, 2)
+
+        # [batch_size, n_head, seq_len, seq_len]
+        a = torch.softmax(torch.matmul(q, k.transpose(2, 3)) / sqrt(d), dim=3)
+
+        # [batch_size, n_head, seq_len, d]
+        heads = torch.matmul(a, v)
+
+        # [batch_size, seq_len, d]
+        o = self.linear_o(heads.transpose(1, 2).reshape(batch_size, seq_len, d * self.n_head))
+
+        return o
+
+    def feed_forward(self, seq: torch.Tensor) -> torch.Tensor:
+
+        o = self.mlp_ff(seq)
+
+        return o
+
+    def forward(self,
+                seq: torch.Tensor) -> torch.Tensor:
+
+        x = seq
+
+        x = self.dropout(x)
+
+        y = self.self_attention(x)
+
+        y = self.dropout(y)
+        x = self.norm_att(x + y)
+
+        y = self.feed_forward(x)
+
+        y = self.dropout(y)
+        x = self.norm_ff(x + y)
+
+        return x
 
 
 class Model(torch.nn.Module):
@@ -64,6 +133,7 @@ class Model(torch.nn.Module):
         c_affinity = 128
 
         self.pos_encoder = PositionalEncoding(32, 9)
+        self.transf_encoder = TransformerEncoderLayer(32, 2)
 
         self.res_mlp = torch.nn.Sequential(
             torch.nn.Linear(mlp_input_size, c_res),
@@ -71,23 +141,14 @@ class Model(torch.nn.Module):
             torch.nn.Linear(c_res, 1),
         )
 
-        self.aff_mlp = torch.nn.Sequential(
-            torch.nn.Linear(9, c_affinity),
-            torch.nn.GELU(),
-            torch.nn.Linear(c_affinity, 1)
-        )
-
     def forward(self, seq_embd: torch.Tensor) -> torch.Tensor:
 
         batch_size, loop_len, loop_depth = seq_embd.shape
 
         seq_embd = self.pos_encoder(seq_embd)
+        seq_embd = self.transf_encoder(seq_embd)
 
-        prob = self.res_mlp(seq_embd)[..., 0]
-
-        aff = self.aff_mlp(prob)[..., 0]
-
-        return aff
+        return self.res_mlp(seq_embd).sum(dim=2).sum(dim=1)
 
 
 if __name__ == "__main__":
@@ -123,12 +184,14 @@ if __name__ == "__main__":
         total_z = []
 
         with torch.no_grad():
-            for batch_input, affinity in test_data_loader:
+            for batch_input, true_cls in test_data_loader:
                 output = model(batch_input.to(torch.float32))
 
-                total_y += output.tolist()
-                total_z += affinity.tolist()
+                pred_cls = output >= threshold
 
-        corr = pearsonr(total_y, total_z).statistic
+                total_y += true_cls.tolist()
+                total_z += pred_cls.tolist()
+
+        corr = matthews_corrcoef(total_y, total_z)
         with open("results.csv", "at") as f:
             f.write(f"{corr}\n")
