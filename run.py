@@ -12,7 +12,7 @@ import numpy
 import shutil
 from io import StringIO
 
-from sklearn.metrics import matthews_corrcoef
+from sklearn.metrics import matthews_corrcoef, roc_auc_score
 from scipy.stats import pearsonr
 import ml_collections
 import pandas
@@ -82,6 +82,18 @@ arg_parser.add_argument("data_path", help="path to the train, validation & test 
 
 
 _log = logging.getLogger(__name__)
+
+
+def get_accuracy(output: List[int], truth: List[int]) -> float:
+
+    right = 0
+    for i, o in enumerate(output):
+        t = truth[i]
+
+        if o == t:
+            right += 1
+
+    return float(right) / len(output)
 
 
 class Trainer:
@@ -612,21 +624,22 @@ class Trainer:
 
             metrics_dataframe.at[epoch_index, f"{pass_name} {loss_name}"] = round(normalized_loss, 3)
 
-        if "output class" in data:
-            try:
+        if "output class" in data and "class" in data:
+
+            if len(set(data["class"])) > 1:
+
                 mcc = matthews_corrcoef(data["output class"], data["class"])
                 metrics_dataframe.at[epoch_index, f"{pass_name} matthews correlation"] = round(mcc, 3)
-            except:
-                output_class = data["output class"]
-                _log.exception(f"running matthews_corrcoef on {output_class}")
 
-        elif "output affinity" in data:
-            try:
-                pcc = pearsonr(data["output affinity"], data["affinity"]).statistic
-                metrics_dataframe.at[epoch_index, f"{pass_name} affinity pearson correlation"] = round(pcc, 3)
-            except:
-                output_aff = data["output affinity"]
-                _log.exception(f"running pearsonr on {output_aff}")
+                auc = roc_auc_score(data["class"], [row[1] for row in data["output classification"]])
+                metrics_dataframe.at[epoch_index, f"{pass_name} ROC AUC"] = round(auc, 3)
+
+            acc = get_accuracy(data["output class"], data["class"])
+            metrics_dataframe.at[epoch_index, f"{pass_name} accuracy"] = round(acc, 3)
+
+        elif "output affinity" in data and "affinity" in data:
+            pcc = pearsonr(data["output affinity"], data["affinity"]).statistic
+            metrics_dataframe.at[epoch_index, f"{pass_name} affinity pearson correlation"] = round(pcc, 3)
 
         metrics_dataframe.at[epoch_index, f"{pass_name} binders C-alpha RMSD"] = round(data["binders_c_alpha_rmsd"], 3)
 
@@ -685,6 +698,9 @@ if __name__ == "__main__":
         _log.debug("using cpu device")
 
         device = torch.device("cpu")
+
+    if args.debug:
+        torch.autograd.detect_anomaly(True)
 
     _log.debug(f"using {args.workers} workers")
     torch.multiprocessing.set_start_method('spawn')

@@ -216,15 +216,12 @@ class Predictor(torch.nn.Module):
             # [batch_size]
             output["affinity"] = self.aff_mlp(updated_s_loop.reshape(batch_size, -1)).reshape(batch_size)
 
-            if torch.any(torch.isnan(output["affinity"])):
-                raise RuntimeError(f"got NaN output")
-
         elif self.model_type == ModelType.CLASSIFICATION:
-            output["classification"] = self.aff_mlp(updated_s_loop.reshape(batch_size, -1))
 
-            if torch.any(torch.isnan(output["classification"])):
-                raise RuntimeError(f"got NaN output")
+            # [batch_size, 2]
+            output["classification"] = torch.nn.functional.softmax(self.aff_mlp(updated_s_loop.reshape(batch_size, -1)), dim=1)
 
+            # [batch_size]
             output["class"] = torch.argmax(output["classification"], dim=1)
 
         return output
