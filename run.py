@@ -7,6 +7,7 @@ from uuid import uuid4
 from typing import Tuple, Union, Optional, List, Dict, Set, Any
 import random
 from math import log, sqrt
+import csv
 import h5py
 import numpy
 import shutil
@@ -264,7 +265,7 @@ class Trainer:
         table_dict = {"ID": ids, "RMSD(Å)": rmsd}
 
         table = pandas.DataFrame(table_dict)
-        table.to_csv(table_path, encoding='utf-8', index=False)
+        table.to_csv(table_path, encoding='utf-8', index=False, quoting=csv.QUOTE_NONNUMERIC)
 
     def _epoch(self,
                epoch_index: int,
