@@ -446,7 +446,7 @@ def get_loss(output: TensorDict, batch: TensorDict,
 
 
 def get_calpha_rmsd(output_data: Dict[str, torch.Tensor],
-                    batch_data: Dict[str, torch.Tensor]) -> torch.Tensor:
+                    batch_data: Dict[str, torch.Tensor]) -> Dict[str, float]:
     """
     Returns: [n_binders] rmsd per binder
     """
@@ -465,6 +465,8 @@ def get_calpha_rmsd(output_data: Dict[str, torch.Tensor],
     if not torch.any(binders_index):
         return torch.tensor([])
 
+    ids = [batch_data["ids"][i] for i in torch.nonzero(binders_index)]
+
     # [n_binders, max_loop_len, n_atoms, 3]
     output_positions = output_data["final_positions"][binders_index]
     true_positions = batch_data["loop_atom14_gt_positions"][binders_index]
@@ -482,7 +484,10 @@ def get_calpha_rmsd(output_data: Dict[str, torch.Tensor],
     sum_of_squares = (squares * mask[..., None]).sum(dim=2).sum(dim=1)
     counts = torch.sum(mask.int(), dim=1)
 
-    return torch.sqrt(sum_of_squares / counts)
+    rmsd = torch.sqrt(sum_of_squares / counts)
+
+
+    return {ids[i]: rmsd[i].item() for i in range(len(ids))}
 
 
 def get_mcc(probabilities: torch.Tensor, targets: torch.Tensor) -> float:

@@ -68,7 +68,6 @@ arg_parser.add_argument("--run-id", "-r", help="name of the run and the director
 arg_parser.add_argument("--debug", "-d", help="generate debug files", action='store_const', const=True, default=False)
 arg_parser.add_argument("--log-stdout", "-l", help="log to stdout", action='store_const', const=True, default=False)
 arg_parser.add_argument("--pretrained-model", "-m", help="use a given pretrained model state")
-arg_parser.add_argument("--pretrained-protein-ipa", "-p", help="use a given pretrained protein ipa state")
 arg_parser.add_argument("--test-only", "-t", help="skip training and test on a pretrained model", action='store_const', const=True, default=False)
 arg_parser.add_argument("--workers", "-w", help="number of workers to load batches", type=int, default=5)
 arg_parser.add_argument("--batch-size", "-b", help="batch size to use during training/validation/testing", type=int, default=8)
@@ -249,6 +248,14 @@ class Trainer:
                     if not key in animation_file:
                         animation_file.create_dataset(key, data=data[key][index].cpu())
 
+    @staticmethod
+    def _store_rmsds(output_directory: str, rmsds: Dict[str, float]):
+
+        table_path = os.path.join(output_directory, 'rmsd.csv')
+
+        table = pandas.DataFrame.from_dict(rmsds, orientation='index', columns=['id', 'RMSD(Å)'])
+        table.to_csv(table_path)
+
     def _epoch(self,
                epoch_index: int,
                optimizer: Optimizer,
@@ -263,7 +270,7 @@ class Trainer:
 
         model.train()
 
-        rmsds = []
+        rmsds = {}
         for batch_index, batch_data in enumerate(data_loader):
 
             # Do the training step.
@@ -280,9 +287,12 @@ class Trainer:
 
             epoch_data = self._store_required_data(epoch_data, batch_loss, batch_output, batch_data)
 
-            rmsds += get_calpha_rmsd(batch_output, batch_data).tolist()
+            rmsds.update(get_calpha_rmsd(batch_output, batch_data))
 
-        epoch_data["binders_c_alpha_rmsd"] = numpy.mean(rmsds)
+        if pdb_output_directory is not None:
+            self._store_rmsds(pdb_output_directory, rmsds)
+
+        epoch_data["binders_c_alpha_rmsd"] = numpy.mean(rmsds.values())
 
         return epoch_data
 
@@ -298,7 +308,7 @@ class Trainer:
         # using model.eval() here causes this issue:
         # https://github.com/pytorch/pytorch/pull/98375#issuecomment-1499504721
 
-        rmsds = []
+        rmsds = {}
         with torch.no_grad():
 
             for batch_index, batch_data in enumerate(data_loader):
@@ -311,9 +321,12 @@ class Trainer:
 
                 valid_data = self._store_required_data(valid_data, batch_loss, batch_output, batch_data)
 
-                rmsds += get_calpha_rmsd(batch_output, batch_data).tolist()
+                rmsds.update(get_calpha_rmsd(batch_output, batch_data))
 
-        valid_data["binders_c_alpha_rmsd"] = numpy.mean(rmsds)
+        if pdb_output_directory is not None:
+            self._store_rmsds(pdb_output_directory, rmsds)
+
+        valid_data["binders_c_alpha_rmsd"] = numpy.mean(rmsds.values())
 
         return valid_data
 
@@ -357,9 +370,11 @@ class Trainer:
     def test(self,
              test_loader: DataLoader,
              structures_loader: Union[DataLoader, None],
-             run_id: str):
+             run_id: str, model_path: Union[str, None]):
 
-        model_path = f"{run_id}/best-predictor.pth"
+        if model_path is None:
+            model_path = f"{run_id}/best-predictor.pth"
+
         model = Predictor(self.loop_maxlen,
                           self.protein_maxlen,
                           openfold_config.model)
@@ -367,13 +382,13 @@ class Trainer:
 
         model.to(device=self._device)
         model.eval()
-        model.load_state_dict(torch.load(model_path))
+        model.load_state_dict(torch.load(model_path, map_location=self._device))
 
-        test_data = self._validate(-1, model, test_loader, True, run_id)
+        test_data = self._validate(-1, model, test_loader, True)
 
         structures_data = None
         if structures_loader is not None:
-            structures_data = self._validate(-1, model, structures_loader, True, run_id)
+            structures_data = self._validate(-1, model, structures_loader, True)
 
         self._output_metrics(run_id, "test", -1, test_data)
         self._output_metrics(run_id, "structures", -1, structures_data)
@@ -399,7 +414,6 @@ class Trainer:
               epoch_count: int, fine_tune_count: int,
               run_id: Optional[str] = None,
               pretrained_model_path: Optional[str] = None,
-              pretrained_protein_ipa_path: Optional[str] = None,
 
               animated_complex_ids: Optional[List[str]] = None,
               structures_loader: Optional[DataLoader] = None):
@@ -416,10 +430,6 @@ class Trainer:
         if pretrained_model_path is not None:
             model.load_state_dict(torch.load(pretrained_model_path,
                                              map_location=self._device))
-
-        if pretrained_protein_ipa_path is not None:
-            model.module.protein_ipa.load_state_dict(torch.load(pretrained_protein_ipa_path,
-                                                    map_location=self._device))
 
         optimizer = Adam(model.parameters(), lr=self._lr)
         # scheduler = StepLR(optimizer, step_size=10, gamma=0.1)
@@ -603,7 +613,7 @@ if __name__ == "__main__":
 
         test_loader = trainer.get_data_loader(test_path, args.batch_size, device)
 
-        trainer.test(test_loader, structures_loader, run_id=run_id)
+        trainer.test(test_loader, structures_loader, run_id, args.pretrained_model)
 
     else:  # train & test
 
@@ -615,5 +625,5 @@ if __name__ == "__main__":
 
         trainer.train(train_loader, valid_loader, test_loader,
                       args.epoch_count, args.fine_tune_count,
-                      run_id, args.pretrained_model, args.pretrained_protein_ipa,
+                      run_id, args.pretrained_model,
                       args.animate, structures_loader)
