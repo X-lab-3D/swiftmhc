@@ -374,7 +374,10 @@ class Trainer:
     def test(self,
              test_loader: DataLoader,
              structures_loader: Union[DataLoader, None],
-             run_id: str, model_path: Union[str, None]):
+             run_id: str,
+             model_path: Union[str, None],
+             animated_complex_ids: Optional[List[str]],
+    ):
 
         if model_path is None:
             model_path = f"{run_id}/best-predictor.pth"
@@ -398,6 +401,18 @@ class Trainer:
 
         if structures_data is not None:
             self._output_metrics(run_id, "structures", -1, structures_data)
+
+        if animated_complex_ids is not None:
+
+            datasets = [test_loader.dataset]
+            if structures_loader is not None:
+                datasets.append(structures_loader.dataset)
+
+            animated_data = self._get_selection_data_batch(datasets, animated_complex_ids)
+
+            self._snapshot("test",
+                           model,
+                           run_id, animated_data)
 
     @staticmethod
     def _get_selection_data_batch(datasets: List[ProteinLoopDataset], names: List[str]) -> Dict[str, torch.Tensor]:
@@ -619,7 +634,7 @@ if __name__ == "__main__":
 
         test_loader = trainer.get_data_loader(test_path, args.batch_size, device)
 
-        trainer.test(test_loader, structures_loader, run_id, args.pretrained_model)
+        trainer.test(test_loader, structures_loader, run_id, args.pretrained_model, args.animate)
 
     else:  # train & test
 
