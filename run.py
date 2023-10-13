@@ -257,7 +257,7 @@ class Trainer:
         rmsd = [rmsds[id_] for id_ in ids]
         table_dict = {"ID": ids, "RMSD(Å)": rmsd}
         table = pandas.DataFrame(table_dict)
-        table.to_csv(table_path, index=False)
+        table.to_csv(table_path, index=False, encoding='utf-8')
 
     def _epoch(self,
                epoch_index: int,
