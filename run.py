@@ -253,7 +253,10 @@ class Trainer:
 
         table_path = os.path.join(output_directory, 'rmsd.csv')
 
-        table = pandas.DataFrame.from_dict(rmsds, orientation='index', columns=['id', 'RMSD(Å)'])
+        ids = list(rmsds.keys())
+        rmsd = [rmsds[id_] for id_ in ids]
+        table_dict = {"ID": ids, "RMSD(Å)": rmsd}
+        table = pandas.DataFrame(table_dict)
         table.to_csv(table_path)
 
     def _epoch(self,
@@ -292,7 +295,7 @@ class Trainer:
         if pdb_output_directory is not None:
             self._store_rmsds(pdb_output_directory, rmsds)
 
-        epoch_data["binders_c_alpha_rmsd"] = numpy.mean(rmsds.values())
+        epoch_data["binders_c_alpha_rmsd"] = numpy.mean(list(rmsds.values()))
 
         return epoch_data
 
@@ -301,6 +304,7 @@ class Trainer:
                   model: Predictor,
                   data_loader: DataLoader,
                   fine_tune: bool,
+                  output_directory: Optional[str] = None,
     ) -> Dict[str, Any]:
 
         valid_data = {}
@@ -323,10 +327,10 @@ class Trainer:
 
                 rmsds.update(get_calpha_rmsd(batch_output, batch_data))
 
-        if pdb_output_directory is not None:
-            self._store_rmsds(pdb_output_directory, rmsds)
+        if output_directory is not None:
+            self._store_rmsds(output_directory, rmsds)
 
-        valid_data["binders_c_alpha_rmsd"] = numpy.mean(rmsds.values())
+        valid_data["binders_c_alpha_rmsd"] = numpy.mean(list(rmsds.values()))
 
         return valid_data
 
@@ -384,14 +388,16 @@ class Trainer:
         model.eval()
         model.load_state_dict(torch.load(model_path, map_location=self._device))
 
-        test_data = self._validate(-1, model, test_loader, True)
+        test_data = self._validate(-1, model, test_loader, True, run_id)
 
         structures_data = None
         if structures_loader is not None:
-            structures_data = self._validate(-1, model, structures_loader, True)
+            structures_data = self._validate(-1, model, structures_loader, True, run_id)
 
         self._output_metrics(run_id, "test", -1, test_data)
-        self._output_metrics(run_id, "structures", -1, structures_data)
+
+        if structures_data is not None:
+            self._output_metrics(run_id, "structures", -1, structures_data)
 
     @staticmethod
     def _get_selection_data_batch(datasets: List[ProteinLoopDataset], names: List[str]) -> Dict[str, torch.Tensor]:
@@ -470,19 +476,19 @@ class Trainer:
 
             # validate
             with Timer(f"valid epoch {epoch_index}") as t:
-                valid_data = self._validate(epoch_index, model, valid_loader, True)
+                valid_data = self._validate(epoch_index, model, valid_loader, True, run_id)
                 t.add_to_title(f"on {len(valid_loader.dataset)} data points")
 
             # test
             with Timer(f"test epoch {epoch_index}") as t:
-                test_data = self._validate(epoch_index, model, test_loader, True)
+                test_data = self._validate(epoch_index, model, test_loader, True, run_id)
                 t.add_to_title(f"on {len(test_loader.dataset)} data points")
 
             # structures
             structures_data = None
             if structures_loader is not None:
                 with Timer(f"structures epoch {epoch_index}") as t:
-                    structures_data = self._validate(epoch_index, model, structures_loader, True)
+                    structures_data = self._validate(epoch_index, model, structures_loader, True, run_id)
                     t.add_to_title(f"on {len(structures_loader.dataset)} data points")
 
             # write the metrics
