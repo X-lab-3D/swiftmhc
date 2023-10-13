@@ -253,11 +253,18 @@ class Trainer:
 
         table_path = os.path.join(output_directory, 'rmsd.csv')
 
+        if os.path.isfile(table_path):
+            old_table = pandas.read_csv(table_path)
+            for index, row in old_table.iterrows():
+                if row["ID"] not in rmsds:
+                    rmsds[row["ID"]] = row["RMSD(Å)"]
+
         ids = list(rmsds.keys())
         rmsd = [rmsds[id_] for id_ in ids]
         table_dict = {"ID": ids, "RMSD(Å)": rmsd}
+
         table = pandas.DataFrame(table_dict)
-        table.to_csv(table_path, index=False, encoding='utf-8')
+        table.to_csv(table_path, encoding='utf-8', index=False)
 
     def _epoch(self,
                epoch_index: int,
@@ -265,7 +272,7 @@ class Trainer:
                model: Predictor,
                data_loader: DataLoader,
                fine_tune: bool,
-               pdb_output_directory: Optional[str] = None,
+               output_directory: Optional[str] = None,
                animated_data: Optional[Dict[str, torch.Tensor]] = None
     ) -> Dict[str, Any]:
 
@@ -282,18 +289,18 @@ class Trainer:
                                                    batch_data,
                                                    fine_tune)
 
-            if pdb_output_directory is not None and animated_data is not None and (batch_index + 1) % self._snap_period == 0:
+            if output_directory is not None and animated_data is not None and (batch_index + 1) % self._snap_period == 0:
 
                 self._snapshot(f"{epoch_index}.{batch_index + 1}",
                                model,
-                               pdb_output_directory, animated_data)
+                               output_directory, animated_data)
 
             epoch_data = self._store_required_data(epoch_data, batch_loss, batch_output, batch_data)
 
             rmsds.update(get_calpha_rmsd(batch_output, batch_data))
 
-        if pdb_output_directory is not None:
-            self._store_rmsds(pdb_output_directory, rmsds)
+        if output_directory is not None:
+            self._store_rmsds(output_directory, rmsds)
 
         epoch_data["binders_c_alpha_rmsd"] = numpy.mean(list(rmsds.values()))
 
