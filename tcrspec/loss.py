@@ -390,17 +390,22 @@ def _supervised_chi_loss(angles_sin_cos: torch.Tensor,
 
 AFFINITY_BINDING_TRESHOLD = 1.0 - log(500) / log(50000)
 
+_classification_loss_func = torch.nn.CrossEntropyLoss(reduction="none")
+_regression_loss_func = torch.nn.MSELoss(reduction="none")
+
 
 def get_loss(output: TensorDict, batch: TensorDict,
+             affinity_tune: bool,
              fine_tune: bool) -> TensorDict:
 
     # compute our own affinity-based loss
-    if "class" in batch:
+    if "class" in batch and "classification" in output:
         non_binders_index = torch.logical_not(batch["class"])
+        affinity_loss = _classification_loss_func(output["classification"], batch["class"])
 
-    elif "affinity" in batch:
+    elif "affinity" in batch and "affinity" in output:
         non_binders_index = batch["affinity"] < AFFINITY_BINDING_TRESHOLD
-
+        affinity_loss = _regression_loss_func(output["affinity", batch["affinity"])
     else:
         raise ValueError("Cannot compute loss without class or affinity data")
 
@@ -421,14 +426,19 @@ def get_loss(output: TensorDict, batch: TensorDict,
     violation_losses = _compute_cross_violation_loss(output, batch, openfold_config.loss.violation)
 
     # combine the loss terms
-    total_loss = 1.0 * chi_loss + \
-                 1.0 * fape_losses["total"]
+    total_loss = 1.0 * chi_loss + 1.0 * fape_losses["total"]
+
+    if affinity_tune:
+        total_loss += 1.0 * affinity_loss
 
     if fine_tune:
         total_loss += 1.0 * violation_losses["total"]
 
     # for true non-binders, the total loss is simply affinity-based
-    total_loss[non_binders_index] = 0.0
+    if affinity_tune:
+        total_loss[non_binders_index] = affinity_loss[non_binders_index]
+    else:
+        total_loss[non_binders_index] = 0.0
 
     # average losses over batch dimension
     result = TensorDict({

@@ -13,6 +13,7 @@ import numpy
 import shutil
 from io import StringIO
 
+from sklearn.metrics import roc_auc_score, matthews_corrcoef
 from scipy.stats import pearsonr
 import ml_collections
 import pandas
@@ -108,17 +109,15 @@ class Trainer:
                optimizer: Optimizer,
                model: Predictor,
                data: TensorDict,
+               affinity_tune: bool,
                fine_tune: bool,
-               pdb_output_directory: Optional[str] = None,
-               animated_complex_id: Optional[str] = None
-
     ) -> Tuple[TensorDict, Dict[str, torch.Tensor]]:
 
         optimizer.zero_grad()
 
         output = model(data)
 
-        losses = get_loss(output, data, fine_tune)
+        losses = get_loss(output, data, affinity_tune, fine_tune)
 
         loss = losses["total"]
 
@@ -220,6 +219,7 @@ class Trainer:
                optimizer: Optimizer,
                model: Predictor,
                data_loader: DataLoader,
+               affinity_tune: bool,
                fine_tune: bool,
                output_directory: Optional[str] = None,
                animated_data: Optional[Dict[str, torch.Tensor]] = None
@@ -236,6 +236,7 @@ class Trainer:
             batch_loss, batch_output = self._batch(epoch_index,
                                                    batch_index, optimizer, model,
                                                    batch_data,
+                                                   affinity_tune,
                                                    fine_tune)
 
             if output_directory is not None and animated_data is not None and (batch_index + 1) % self._snap_period == 0:
@@ -259,6 +260,7 @@ class Trainer:
                   epoch_index: int,
                   model: Predictor,
                   data_loader: DataLoader,
+                  affinity_tune: bool,
                   fine_tune: bool,
                   output_directory: Optional[str] = None,
     ) -> Dict[str, Any]:
@@ -277,7 +279,7 @@ class Trainer:
 
                 batch_output = model(batch_data)
 
-                batch_loss = get_loss(batch_output, batch_data, fine_tune)
+                batch_loss = get_loss(batch_output, batch_data, affinity_tune, fine_tune)
 
                 valid_data = self._store_required_data(valid_data, batch_loss, batch_output, batch_data)
 
@@ -314,6 +316,18 @@ class Trainer:
                 output_data[loss_name] = loss_value.item() * batch_size
             else:
                 output_data[loss_name] += loss_value.item() * batch_size
+
+        # add data for the affinity scores
+        for key in ["affinity", "classification", "class"]:
+            if key int output:
+                if key not in output_data:
+                    output_data[f"output {key}"] = []
+                output_data[f"output {key}"] += output[key].cpu().tolist()
+
+            if key int truth:
+                if key not in output_data:
+                    output_data[f"true {key}"] = []
+                output_data[f"true {key}"] += truth[key].cpu().tolist()
 
         # list all ids of the data points
         if "ids" not in output_data:
@@ -427,23 +441,24 @@ class Trainer:
 
             # flip this setting after the given number of epochs
             fine_tune = (epoch_index >= epoch_count)
+            affinity_tune = (epoch_index >= epoch_count)
 
             _log.debug(f"entering epoch {epoch_index} with fine_tune set to {fine_tune}")
 
             # train during epoch
             with Timer(f"train epoch {epoch_index}") as t:
-                train_data = self._epoch(epoch_index, optimizer, model, train_loader, fine_tune,
+                train_data = self._epoch(epoch_index, optimizer, model, train_loader, affinity_tune, fine_tune,
                                          run_id, animated_data)
                 t.add_to_title(f"on {len(train_loader.dataset)} data points")
 
             # validate
             with Timer(f"valid epoch {epoch_index}") as t:
-                valid_data = self._validate(epoch_index, model, valid_loader, True, run_id)
+                valid_data = self._validate(epoch_index, model, valid_loader, True, True, run_id)
                 t.add_to_title(f"on {len(valid_loader.dataset)} data points")
 
             # test
             with Timer(f"test epoch {epoch_index}") as t:
-                test_data = self._validate(epoch_index, model, test_loader, True, run_id)
+                test_data = self._validate(epoch_index, model, test_loader, True, True, run_id)
                 t.add_to_title(f"on {len(test_loader.dataset)} data points")
 
             # write the metrics
@@ -507,6 +522,19 @@ class Trainer:
 
         # write RMSD to the table
         metrics_dataframe.at[epoch_index, f"{pass_name} binders C-alpha RMSD"] = round(data["binders_c_alpha_rmsd"], 3)
+
+        # write affinity-related metrics
+        if "output classification" in data and "true class" in data:
+            auc = roc_auc_score(data["true class"], [row[1] for row in data["output classification"]])
+            metrics_dataframe.at[epoch_index, f"{pass_name} ROC AUC"] = round(auc, 3)
+
+        if "output affinity" in data and "true affinity" in data:
+            r = pearsonr(data["output affinity"], data["true affinity"]).statistic
+            metrics_dataframe.at[epoch_index, f"{pass_name} pearson correlation"] = round(r, 3)
+
+        if "output class" in data and "true class" in data:
+            mcc = matthews_corrcoef(data["true class"], data["output class"])
+            metrics_dataframe.at[epoch_index, f"{pass_name} matthews correlation"] = round(mcc, 3)
 
         # save
         metrics_dataframe.to_csv(metrics_path, sep=",", index=False)

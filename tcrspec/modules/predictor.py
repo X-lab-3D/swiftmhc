@@ -23,6 +23,7 @@ from ..models.data import TensorDict
 from ..tools.amino_acid import one_hot_decode_sequence
 from .transform import DebuggableTransformerEncoderLayer
 from .ipa import DebuggableInvariantPointAttention as IPA
+from ..models.types import ModelType
 
 
 _log = logging.getLogger(__name__)
@@ -32,6 +33,7 @@ class Predictor(torch.nn.Module):
     def __init__(self,
                  loop_maxlen: int,
                  protein_maxlen: int,
+                 model_type: ModelType,
                  config: ml_collections.ConfigDict):
         super(Predictor, self).__init__()
 
@@ -45,12 +47,6 @@ class Predictor(torch.nn.Module):
         self.protein_maxlen = protein_maxlen
 
         self.n_head = structure_module_config.no_heads_ipa
-
-        #self.pos_enc = PositionalEncoding(structure_module_config.c_s, self.loop_maxlen)
-
-        #self.loop_enc = DebuggableTransformerEncoderLayer(structure_module_config.c_s,
-        #                                                  self.n_head)
-        #self.n_block = structure_module_config.no_blocks
 
         loop_input_size = self.loop_maxlen * structure_module_config.c_s
         c_loop = 512
@@ -82,6 +78,27 @@ class Predictor(torch.nn.Module):
         )
 
         self.cross = CrossStructureModule(**structure_module_config)
+
+        c_affinity = 128
+
+        self.affinity_reswise_mlp = torch.nn.Sequential(
+            torch.nn.Linear(structure_module_config.c_s, c_affinity),
+            torch.nn.GELU(),
+            torch.nn.Linear(c_affinity, c_affinity),
+            torch.nn.GELU(),
+            torch.nn.Linear(c_affinity, 1),
+        )
+
+        self.model_type = model_type
+
+        if model_type == ModelType.REGRESSION:
+            output_size = 1
+        elif model_type == ModelType.CLASSIFICATION:
+            output_size = 2
+        else:
+            raise TypeError(str(model_type))
+
+        self.affinity_linear = torch.nn.Linear(loop_maxlen, output_size)
 
     def forward(self, batch: TensorDict) -> TensorDict:
         """
@@ -174,6 +191,18 @@ class Predictor(torch.nn.Module):
         # adding hydrogens:
         # [batch_size, loop_len, 37, 3]
         output["final_atom_positions"] = atom14_to_atom37(output["final_positions"], output)
+
+        # [batch_size, loop_len]
+        p = self.affinity_reswise_mlp(output["single"])[..., 0]
+
+        # affinity prediction
+        if self.model_type == ModelType.REGRESSION:
+            output["affinity"] = self.affinity_linear(p)
+
+        elif self.model_type == ModelType.CLASSIFICATION:
+            # softmax is required here, so that we can calculate ROC AUC
+            output["classification"] = torch.nn.functional.softmax(self.affinity_linear(p), dim=1)
+            output["class"] = torch.argmax(output["classification"], dim=1)
 
         return output
 
