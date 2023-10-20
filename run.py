@@ -26,6 +26,7 @@ from torch.nn.utils import clip_grad_norm_
 from torch.nn import DataParallel
 
 from Bio.PDB.PDBIO import PDBIO
+from Bio.PDB.Structure import Structure
 
 from openfold.np.residue_constants import (restype_atom14_ambiguous_atoms as openfold_restype_atom14_ambiguous_atoms,
                                            atom_types as openfold_atom_types,
@@ -75,7 +76,6 @@ arg_parser.add_argument("--batch-size", "-b", help="batch size to use during tra
 arg_parser.add_argument("--epoch-count", "-e", help="how many epochs to run during training", type=int, default=100)
 arg_parser.add_argument("--fine-tune-count", "-u", help="how many epochs to run during fine-tuning", type=int, default=10)
 arg_parser.add_argument("--animate", "-a", help="id of a data point to generate intermediary pdb for", nargs="+")
-arg_parser.add_argument("--structures-path", "-s", help="an additional structures hdf5 file to measure RMSD on")
 arg_parser.add_argument("--lr", help="learning rate setting", type=float, default=0.001)
 arg_parser.add_argument("data_path", help="path to the train, validation & test hdf5", nargs="+")
 
@@ -112,7 +112,7 @@ class Trainer:
                pdb_output_directory: Optional[str] = None,
                animated_complex_id: Optional[str] = None
 
-    ) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
+    ) -> Tuple[TensorDict, Dict[str, torch.Tensor]]:
 
         optimizer.zero_grad()
 
@@ -132,34 +132,20 @@ class Trainer:
         return (losses.detach(), output)
 
     @staticmethod
-    def _save_cross_matrix(file_path: str,
-                           loop_amino_acids: List[AminoAcid],
-                           struct_amino_acids: List[AminoAcid],
-                           cross_weight_matrix: torch.Tensor):
-        """
-        Args:
-            cross_weight_matrix: [struct_len, loop_len]
-            loop_amino_acids: must be of loop length
-            struct_amino_acids: must be of struct length
-        """
+    def _save_structure_to_hdf5(structure: Structure,
+                                group: h5py.Group):
 
-        column_names = []
-        for res_index, amino_acid in enumerate(loop_amino_acids):
-            if amino_acid is not None:
-                column_names.append(f"{res_index + 1} {amino_acid.three_letter_code}")
-            else:
-                column_names.append(f"{res_index + 1} <gap>")
-
-        row_names = []
-        for res_index, amino_acid in enumerate(struct_amino_acids):
-            if amino_acid is not None:
-                row_names.append(f"{res_index + 1} {amino_acid.three_letter_code}")
-            else:
-                row_names.append(f"{res_index + 1} <gap>")
-
-        data_frame = pandas.DataFrame(cross_weight_matrix.numpy(force=True),
-                                      columns=column_names, index=row_names)
-        data_frame.to_csv(file_path)
+        pdbio = PDBIO()
+        pdbio.set_structure(structure)
+        with StringIO() as sio:
+            pdbio.save(sio)
+            structure_data = numpy.array([bytes(line + "\n", encoding="utf-8")
+                                          for line in sio.getvalue().split('\n')
+                                          if len(line.strip()) > 0],
+                                         dtype=numpy.dtype("bytes"))
+        group.create_dataset("structure",
+                             data=structure_data,
+                             compression="lzf")
 
     def _snapshot(self,
                   frame_id: str,
@@ -167,11 +153,13 @@ class Trainer:
                   output_directory: str,
                   data: Dict[str, torch.Tensor]):
 
+        # predict the animated complexes
         with torch.no_grad():
             output = model(data)
 
         for index, id_ in enumerate(data["ids"]):
 
+            # one file per animated complex
             animation_path = f"{output_directory}/{id_}-animation.hdf5"
 
             with h5py.File(animation_path, "a") as animation_file:
@@ -182,65 +170,22 @@ class Trainer:
                     structure = recreate_structure(id_,
                                                    [("P", data["loop_residue_numbers"][index], data["loop_sequence_onehot"][index], data["loop_atom14_gt_positions"][index]),
                                                     ("M", data["protein_residue_numbers"][index], data["protein_sequence_onehot"][index], data["protein_atom14_gt_positions"][index])])
-                    pdbio = PDBIO()
-                    pdbio.set_structure(structure)
-                    with StringIO() as sio:
-                        pdbio.save(sio)
-                        structure_data = numpy.array([bytes(line + "\n", encoding="utf-8")
-                                                      for line in sio.getvalue().split('\n')
-                                                      if len(line.strip()) > 0],
-                                                     dtype=numpy.dtype("bytes"))
-                    true_group.create_dataset("structure",
-                                               data=structure_data,
-                                               compression="lzf")
+                    self._save_structure_to_hdf5(structure, true_group)
 
                 frame_group = animation_file.require_group(frame_id)
 
-                # save loop attentions heatmaps
-                #loop_self_attention = output["loop_self_attention"].cpu()
-                #frame_group.create_dataset("loop_attention", data=loop_self_attention[index], compression="lzf")
+                # save intermediary data tensors to animation file:
+                for output_key in ["protein_self_attention",
+                                   "cross_attention"]:
 
-                # save loop embeddings heatmaps
-                loop_embd = output["loop_embd"].cpu()
-                frame_group.create_dataset("loop_embd", data=loop_embd[index], compression="lzf")
-
-                #loop_pos_enc = output["loop_pos_enc"].cpu()
-                #frame_group.create_dataset("loop_pos_enc", data=loop_pos_enc[index], compression="lzf")
-
-                loop_init = output["loop_init"].cpu()
-                frame_group.create_dataset("loop_init", data=loop_init[index], compression="lzf")
-
-                # save protein attentions heatmaps
-                protein_self_attention = output["protein_self_attention"].cpu()
-                protein_self_attention_sd = output["protein_self_attention_sd"].cpu()
-                protein_self_attention_b = output["protein_self_attention_b"].cpu()
-                frame_group.create_dataset("protein_attention", data=protein_self_attention[index], compression="lzf")
-                frame_group.create_dataset("protein_attention_sd", data=protein_self_attention_sd[index], compression="lzf")
-                frame_group.create_dataset("protein_attention_b", data=protein_self_attention_b[index], compression="lzf")
-
-                # save cross attentions heatmaps
-                cross_attention = output["cross_attention"].cpu()
-                cross_attention_sd = output["cross_attention_sd"].cpu()
-                cross_attention_pts = output["cross_attention_pts"].cpu()
-                frame_group.create_dataset("cross_attention", data=cross_attention[index], compression="lzf")
-                frame_group.create_dataset("cross_attention_sd", data=cross_attention_sd[index], compression="lzf")
-                frame_group.create_dataset("cross_attention_pts", data=cross_attention_pts[index], compression="lzf")
+                    output_tensor = output[output_key].cpu()
+                    frame_group.create_dataset(output_key, data=output_tensor[index], compression="lzf")
 
                 # save pdb
                 structure = recreate_structure(id_,
                                                [("P", data["loop_residue_numbers"][index], data["loop_sequence_onehot"][index], output["final_positions"][index]),
                                                 ("M", data["protein_residue_numbers"][index], data["protein_sequence_onehot"][index], data["protein_atom14_gt_positions"][index])])
-                pdbio = PDBIO()
-                pdbio.set_structure(structure)
-                with StringIO() as sio:
-                    pdbio.save(sio)
-                    structure_data = numpy.array([bytes(line + "\n", encoding="utf-8")
-                                                  for line in sio.getvalue().split('\n')
-                                                  if len(line.strip()) > 0],
-                                                 dtype=numpy.dtype("bytes"))
-                frame_group.create_dataset("structure",
-                                           data=structure_data,
-                                           compression="lzf")
+                self._save_structure_to_hdf5(structure, frame_group)
 
                 # save the residue numbering, for later lookup
                 for key in ("protein_cross_residues_mask", "loop_cross_residues_mask",
@@ -254,12 +199,15 @@ class Trainer:
 
         table_path = os.path.join(output_directory, 'rmsd.csv')
 
+        # load old table first
         if os.path.isfile(table_path):
             old_table = pandas.read_csv(table_path)
             for index, row in old_table.iterrows():
+                # old data does not overwrite new
                 if row["ID"] not in rmsds:
                     rmsds[row["ID"]] = row["RMSD(Å)"]
 
+        # save to file
         ids = list(rmsds.keys())
         rmsd = [rmsds[id_] for id_ in ids]
         table_dict = {"ID": ids, "RMSD(Å)": rmsd}
@@ -358,6 +306,7 @@ class Trainer:
 
         batch_size = len(truth["ids"])
 
+        # combine the means of the losses
         for loss_name, loss_value in losses.items():
             loss_name += " loss"
 
@@ -366,10 +315,12 @@ class Trainer:
             else:
                 output_data[loss_name] += loss_value.item() * batch_size
 
+        # list all ids of the data points
         if "ids" not in output_data:
             output_data["ids"] = []
         output_data["ids"] += truth["ids"]
 
+        # convert all one-hot encoded sequences to strings
         if "loop_sequence" not in output_data:
             output_data["loop_sequence"] = []
         output_data["loop_sequence"] += ["".join([aa.one_letter_code
@@ -381,7 +332,6 @@ class Trainer:
 
     def test(self,
              test_loader: DataLoader,
-             structures_loader: Union[DataLoader, None],
              run_id: str,
              model_path: Union[str, None],
              animated_complex_ids: Optional[List[str]],
@@ -390,6 +340,7 @@ class Trainer:
         if model_path is None:
             model_path = f"{run_id}/best-predictor.pth"
 
+        # set up the model
         model = Predictor(self.loop_maxlen,
                           self.protein_maxlen,
                           openfold_config.model)
@@ -399,23 +350,15 @@ class Trainer:
         model.eval()
         model.load_state_dict(torch.load(model_path, map_location=self._device))
 
+        # run the model to output results
         test_data = self._validate(-1, model, test_loader, True, run_id)
-
-        structures_data = None
-        if structures_loader is not None:
-            structures_data = self._validate(-1, model, structures_loader, True, run_id)
 
         self._output_metrics(run_id, "test", -1, test_data)
 
-        if structures_data is not None:
-            self._output_metrics(run_id, "structures", -1, structures_data)
-
+        # do any requested animation snapshots
         if animated_complex_ids is not None:
 
             datasets = [test_loader.dataset]
-            if structures_loader is not None:
-                datasets.append(structures_loader.dataset)
-
             animated_data = self._get_selection_data_batch(datasets, animated_complex_ids)
 
             self._snapshot("test",
@@ -443,9 +386,8 @@ class Trainer:
               epoch_count: int, fine_tune_count: int,
               run_id: Optional[str] = None,
               pretrained_model_path: Optional[str] = None,
-
               animated_complex_ids: Optional[List[str]] = None,
-              structures_loader: Optional[DataLoader] = None):
+    ):
 
         # Set up the model
         model = Predictor(self.loop_maxlen,
@@ -474,9 +416,6 @@ class Trainer:
         if animated_complex_ids is not None:
             # make snapshots for animation
             datasets = [train_loader.dataset, valid_loader.dataset, test_loader.dataset]
-            if structures_loader is not None:
-                datasets.append(structures_loader.dataset)
-
             animated_data = self._get_selection_data_batch(datasets, animated_complex_ids)
 
             self._snapshot("0.0",
@@ -507,20 +446,10 @@ class Trainer:
                 test_data = self._validate(epoch_index, model, test_loader, True, run_id)
                 t.add_to_title(f"on {len(test_loader.dataset)} data points")
 
-            # structures
-            structures_data = None
-            if structures_loader is not None:
-                with Timer(f"structures epoch {epoch_index}") as t:
-                    structures_data = self._validate(epoch_index, model, structures_loader, True, run_id)
-                    t.add_to_title(f"on {len(structures_loader.dataset)} data points")
-
             # write the metrics
             self._output_metrics(run_id, "train", epoch_index, train_data)
             self._output_metrics(run_id, "valid", epoch_index, valid_data)
             self._output_metrics(run_id, "test", epoch_index, test_data)
-
-            if structures_data is not None:
-                self._output_metrics(run_id, "structures", epoch_index, structures_data)
 
             # early stopping, if no more improvement
             if abs(valid_data["total loss"] - lowest_loss) < self._early_stop_epsilon:
@@ -554,6 +483,7 @@ class Trainer:
                         epoch_index: int,
                         data: Dict[str, Any]):
 
+        # load any previous versions of the table
         metrics_path = f"{run_id}/metrics.csv"
         if os.path.isfile(metrics_path):
 
@@ -562,19 +492,23 @@ class Trainer:
             metrics_dataframe = self._init_metrics_dataframe()
         metrics_dataframe.set_index("epoch")
 
+        # add a new row for this epoch
         while epoch_index > metrics_dataframe.shape[0]:
             metrics_dataframe = metrics_dataframe.append({name: [] for name in metrics_dataframe})
 
         metrics_dataframe.at[epoch_index, "epoch"] = int(epoch_index)
 
+        # write losses to the table
         for loss_name in filter(lambda s: s.endswith(" loss"), data.keys()):
 
             normalized_loss = data[loss_name] / len(data["ids"])
 
             metrics_dataframe.at[epoch_index, f"{pass_name} {loss_name}"] = round(normalized_loss, 3)
 
+        # write RMSD to the table
         metrics_dataframe.at[epoch_index, f"{pass_name} binders C-alpha RMSD"] = round(data["binders_c_alpha_rmsd"], 3)
 
+        # save
         metrics_dataframe.to_csv(metrics_path, sep=",", index=False)
 
     def get_data_loader(self,
@@ -610,21 +544,23 @@ if __name__ == "__main__":
 
     os.mkdir(run_id)
 
+    log_level = logging.INFO
+    if args.debug:
+        log_level = logging.DEBUG
+
     if args.log_stdout:
         logging.basicConfig(stream=sys.stdout,
-                            level=logging.DEBUG if args.debug else logging.INFO)
+                            level=log_level)
     else:
         logging.basicConfig(filename=f"{run_id}/tcrspec.log", filemode="a",
-                            level=logging.DEBUG if args.debug else logging.INFO)
+                            level=log_level)
 
     if torch.cuda.is_available():
         device_count = torch.cuda.device_count()
         _log.debug(f"using {device_count} cuda devices")
-
         device = torch.device("cuda")
     else:
         _log.debug("using cpu device")
-
         device = torch.device("cpu")
 
     _log.debug(f"using {args.workers} workers")
@@ -632,17 +568,11 @@ if __name__ == "__main__":
 
     trainer = Trainer(device, args.workers, args.lr)
 
-    structures_loader = None
-    if args.structures_path is not None:
-        structures_loader = trainer.get_data_loader(args.structures_path, args.batch_size, device)
-
     if args.test_only:
 
         test_path = args.data_path[0]
 
         test_loader = trainer.get_data_loader(test_path, args.batch_size, device)
-
-        trainer.test(test_loader, structures_loader, run_id, args.pretrained_model, args.animate)
 
     else:  # train & test
 
@@ -655,4 +585,4 @@ if __name__ == "__main__":
         trainer.train(train_loader, valid_loader, test_loader,
                       args.epoch_count, args.fine_tune_count,
                       run_id, args.pretrained_model,
-                      args.animate, structures_loader)
+                      args.animate)
