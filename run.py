@@ -426,7 +426,6 @@ class Trainer:
 
         # define model paths
         model_path = f"{run_id}/best-predictor.pth"
-        protein_ipa_path = f"{run_id}/best-protein-ipa.pth"
 
         # Keep track of the lowest loss value.
         lowest_loss = float("inf")
@@ -483,7 +482,6 @@ class Trainer:
                 lowest_loss = valid_data["total loss"]
 
                 torch.save(model.state_dict(), model_path)
-                torch.save(model.module.protein_ipa.state_dict(), protein_ipa_path)
             # else:
             #    model.load_state_dict(torch.load(model_path))
 
