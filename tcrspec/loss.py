@@ -405,7 +405,7 @@ def get_loss(output: TensorDict, batch: TensorDict,
 
     elif "affinity" in batch and "affinity" in output:
         non_binders_index = batch["affinity"] < AFFINITY_BINDING_TRESHOLD
-        affinity_loss = _regression_loss_func(output["affinity", batch["affinity"])
+        affinity_loss = _regression_loss_func(output["affinity"], batch["affinity"])
     else:
         raise ValueError("Cannot compute loss without class or affinity data")
 
@@ -444,6 +444,7 @@ def get_loss(output: TensorDict, batch: TensorDict,
     result = TensorDict({
         "total": total_loss.mean(dim=0),
         "chi": chi_loss.mean(dim=0),
+        "affinity": affinity_loss.mean(dim=0),
     })
 
     for component_id, loss_tensor in fape_losses.items():
