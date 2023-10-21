@@ -179,8 +179,7 @@ class Trainer:
                 frame_group = animation_file.require_group(frame_id)
 
                 # save intermediary data tensors to animation file:
-                for output_key in ["protein_self_attention",
-                                   "cross_attention"]:
+                for output_key in ["cross_attention"]:
 
                     output_tensor = output[output_key].cpu()
                     frame_group.create_dataset(output_key, data=output_tensor[index], compression="lzf")

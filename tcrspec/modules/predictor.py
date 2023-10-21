@@ -59,23 +59,7 @@ class Predictor(torch.nn.Module):
 
         self.n_ipa_repeat = structure_module_config.no_blocks
 
-        self.protein_dist_norm = torch.nn.LayerNorm((self.protein_maxlen, self.protein_maxlen, 1))
-
         self.inf = 1e22
-
-        self.protein_ipa = IPA(structure_module_config.c_s,
-                               structure_module_config.c_z,
-                               structure_module_config.c_ipa,
-                               structure_module_config.no_heads_ipa,
-                               structure_module_config.no_qk_points,
-                               structure_module_config.no_v_points,
-                               self.protein_maxlen)
-        self.protein_ipa.inf = self.inf
-
-        self.protein_norm = torch.nn.Sequential(
-            torch.nn.Dropout(p=0.1),
-            LayerNorm(structure_module_config.c_s)
-        )
 
         self.cross = CrossStructureModule(**structure_module_config)
 
@@ -134,36 +118,6 @@ class Predictor(torch.nn.Module):
 
         # [batch_size, protein_len, c_s]
         protein_embd = batch["protein_sequence_onehot"]
-        protein_norm_prox = self.protein_dist_norm(batch["protein_proximities"])
-
-        _log.debug(f"protein_norm_prox has values ranging from {protein_norm_prox.min()} - {protein_norm_prox.max()}")
-        _log.debug(f"protein_norm_prox has distribution {protein_norm_prox.mean()} +/- {protein_norm_prox.std()}")
-
-        _log.debug(f"predictor: before ipa, protein_embd ranges {protein_embd.min()} - {protein_embd.max()}")
-
-        protein_as = []
-        protein_as_sd = []
-        protein_as_b = []
-        for _ in range(self.n_ipa_repeat):
-            protein_embd, protein_a, protein_a_sd, protein_a_b = self.protein_ipa(protein_embd,
-                                                                                  protein_norm_prox,
-                                                                                  protein_T,
-                                                                                  batch["protein_self_residues_mask"].float())
-            protein_as.append(protein_a.clone().detach())
-            protein_as_sd.append(protein_a_sd.detach())
-            protein_as_b.append(protein_a_b.detach())
-
-        # store the attention weights, for debugging
-        # [batch_size, n_block, n_head, protein_len, protein_len]
-        protein_as = torch.stack(protein_as).transpose(0, 1)
-        protein_as_sd = torch.stack(protein_as_sd).transpose(0, 1)
-        protein_as_b = torch.stack(protein_as_b).transpose(0, 1)
-
-        _log.debug(f"predictor: after ipa, protein_embd ranges {protein_embd.min()} - {protein_embd.max()}")
-
-        protein_embd = self.protein_norm(protein_embd)
-
-        _log.debug(f"predictor: after norm, protein_embd ranges {protein_embd.min()} - {protein_embd.max()}")
 
         # cross attention and loop structure prediction
         output = self.cross(batch["loop_aatype"],
@@ -172,12 +126,6 @@ class Predictor(torch.nn.Module):
                             protein_embd,
                             batch["protein_cross_residues_mask"],
                             protein_T)
-
-        output["loop_embd"] = loop_embd
-        output["loop_init"] = loop_seq
-        output["protein_self_attention"] = protein_as
-        output["protein_self_attention_sd"] = protein_as_sd
-        output["protein_self_attention_b"] = protein_as_b
 
         # amino acid sequence: [1, 0, 2, ... ] meaning : Ala, Met, Cys
         # [batch_size, loop_len]
@@ -197,7 +145,7 @@ class Predictor(torch.nn.Module):
 
         # affinity prediction
         if self.model_type == ModelType.REGRESSION:
-            output["affinity"] = self.affinity_linear(p)
+            output["affinity"] = self.affinity_linear(p)[..., 0]
 
         elif self.model_type == ModelType.CLASSIFICATION:
             # softmax is required here, so that we can calculate ROC AUC
