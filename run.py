@@ -78,6 +78,7 @@ arg_parser.add_argument("--epoch-count", "-e", help="how many epochs to run duri
 arg_parser.add_argument("--fine-tune-count", "-u", help="how many epochs to run during fine-tuning", type=int, default=10)
 arg_parser.add_argument("--animate", "-a", help="id of a data point to generate intermediary pdb for", nargs="+")
 arg_parser.add_argument("--lr", help="learning rate setting", type=float, default=0.001)
+arg_parser.add_argument("--classification", "-c", help="do classification instead of regression", action="store_const", const=True, default=False)
 arg_parser.add_argument("data_path", help="path to the train, validation & test hdf5", nargs="+")
 
 
@@ -88,9 +89,13 @@ class Trainer:
     def __init__(self,
                  device: torch.device,
                  workers_count: int,
-                 lr: float):
+                 lr: float,
+                 model_type: ModelType,
+    ):
 
         self._lr = lr
+
+        self._model_type = model_type
 
         self._device = device
 
@@ -319,12 +324,12 @@ class Trainer:
 
         # add data for the affinity scores
         for key in ["affinity", "classification", "class"]:
-            if key int output:
+            if key in output:
                 if key not in output_data:
                     output_data[f"output {key}"] = []
                 output_data[f"output {key}"] += output[key].cpu().tolist()
 
-            if key int truth:
+            if key in truth:
                 if key not in output_data:
                     output_data[f"true {key}"] = []
                 output_data[f"true {key}"] += truth[key].cpu().tolist()
@@ -406,6 +411,7 @@ class Trainer:
         # Set up the model
         model = Predictor(self.loop_maxlen,
                           self.protein_maxlen,
+                          self._model_type,
                           openfold_config.model)
         model = DataParallel(model)
 
@@ -524,7 +530,7 @@ class Trainer:
         metrics_dataframe.at[epoch_index, f"{pass_name} binders C-alpha RMSD"] = round(data["binders_c_alpha_rmsd"], 3)
 
         # write affinity-related metrics
-        if "output classification" in data and "true class" in data:
+        if "output classification" in data and "true class" in data and len(set(data["true class"])) > 1:
             auc = roc_auc_score(data["true class"], [row[1] for row in data["output classification"]])
             metrics_dataframe.at[epoch_index, f"{pass_name} ROC AUC"] = round(auc, 3)
 
@@ -560,6 +566,10 @@ if __name__ == "__main__":
 
     args = arg_parser.parse_args()
 
+    model_type = ModelType.REGRESSION
+    if args.classification:
+        model_type = ModelType.CLASSIFICATION
+
     if args.run_id is not None:
         run_id = args.run_id
 
@@ -594,7 +604,7 @@ if __name__ == "__main__":
     _log.debug(f"using {args.workers} workers")
     torch.multiprocessing.set_start_method('spawn')
 
-    trainer = Trainer(device, args.workers, args.lr)
+    trainer = Trainer(device, args.workers, args.lr, model_type)
 
     if args.test_only:
 
