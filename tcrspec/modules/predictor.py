@@ -4,7 +4,7 @@ import logging
 import sys
 
 from torch.nn import Embedding
-from torch.nn.modules.transformer import TransformerEncoder
+from torch.nn.modules.transformer import TransformerEncoder, TransformerEncoderLayer
 import torch
 import ml_collections
 
@@ -49,12 +49,11 @@ class Predictor(torch.nn.Module):
         self.n_head = structure_module_config.no_heads_ipa
 
         loop_input_size = self.loop_maxlen * structure_module_config.c_s
-        c_loop = 512
 
-        self.loop_mlp = torch.nn.Sequential(
-            torch.nn.Linear(loop_input_size, c_loop),
-            torch.nn.GELU(),
-            torch.nn.Linear(c_loop, loop_input_size),
+        self.posenc = PositionalEncoding(structure_module_config.c_s, self.loop_maxlen)
+        self.transform = TransformerEncoder(
+            TransformerEncoderLayer(structure_module_config.c_s, self.n_head),
+            structure_module_config.no_blocks
         )
 
         self.n_ipa_repeat = structure_module_config.no_blocks
@@ -107,11 +106,11 @@ class Predictor(torch.nn.Module):
         # positional encoding
         #loop_pos_enc = self.pos_enc(loop_seq)
 
-        # transition on the loop
-        loop_embd = loop_seq + self.loop_mlp(loop_seq.reshape(batch_size, -1)).reshape(batch_size, loop_maxlen, loop_depth)
+        # encode the loop positions
+        loop_embd = self.posenc(loop_seq)
 
-        # mask out residues that don't exist
-        loop_embd = loop_embd * batch["loop_self_residues_mask"][..., None]
+        # transform the loop
+        loop_embd = loop_embd + self.transform(loop_embd, src_key_padding_mask=batch["loop_self_residues_mask"])
 
         # structure-based self-attention on the protein
         protein_T = Rigid.from_tensor_4x4(batch["protein_backbone_rigid_tensor"])
