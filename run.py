@@ -86,7 +86,8 @@ arg_parser.add_argument("--pretrained-model", "-m", help="use a given pretrained
 arg_parser.add_argument("--test-only", "-t", help="skip training and test on a pretrained model", action='store_const', const=True, default=False)
 arg_parser.add_argument("--workers", "-w", help="number of workers to load batches", type=int, default=5)
 arg_parser.add_argument("--batch-size", "-b", help="batch size to use during training/validation/testing", type=int, default=8)
-arg_parser.add_argument("--epoch-count", "-e", help="how many epochs to run during training", type=int, default=100)
+arg_parser.add_argument("--epoch-count", "-e", help="how many epochs to run during training", type=int, default=20)
+arg_parser.add_argument("--affinity-tune-count", "-j", help="how many epochs to run during affinity training", type=int, default=50)
 arg_parser.add_argument("--fine-tune-count", "-u", help="how many epochs to run during fine-tuning", type=int, default=10)
 arg_parser.add_argument("--animate", "-a", help="id of a data point to generate intermediary pdb for", nargs="+")
 arg_parser.add_argument("--lr", help="learning rate setting", type=float, default=0.001)
@@ -415,7 +416,7 @@ class Trainer:
               train_loader: DataLoader,
               valid_loader: DataLoader,
               test_loader: DataLoader,
-              epoch_count: int, fine_tune_count: int,
+              epoch_count: int, affinity_tune_count: int, fine_tune_count: int,
               run_id: Optional[str] = None,
               pretrained_model_path: Optional[str] = None,
               animated_complex_ids: Optional[List[str]] = None,
@@ -454,14 +455,12 @@ class Trainer:
                            model,
                            run_id, animated_data)
 
-        total_epochs = epoch_count + fine_tune_count
+        total_epochs = epoch_count + affinity_tune_count + fine_tune_count
         for epoch_index in range(total_epochs):
 
             # flip this setting after the given number of epochs
-            fine_tune = (epoch_index >= epoch_count)
             affinity_tune = (epoch_index >= epoch_count)
-
-            _log.debug(f"entering epoch {epoch_index} with fine_tune set to {fine_tune}")
+            fine_tune = (epoch_index >= (epoch_count + affinity_tune_count))
 
             # train during epoch
             with Timer(f"train epoch {epoch_index}") as t:
@@ -635,6 +634,6 @@ if __name__ == "__main__":
         test_loader = trainer.get_data_loader(test_path, args.batch_size, device)
 
         trainer.train(train_loader, valid_loader, test_loader,
-                      args.epoch_count, args.fine_tune_count,
+                      args.epoch_count, args.affinity_tune_count, args.fine_tune_count,
                       run_id, args.pretrained_model,
                       args.animate)
