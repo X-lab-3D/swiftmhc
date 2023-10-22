@@ -108,7 +108,7 @@ class Predictor(torch.nn.Module):
         #loop_pos_enc = self.pos_enc(loop_seq)
 
         # transition on the loop
-        loop_embd = self.loop_mlp(loop_seq.reshape(batch_size, -1)).reshape(batch_size, loop_maxlen, loop_depth)
+        loop_embd = loop_seq + self.loop_mlp(loop_seq.reshape(batch_size, -1)).reshape(batch_size, loop_maxlen, loop_depth)
 
         # mask out residues that don't exist
         loop_embd = loop_embd * batch["loop_self_residues_mask"][..., None]
@@ -141,7 +141,7 @@ class Predictor(torch.nn.Module):
         output["final_atom_positions"] = atom14_to_atom37(output["final_positions"], output)
 
         # [batch_size, loop_len]
-        p = self.affinity_reswise_mlp(output["single"])[..., 0]
+        p = self.affinity_reswise_mlp(loop_embd + output["single"])[..., 0]
 
         # affinity prediction
         if self.model_type == ModelType.REGRESSION:
