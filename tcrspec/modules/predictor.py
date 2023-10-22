@@ -52,7 +52,9 @@ class Predictor(torch.nn.Module):
 
         self.posenc = PositionalEncoding(structure_module_config.c_s, self.loop_maxlen)
         self.transform = TransformerEncoder(
-            TransformerEncoderLayer(structure_module_config.c_s, self.n_head),
+            TransformerEncoderLayer(structure_module_config.c_s,
+                                    self.n_head,
+                                    batch_first=True),
             structure_module_config.no_blocks
         )
 
@@ -108,6 +110,9 @@ class Predictor(torch.nn.Module):
 
         # encode the loop positions
         loop_embd = self.posenc(loop_seq)
+
+        _log.debug(f"loop_embd.shape is {loop_embd.shape}")
+        _log.debug(f"loop mask.shape is {batch['loop_self_residues_mask'].shape}")
 
         # transform the loop
         loop_embd = loop_embd + self.transform(loop_embd, src_key_padding_mask=batch["loop_self_residues_mask"])
