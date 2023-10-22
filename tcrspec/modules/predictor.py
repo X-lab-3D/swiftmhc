@@ -111,11 +111,9 @@ class Predictor(torch.nn.Module):
         # encode the loop positions
         loop_embd = self.posenc(loop_seq)
 
-        _log.debug(f"loop_embd.shape is {loop_embd.shape}")
-        _log.debug(f"loop mask.shape is {batch['loop_self_residues_mask'].shape}")
-
         # transform the loop
-        loop_embd = loop_embd + self.transform(loop_embd, src_key_padding_mask=batch["loop_self_residues_mask"])
+        mask = torch.logical_not(batch["loop_self_residues_mask"])
+        loop_embd = loop_embd + self.transform(loop_embd, src_key_padding_mask=mask)
 
         # structure-based self-attention on the protein
         protein_T = Rigid.from_tensor_4x4(batch["protein_backbone_rigid_tensor"])
