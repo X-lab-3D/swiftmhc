@@ -66,6 +66,18 @@ from tcrspec.domain.amino_acid import amino_acids_by_one_hot_index
 from tcrspec.models.types import ModelType
 
 
+def get_accuracy(truth: List[int], pred: List[int]) -> float:
+    count = 0
+    right = 0
+    for i, t in enumerate(truth):
+        p = pred[i]
+        count += 1
+        if p == t:
+            right += 1
+
+    return float(right) / count
+
+
 arg_parser = ArgumentParser(description="run a TCR-spec network model")
 arg_parser.add_argument("--run-id", "-r", help="name of the run and the directory to store it")
 arg_parser.add_argument("--debug", "-d", help="generate debug files", action='store_const', const=True, default=False)
@@ -530,6 +542,10 @@ class Trainer:
         if "output classification" in data and "true class" in data and len(set(data["true class"])) > 1:
             auc = roc_auc_score(data["true class"], [row[1] for row in data["output classification"]])
             metrics_dataframe.at[epoch_index, f"{pass_name} ROC AUC"] = round(auc, 3)
+
+        if "output class" in data and "true class" in data:
+            acc = get_accuracy(data["true class"], data["output class"])
+            metrics_dataframe.at[epoch_index, f"{pass_name} accuracy"] = round(acc, 3)
 
         if "output affinity" in data and "true affinity" in data:
             r = pearsonr(data["output affinity"], data["true affinity"]).statistic
