@@ -182,6 +182,9 @@ class CrossStructureModule(torch.nn.Module):
             trans=(T_loop_initial.get_trans()).unsqueeze(1).repeat(1, loop_maxlen, 1),
         )
 
+        # center on protein
+        T_loop._trans = T_protein.get_trans().mean(dim=1).unsqueeze(1).repeat(1, T_loop.get_trans().shape[1], 1)
+
         outputs = []
         atts = []
         atts_sd = []

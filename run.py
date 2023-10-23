@@ -5,7 +5,6 @@ from argparse import ArgumentParser
 import logging
 from uuid import uuid4
 from typing import Tuple, Union, Optional, List, Dict, Set, Any
-import random
 from math import log, sqrt
 import csv
 import h5py
@@ -54,7 +53,7 @@ from openfold.utils.tensor_utils import permute_final_dims
 
 from tcrspec.time import Timer
 from tcrspec.preprocess import preprocess
-from tcrspec.dataset import ProteinLoopDataset
+from tcrspec.dataset import ProteinLoopDataset, get_entry_names
 from tcrspec.modules.predictor import Predictor
 from tcrspec.models.complex import ComplexClass
 from tcrspec.models.amino_acid import AminoAcid
@@ -92,7 +91,10 @@ arg_parser.add_argument("--fine-tune-count", "-u", help="how many epochs to run 
 arg_parser.add_argument("--animate", "-a", help="id of a data point to generate intermediary pdb for", nargs="+")
 arg_parser.add_argument("--lr", help="learning rate setting", type=float, default=0.001)
 arg_parser.add_argument("--classification", "-c", help="do classification instead of regression", action="store_const", const=True, default=False)
-arg_parser.add_argument("data_path", help="path to the train, validation & test hdf5", nargs="+")
+arg_parser.add_argument("--pdb-output", help="store resulting pdb files in an hdf5 file", action="store_const", const=True, default=False)
+arg_parser.add_argument("--test-only", "-t", help="do not train, only run tests", const=True, default=False, action='store_const')
+arg_parser.add_argument("--test-subset-path", help="path to list of entry ids that should be excluded for testing", nargs="+")
+arg_parser.add_argument("data_path", help="path to a hdf5 file", nargs="+")
 
 
 _log = logging.getLogger(__name__)
@@ -163,18 +165,20 @@ class Trainer:
     @staticmethod
     def _save_structure_to_hdf5(structure: Structure,
                                 group: h5py.Group):
-
         pdbio = PDBIO()
         pdbio.set_structure(structure)
         with StringIO() as sio:
+
             pdbio.save(sio)
+
             structure_data = numpy.array([bytes(line + "\n", encoding="utf-8")
                                           for line in sio.getvalue().split('\n')
                                           if len(line.strip()) > 0],
                                          dtype=numpy.dtype("bytes"))
-        group.create_dataset("structure",
-                             data=structure_data,
-                             compression="lzf")
+
+            group.create_dataset("structure",
+                                 data=structure_data,
+                                 compression="lzf")
 
     def _snapshot(self,
                   frame_id: str,
@@ -203,13 +207,7 @@ class Trainer:
 
                 frame_group = animation_file.require_group(frame_id)
 
-                # save intermediary data tensors to animation file:
-                for output_key in ["cross_attention"]:
-
-                    output_tensor = output[output_key].cpu()
-                    frame_group.create_dataset(output_key, data=output_tensor[index], compression="lzf")
-
-                # save pdb
+                # save predicted pdb
                 structure = recreate_structure(id_,
                                                [("P", data["loop_residue_numbers"][index], data["loop_sequence_onehot"][index], output["final_positions"][index]),
                                                 ("M", data["protein_residue_numbers"][index], data["protein_sequence_onehot"][index], data["protein_atom14_gt_positions"][index])])
@@ -282,7 +280,6 @@ class Trainer:
             self._store_rmsds(output_directory, rmsds)
 
         epoch_data["binders_c_alpha_rmsd"] = numpy.mean(list(rmsds.values()))
-
         return epoch_data
 
     def _validate(self,
@@ -327,13 +324,24 @@ class Trainer:
                              truth: Dict[str, Any]
     ) -> Dict[str, Any]:
         """
-        Stores the data needed to generate output files.
+        Args:
+            old_data: the old dictionary of epoch data
+            losses: the dictionary of loss values for the batch
+            output: the batch output
+            truth: the batch truth data
+        Returns: the new dictionary of epoch data
+
+        Stores the batch data needed to generate output files.
+        This will create a dictionary with epoch data, which can only
+        contain a limited number of fields. (because of memory usage)
         """
 
+        # store the old data in the new dictionary
         output_data = {}
         for key in old_data:
             output_data[key] = old_data[key]
 
+        # determine batch size from the number of ids
         batch_size = len(truth["ids"])
 
         # combine the means of the losses
@@ -377,33 +385,41 @@ class Trainer:
     def test(self,
              test_loader: DataLoader,
              run_id: str,
-             model_path: Union[str, None],
-             animated_complex_ids: Optional[List[str]],
+             output_metrics_name: Optional[str],
+             animated_complex_ids: List[str],
     ):
+        """
+        Call this function instead of train, when you just want to test the model.
 
-        if model_path is None:
-            model_path = f"{run_id}/best-predictor.pth"
+        Args:
+            test_loader: test data
+            run_id: run directory, where the model file is stored
+            output_metrics: where to to save metrics data in a csv file
+        """
 
-        # set up the model
-        model = Predictor(self.loop_maxlen,
+        model_path = self.get_model_path(run_id)
+        model = Predictor(self._model_type,
+                          self.loop_maxlen,
                           self.protein_maxlen,
                           openfold_config.model)
         model = DataParallel(model)
 
         model.to(device=self._device)
         model.eval()
-        model.load_state_dict(torch.load(model_path, map_location=self._device))
+
+        # load the pretrained model
+        model.load_state_dict(torch.load(model_path,  map_location=self._device))
 
         # run the model to output results
         test_data = self._validate(-1, model, test_loader, True, True, run_id)
 
-        self._output_metrics(run_id, "test", -1, test_data)
+        # save metrics
+        if output_metrics_name is not None:
+            self._output_metrics(run_id, "test", -1, test_data)
 
         # do any requested animation snapshots
-        if animated_complex_ids is not None:
-
-            datasets = [test_loader.dataset]
-            animated_data = self._get_selection_data_batch(datasets, animated_complex_ids)
+        if animated_complex_ids is not None and len(animated_complex_ids) > 0:
+            animated_data = self._get_selection_data_batch([test_loader.dataset], animated_complex_ids)
 
             self._snapshot("test",
                            model,
@@ -423,6 +439,10 @@ class Trainer:
 
         return ProteinLoopDataset.collate(entries)
 
+    @staticmethod
+    def get_model_path(run_id: str) -> str:
+        return f"{run_id}/best-predictor.pth"
+
     def train(self,
               train_loader: DataLoader,
               valid_loader: DataLoader,
@@ -432,7 +452,6 @@ class Trainer:
               pretrained_model_path: Optional[str] = None,
               animated_complex_ids: Optional[List[str]] = None,
     ):
-
         # Set up the model
         model = Predictor(self.loop_maxlen,
                           self.protein_maxlen,
@@ -451,6 +470,8 @@ class Trainer:
 
         # define model paths
         model_path = f"{run_id}/best-predictor.pth"
+        if pretrained_model_path is not None:
+            model_path = pretrained_model_path
 
         # Keep track of the lowest loss value.
         lowest_loss = float("inf")
@@ -506,6 +527,14 @@ class Trainer:
             #    model.load_state_dict(torch.load(model_path))
 
             #scheduler.step()
+
+        # write the output pdb models
+        if output_pdb_path is not None:
+            model.load_state_dict(torch.load(model_path, map_location=self._device))
+
+            for loader in [train_loader, valid_loader, test_loader, structures_loader]:
+                if loader is not None:
+                    self._validate(-1, model, loader, True, output_pdb_path)
 
     @staticmethod
     def _init_metrics_dataframe():
@@ -568,11 +597,13 @@ class Trainer:
     def get_data_loader(self,
                         data_path: str,
                         batch_size: int,
-                        device: torch.device) -> DataLoader:
+                        device: torch.device,
+                        entry_ids: Optional[List[str]] = None) -> DataLoader:
 
         dataset = ProteinLoopDataset(data_path, device,
                                      loop_maxlen=self.loop_maxlen,
-                                     protein_maxlen=self.protein_maxlen)
+                                     protein_maxlen=self.protein_maxlen,
+                                     entry_names=entry_ids)
 
         loader = DataLoader(dataset,
                             collate_fn=ProteinLoopDataset.collate,
@@ -580,6 +611,38 @@ class Trainer:
                             num_workers=self.workers_count)
 
         return loader
+
+
+    def store_entry_names(self, run_id: str, subset_name: str, entry_names: List[str]):
+        with open(os.path.join(run_id, f"{subset_name}-entry-names.txt"), 'wt') as output_file:
+            for entry_name in entry_names:
+                output_file.write(f"{entry_name}\n")
+
+
+def read_ids_from(path: str) -> List[str]:
+    ids = []
+    with open(path) as file_:
+        for line in file_:
+            ids += line.strip().split()
+    return ids
+
+
+def random_subdivision(ids: List[str], fraction: float) -> Tuple[List[str], List[str]]:
+
+    n = int(round(fraction * len(ids)))
+
+    shuffled = torch.randperm(ids)
+
+    return shuffled[:-n], shuffled[-n:]
+
+
+def get_excluded(names_from: List[str], names_exclude: List[str]) -> List[str]:
+    remaining_names = []
+    for name in names_from:
+        if name not in names_exclude:
+            remaining_names.append(name)
+
+    return remaining_names
 
 
 if __name__ == "__main__":
@@ -629,20 +692,53 @@ if __name__ == "__main__":
     torch.multiprocessing.set_start_method('spawn')
 
     trainer = Trainer(device, args.workers, args.lr, model_type)
+    model_path = trainer.get_model_path(run_id)
 
     if args.test_only:
+        if not os.path.isfile(model_path):
+            raise FileNotFoundError(model_path)
 
-        test_path = args.data_path[0]
+        for test_path in args.data_path:
+            data_name = os.path.splitext(os.path.basename(test_path))[0]
+            test_loader = trainer.get_data_loader(test_path, args.batch_size, device)
+            trainer.test(test_loader, run_id, data_name, args.animate, pdb_output_path)
 
-        test_loader = trainer.get_data_loader(test_path, args.batch_size, device)
+    else:  # train, validate, test
 
-    else:  # train & test
+        if len(args.data_path) >= 3:
+            train_path, valid_path, test_path = args.data_path[:3]
 
-        train_path, valid_path, test_path = args.data_path
+            train_loader = trainer.get_data_loader(train_path, args.batch_size, device)
+            valid_loader = trainer.get_data_loader(valid_path, args.batch_size, device)
+            test_loader = trainer.get_data_loader(test_path, args.batch_size, device)
 
-        train_loader = trainer.get_data_loader(train_path, args.batch_size, device)
-        valid_loader = trainer.get_data_loader(valid_path, args.batch_size, device)
-        test_loader = trainer.get_data_loader(test_path, args.batch_size, device)
+        elif len(args.data_path) == 2:
+
+            train_entry_names, valid_entry_names = random_subdivision(get_entry_names(args.data_path[0]), 0.1)
+            train_loader = trainer.get_data_loader(args.data_path[0], args.batch_size, device, train_entry_names)
+            valid_loader = trainer.get_data_loader(args.data_path[0], args.batch_size, device, valid_entry_names)
+            test_loader = trainer.get_data_loader(args.data_path[1], args.batch_size, device)
+
+            trainer.store_entry_names(run_id, 'train', train_entry_names)
+            trainer.store_entry_names(run_id, 'valid', valid_entry_names)
+
+        else:  # only one hdf5 file
+
+            if args.test_subset_path is not None:
+                test_entry_names = read_ids_from(args.test_subset_path)
+                train_valid_entry_names = get_excluded(get_entry_names(args.data_path[0]), test_entry_names)
+                train_entry_names, valid_entry_names = random_subdivision(train_valid_entry_names, 0.1)
+            else:
+                train_entry_names, valid_test_entry_names = random_subdivision(get_entry_names(args.data_path[0]), 0.2)
+                valid_entry_names, test_entry_names = random_subdivision(valid_test_entry_names, 0.5)
+
+            train_loader = trainer.get_data_loader(args.data_path[0], args.batch_size, device, train_entry_names)
+            valid_loader = trainer.get_data_loader(args.data_path[0], args.batch_size, device, valid_entry_names)
+            test_loader = trainer.get_data_loader(args.data_path[0], args.batch_size, device, test_entry_names)
+
+            trainer.store_entry_names(run_id, 'train', train_entry_names)
+            trainer.store_entry_names(run_id, 'valid', valid_entry_names)
+            trainer.store_entry_names(run_id, 'test', test_entry_names)
 
         trainer.train(train_loader, valid_loader, test_loader,
                       args.epoch_count, args.affinity_tune_count, args.fine_tune_count,

@@ -455,7 +455,6 @@ def get_loss(output: TensorDict, batch: TensorDict,
 
     return result
 
-
 def get_calpha_rmsd(output_data: Dict[str, torch.Tensor],
                     batch_data: Dict[str, torch.Tensor]) -> Dict[str, float]:
     """
@@ -497,9 +496,7 @@ def get_calpha_rmsd(output_data: Dict[str, torch.Tensor],
 
     rmsd = torch.sqrt(sum_of_squares / counts)
 
-
     return {ids[i]: rmsd[i].item() for i in range(len(ids))}
-
 
 def get_mcc(probabilities: torch.Tensor, targets: torch.Tensor) -> float:
 
