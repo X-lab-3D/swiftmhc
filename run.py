@@ -383,7 +383,7 @@ class Trainer:
         model.load_state_dict(torch.load(model_path, map_location=self._device))
 
         # run the model to output results
-        test_data = self._validate(-1, model, test_loader, True, run_id)
+        test_data = self._validate(-1, model, test_loader, True, True, run_id)
 
         self._output_metrics(run_id, "test", -1, test_data)
 
