@@ -51,16 +51,13 @@ class Predictor(torch.nn.Module):
         loop_input_size = self.loop_maxlen * structure_module_config.c_s
 
         self.posenc = PositionalEncoding(structure_module_config.c_s, self.loop_maxlen)
-        self.transform = TransformerEncoder(
-            TransformerEncoderLayer(structure_module_config.c_s,
-                                    self.n_head,
-                                    batch_first=True),
-            structure_module_config.no_blocks
-        )
+
+        self.transform = torch.nn.ModuleList([
+            DebuggableTransformerEncoderLayer(structure_module_config.c_s, self.n_head)
+            for _ in range(structure_module_config.no_blocks)
+        ])                                    
 
         self.n_ipa_repeat = structure_module_config.no_blocks
-
-        self.inf = 1e22
 
         self.cross = CrossStructureModule(**structure_module_config)
 
@@ -105,16 +102,12 @@ class Predictor(torch.nn.Module):
         # initial_loop_seq = loop_seq.clone()
         batch_size, loop_maxlen, loop_depth = loop_seq.shape
 
-        # positional encoding
-        #loop_pos_enc = self.pos_enc(loop_seq)
-
         # encode the loop positions
         loop_embd = self.posenc(loop_seq)
 
         # transform the loop
-        inv_mask = torch.logical_not(batch["loop_self_residues_mask"])
-        att_mask = torch.logical_or(inv_mask.unsqueeze(-2), inv_mask.unsqueeze(-1)).repeat(self.n_head, 1, 1)
-        loop_embd = loop_embd + self.transform(loop_embd, mask=att_mask)
+        for encoder in self.transform:
+            loop_embd, loop_att = encoder(loop_embd, batch["loop_self_residues_mask"])
 
         # structure-based self-attention on the protein
         protein_T = Rigid.from_tensor_4x4(batch["protein_backbone_rigid_tensor"])
