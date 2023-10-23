@@ -112,8 +112,9 @@ class Predictor(torch.nn.Module):
         loop_embd = self.posenc(loop_seq)
 
         # transform the loop
-        mask = torch.logical_not(batch["loop_self_residues_mask"])
-        loop_embd = loop_embd + self.transform(loop_embd, src_key_padding_mask=mask)
+        inv_mask = torch.logical_not(batch["loop_self_residues_mask"])
+        att_mask = torch.logical_or(inv_mask.unsqueeze(-2), inv_mask.unsqueeze(-1)).repeat(self.n_head, 1, 1)
+        loop_embd = loop_embd + self.transform(loop_embd, mask=att_mask)
 
         # structure-based self-attention on the protein
         protein_T = Rigid.from_tensor_4x4(batch["protein_backbone_rigid_tensor"])
