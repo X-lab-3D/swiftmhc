@@ -17,12 +17,8 @@ from openfold.utils.loss import find_structural_violations
 from openfold.utils.feats import atom14_to_atom37
 from openfold.model.primitives import LayerNorm
 
-<<<<<<< HEAD
 from ..models.types import ModelType
-from .position_encoding import get_relative_position_encoding
-=======
-from .position_encoding import PositionalEncoding
->>>>>>> e3bd3a30c97b0090050085548e0574fc5a35d504
+from .position_encoding import get_relative_position_encoding, PositionalEncoding
 from .cross_structure_module import CrossStructureModule
 from ..domain.amino_acid import AMINO_ACID_DIMENSION
 from ..models.data import TensorDict

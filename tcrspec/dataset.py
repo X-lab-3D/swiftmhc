@@ -14,6 +14,7 @@ from sklearn.decomposition import PCA
 
 from openfold.utils.rigid_utils import Rigid
 
+from .models.types import ModelType
 from .models.data import TensorDict
 from .models.residue import Residue
 from .models.complex import ComplexClass, ComplexTableEntry, ComplexDataEntry, StructureDataEntry
