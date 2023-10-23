@@ -596,6 +596,7 @@ if __name__ == "__main__":
     log_level = logging.INFO
     if args.debug:
         log_level = logging.DEBUG
+        torch.autograd.set_detect_anomaly(True)
 
     if args.log_stdout:
         logging.basicConfig(stream=sys.stdout,
