@@ -14,7 +14,6 @@ from sklearn.decomposition import PCA
 
 from openfold.utils.rigid_utils import Rigid
 
-from .models.types import ModelType
 from .models.data import TensorDict
 from .models.residue import Residue
 from .models.complex import ComplexClass, ComplexTableEntry, ComplexDataEntry, StructureDataEntry
@@ -28,12 +27,11 @@ _log = logging.getLogger(__name__)
 
 
 class ProteinLoopDataset(Dataset):
-    def __init__(self, hdf5_path: str, device: torch.device, model_type: ModelType, loop_maxlen: int, protein_maxlen: int):
+    def __init__(self, hdf5_path: str, device: torch.device, loop_maxlen: int, protein_maxlen: int):
         self._hdf5_path = hdf5_path
         self._device = device
         self._loop_maxlen = loop_maxlen
         self._protein_maxlen = protein_maxlen
-        self._model_type = model_type
 
         with h5py.File(self._hdf5_path, 'r') as hdf5_file:
             self._entry_names = list(hdf5_file.keys())
@@ -75,13 +73,9 @@ class ProteinLoopDataset(Dataset):
                 if length < 3:
                     raise ValueError(f"{entry_name} {prefix} length is {length}")
 
-                # For the protein, put all residues leftmost
+                # Put all existing residues leftmost.
                 index = torch.zeros(max_length, device=self._device, dtype=torch.bool)
                 index[:length] = True
-
-                # For the loop, put residues partly leftmost, partly centered, partly rightmost
-                if prefix == PREPROCESS_LOOP_NAME:
-                    index = mask_loop_left_center_right(length, max_length)
 
                 result[f"{prefix}_aatype"] = torch.zeros(max_length, device=self._device, dtype=torch.long)
                 result[f"{prefix}_aatype"][index] = torch.tensor(aatype_data, device=self._device, dtype=torch.long)

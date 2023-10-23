@@ -7,12 +7,13 @@ from uuid import uuid4
 from typing import Tuple, Union, Optional, List, Dict, Set, Any
 import random
 from math import log, sqrt
+import csv
 import h5py
 import numpy
 import shutil
 from io import StringIO
 
-from sklearn.metrics import matthews_corrcoef, roc_auc_score
+from sklearn.metrics import roc_auc_score, matthews_corrcoef
 from scipy.stats import pearsonr
 import ml_collections
 import pandas
@@ -26,6 +27,7 @@ from torch.nn.utils import clip_grad_norm_
 from torch.nn import DataParallel
 
 from Bio.PDB.PDBIO import PDBIO
+from Bio.PDB.Structure import Structure
 
 from openfold.np.residue_constants import (restype_atom14_ambiguous_atoms as openfold_restype_atom14_ambiguous_atoms,
                                            atom_types as openfold_atom_types,
@@ -57,11 +59,23 @@ from tcrspec.modules.predictor import Predictor
 from tcrspec.models.complex import ComplexClass
 from tcrspec.models.amino_acid import AminoAcid
 from tcrspec.tools.amino_acid import one_hot_decode_sequence
-from tcrspec.loss import get_loss, get_calpha_square_deviation
+from tcrspec.loss import get_loss, get_calpha_rmsd
 from tcrspec.models.data import TensorDict
 from tcrspec.tools.pdb import recreate_structure
 from tcrspec.domain.amino_acid import amino_acids_by_one_hot_index
 from tcrspec.models.types import ModelType
+
+
+def get_accuracy(truth: List[int], pred: List[int]) -> float:
+    count = 0
+    right = 0
+    for i, t in enumerate(truth):
+        p = pred[i]
+        count += 1
+        if p == t:
+            right += 1
+
+    return float(right) / count
 
 
 arg_parser = ArgumentParser(description="run a TCR-spec network model")
@@ -72,13 +86,12 @@ arg_parser.add_argument("--pretrained-model", "-m", help="use a given pretrained
 arg_parser.add_argument("--test-only", "-t", help="skip training and test on a pretrained model", action='store_const', const=True, default=False)
 arg_parser.add_argument("--workers", "-w", help="number of workers to load batches", type=int, default=5)
 arg_parser.add_argument("--batch-size", "-b", help="batch size to use during training/validation/testing", type=int, default=8)
-arg_parser.add_argument("--warmup-count", "-j", help="how many epochs to run during warmup, thus without affinity prediction", type=int, default=0)
 arg_parser.add_argument("--epoch-count", "-e", help="how many epochs to run during training", type=int, default=20)
-arg_parser.add_argument("--fine-tune-count", "-u", help="how many epochs to run during fine-tuning, at the end", type=int, default=10)
+arg_parser.add_argument("--affinity-tune-count", "-j", help="how many epochs to run during affinity training", type=int, default=50)
+arg_parser.add_argument("--fine-tune-count", "-u", help="how many epochs to run during fine-tuning", type=int, default=10)
 arg_parser.add_argument("--animate", "-a", help="id of a data point to generate intermediary pdb for", nargs="+")
-arg_parser.add_argument("--structures-path", "-s", help="an additional structures hdf5 file to measure RMSD on")
+arg_parser.add_argument("--lr", help="learning rate setting", type=float, default=0.001)
 arg_parser.add_argument("--classification", "-c", help="do classification instead of regression", action="store_const", const=True, default=False)
-arg_parser.add_argument("--lr", help="optimizer learning rate", type=float, default=0.001)
 arg_parser.add_argument("data_path", help="path to the train, validation & test hdf5", nargs="+")
 
 
@@ -101,6 +114,7 @@ class Trainer:
     def __init__(self,
                  device: torch.device,
                  workers_count: int,
+                 lr: float,
                  model_type: ModelType,
                  lr: float,
     ):
@@ -125,11 +139,9 @@ class Trainer:
                optimizer: Optimizer,
                model: Predictor,
                data: TensorDict,
-               affinity_tune: bool, fine_tune: bool,
-               pdb_output_directory: Optional[str] = None,
-               animated_complex_id: Optional[str] = None
-
-    ) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
+               affinity_tune: bool,
+               fine_tune: bool,
+    ) -> Tuple[TensorDict, Dict[str, torch.Tensor]]:
 
         optimizer.zero_grad()
 
@@ -149,34 +161,20 @@ class Trainer:
         return (losses.detach(), output)
 
     @staticmethod
-    def _save_cross_matrix(file_path: str,
-                           loop_amino_acids: List[AminoAcid],
-                           struct_amino_acids: List[AminoAcid],
-                           cross_weight_matrix: torch.Tensor):
-        """
-        Args:
-            cross_weight_matrix: [struct_len, loop_len]
-            loop_amino_acids: must be of loop length
-            struct_amino_acids: must be of struct length
-        """
+    def _save_structure_to_hdf5(structure: Structure,
+                                group: h5py.Group):
 
-        column_names = []
-        for res_index, amino_acid in enumerate(loop_amino_acids):
-            if amino_acid is not None:
-                column_names.append(f"{res_index + 1} {amino_acid.three_letter_code}")
-            else:
-                column_names.append(f"{res_index + 1} <gap>")
-
-        row_names = []
-        for res_index, amino_acid in enumerate(struct_amino_acids):
-            if amino_acid is not None:
-                row_names.append(f"{res_index + 1} {amino_acid.three_letter_code}")
-            else:
-                row_names.append(f"{res_index + 1} <gap>")
-
-        data_frame = pandas.DataFrame(cross_weight_matrix.numpy(force=True),
-                                      columns=column_names, index=row_names)
-        data_frame.to_csv(file_path)
+        pdbio = PDBIO()
+        pdbio.set_structure(structure)
+        with StringIO() as sio:
+            pdbio.save(sio)
+            structure_data = numpy.array([bytes(line + "\n", encoding="utf-8")
+                                          for line in sio.getvalue().split('\n')
+                                          if len(line.strip()) > 0],
+                                         dtype=numpy.dtype("bytes"))
+        group.create_dataset("structure",
+                             data=structure_data,
+                             compression="lzf")
 
     def _snapshot(self,
                   frame_id: str,
@@ -184,11 +182,13 @@ class Trainer:
                   output_directory: str,
                   data: Dict[str, torch.Tensor]):
 
+        # predict the animated complexes
         with torch.no_grad():
             output = model(data)
 
         for index, id_ in enumerate(data["ids"]):
 
+            # one file per animated complex
             animation_path = f"{output_directory}/{id_}-animation.hdf5"
 
             with h5py.File(animation_path, "a") as animation_file:
@@ -199,65 +199,21 @@ class Trainer:
                     structure = recreate_structure(id_,
                                                    [("P", data["loop_residue_numbers"][index], data["loop_sequence_onehot"][index], data["loop_atom14_gt_positions"][index]),
                                                     ("M", data["protein_residue_numbers"][index], data["protein_sequence_onehot"][index], data["protein_atom14_gt_positions"][index])])
-                    pdbio = PDBIO()
-                    pdbio.set_structure(structure)
-                    with StringIO() as sio:
-                        pdbio.save(sio)
-                        structure_data = numpy.array([bytes(line + "\n", encoding="utf-8")
-                                                      for line in sio.getvalue().split('\n')
-                                                      if len(line.strip()) > 0],
-                                                     dtype=numpy.dtype("bytes"))
-                    true_group.create_dataset("structure",
-                                               data=structure_data,
-                                               compression="lzf")
+                    self._save_structure_to_hdf5(structure, true_group)
 
                 frame_group = animation_file.require_group(frame_id)
 
-                # save loop attentions heatmaps
-                #loop_self_attention = output["loop_self_attention"].cpu()
-                #frame_group.create_dataset("loop_attention", data=loop_self_attention[index], compression="lzf")
+                # save intermediary data tensors to animation file:
+                for output_key in ["cross_attention"]:
 
-                # save loop embeddings heatmaps
-                loop_embd = output["loop_embd"].cpu()
-                frame_group.create_dataset("loop_embd", data=loop_embd[index], compression="lzf")
-
-                #loop_pos_enc = output["loop_pos_enc"].cpu()
-                #frame_group.create_dataset("loop_pos_enc", data=loop_pos_enc[index], compression="lzf")
-
-                loop_init = output["loop_init"].cpu()
-                frame_group.create_dataset("loop_init", data=loop_init[index], compression="lzf")
-
-                # save protein attentions heatmaps
-                protein_self_attention = output["protein_self_attention"].cpu()
-                protein_self_attention_sd = output["protein_self_attention_sd"].cpu()
-                protein_self_attention_b = output["protein_self_attention_b"].cpu()
-                frame_group.create_dataset("protein_attention", data=protein_self_attention[index], compression="lzf")
-                frame_group.create_dataset("protein_attention_sd", data=protein_self_attention_sd[index], compression="lzf")
-                frame_group.create_dataset("protein_attention_b", data=protein_self_attention_b[index], compression="lzf")
-
-                # save cross attentions heatmaps
-                cross_attention = output["cross_attention"].cpu()
-                cross_attention_sd = output["cross_attention_sd"].cpu()
-                cross_attention_pts = output["cross_attention_pts"].cpu()
-                frame_group.create_dataset("cross_attention", data=cross_attention[index], compression="lzf")
-                frame_group.create_dataset("cross_attention_sd", data=cross_attention_sd[index], compression="lzf")
-                frame_group.create_dataset("cross_attention_pts", data=cross_attention_pts[index], compression="lzf")
+                    output_tensor = output[output_key].cpu()
+                    frame_group.create_dataset(output_key, data=output_tensor[index], compression="lzf")
 
                 # save pdb
                 structure = recreate_structure(id_,
                                                [("P", data["loop_residue_numbers"][index], data["loop_sequence_onehot"][index], output["final_positions"][index]),
                                                 ("M", data["protein_residue_numbers"][index], data["protein_sequence_onehot"][index], data["protein_atom14_gt_positions"][index])])
-                pdbio = PDBIO()
-                pdbio.set_structure(structure)
-                with StringIO() as sio:
-                    pdbio.save(sio)
-                    structure_data = numpy.array([bytes(line + "\n", encoding="utf-8")
-                                                  for line in sio.getvalue().split('\n')
-                                                  if len(line.strip()) > 0],
-                                                 dtype=numpy.dtype("bytes"))
-                frame_group.create_dataset("structure",
-                                           data=structure_data,
-                                           compression="lzf")
+                self._save_structure_to_hdf5(structure, frame_group)
 
                 # save the residue numbering, for later lookup
                 for key in ("protein_cross_residues_mask", "loop_cross_residues_mask",
@@ -266,13 +222,35 @@ class Trainer:
                     if not key in animation_file:
                         animation_file.create_dataset(key, data=data[key][index].cpu())
 
+    @staticmethod
+    def _store_rmsds(output_directory: str, rmsds: Dict[str, float]):
+
+        table_path = os.path.join(output_directory, 'rmsd.csv')
+
+        # load old table first
+        if os.path.isfile(table_path):
+            old_table = pandas.read_csv(table_path)
+            for index, row in old_table.iterrows():
+                # old data does not overwrite new
+                if row["ID"] not in rmsds:
+                    rmsds[row["ID"]] = row["RMSD(Å)"]
+
+        # save to file
+        ids = list(rmsds.keys())
+        rmsd = [rmsds[id_] for id_ in ids]
+        table_dict = {"ID": ids, "RMSD(Å)": rmsd}
+
+        table = pandas.DataFrame(table_dict)
+        table.to_csv(table_path, encoding='utf-8', index=False, quoting=csv.QUOTE_NONNUMERIC)
+
     def _epoch(self,
                epoch_index: int,
                optimizer: Optimizer,
                model: Predictor,
                data_loader: DataLoader,
-               affinity_tune: bool, fine_tune: bool,
-               pdb_output_directory: Optional[str] = None,
+               affinity_tune: bool,
+               fine_tune: bool,
+               output_directory: Optional[str] = None,
                animated_data: Optional[Dict[str, torch.Tensor]] = None
     ) -> Dict[str, Any]:
 
@@ -280,30 +258,30 @@ class Trainer:
 
         model.train()
 
-        sd = 0.0
-        n = 0
+        rmsds = {}
         for batch_index, batch_data in enumerate(data_loader):
 
             # Do the training step.
             batch_loss, batch_output = self._batch(epoch_index,
                                                    batch_index, optimizer, model,
                                                    batch_data,
-                                                   affinity_tune, fine_tune)
+                                                   affinity_tune,
+                                                   fine_tune)
 
-            if pdb_output_directory is not None and animated_data is not None and (batch_index + 1) % self._snap_period == 0:
+            if output_directory is not None and animated_data is not None and (batch_index + 1) % self._snap_period == 0:
 
                 self._snapshot(f"{epoch_index}.{batch_index + 1}",
                                model,
-                               pdb_output_directory, animated_data)
+                               output_directory, animated_data)
 
             epoch_data = self._store_required_data(epoch_data, batch_loss, batch_output, batch_data)
 
-            sum_, count = get_calpha_square_deviation(batch_output, batch_data)
+            rmsds.update(get_calpha_rmsd(batch_output, batch_data))
 
-            sd += sum_
-            n += count
+        if output_directory is not None:
+            self._store_rmsds(output_directory, rmsds)
 
-        epoch_data["binders_c_alpha_rmsd"] = sqrt(sd / n)
+        epoch_data["binders_c_alpha_rmsd"] = numpy.mean(list(rmsds.values()))
 
         return epoch_data
 
@@ -311,16 +289,16 @@ class Trainer:
                   epoch_index: int,
                   model: Predictor,
                   data_loader: DataLoader,
-                  affinity_tune: bool, fine_tune: bool,
+                  affinity_tune: bool,
+                  fine_tune: bool,
+                  output_directory: Optional[str] = None,
     ) -> Dict[str, Any]:
 
         valid_data = {}
 
-        # using model.eval() here causes this issue:
-        # https://github.com/pytorch/pytorch/pull/98375#issuecomment-1499504721
+        model.eval()
 
-        sd = 0.0
-        n = 0
+        rmsds = {}
         with torch.no_grad():
 
             for batch_index, batch_data in enumerate(data_loader):
@@ -333,12 +311,12 @@ class Trainer:
 
                 valid_data = self._store_required_data(valid_data, batch_loss, batch_output, batch_data)
 
-                sum_, count = get_calpha_square_deviation(batch_output, batch_data)
+                rmsds.update(get_calpha_rmsd(batch_output, batch_data))
 
-                sd += sum_
-                n += count
+        if output_directory is not None:
+            self._store_rmsds(output_directory, rmsds)
 
-        valid_data["binders_c_alpha_rmsd"] = sqrt(sd / n)
+        valid_data["binders_c_alpha_rmsd"] = numpy.mean(list(rmsds.values()))
 
         return valid_data
 
@@ -358,6 +336,7 @@ class Trainer:
 
         batch_size = len(truth["ids"])
 
+        # combine the means of the losses
         for loss_name, loss_value in losses.items():
             loss_name += " loss"
 
@@ -366,33 +345,26 @@ class Trainer:
             else:
                 output_data[loss_name] += loss_value.item() * batch_size
 
-        if "affinity" in truth:
-            if "affinity" not in output_data:
-                output_data["affinity"] = []
-            output_data["affinity"] += truth["affinity"].tolist()
+        # add data for the affinity scores
+        for key in ["affinity", "classification", "class"]:
+            if key in output:
+                name = f"output {key}"
+                if name not in output_data:
+                    output_data[name] = []
+                output_data[name] += output[key].cpu().tolist()
 
-        if "class" in truth:
-            if "class" not in output_data:
-                output_data["class"] = []
-            output_data["class"] += truth["class"].tolist()
+            if key in truth:
+                name = f"true {key}"
+                if name not in output_data:
+                    output_data[name] = []
+                output_data[name] += truth[key].cpu().tolist()
 
-        if "affinity" in output:
-            if "output affinity" not in output_data:
-                output_data["output affinity"] = []
-            output_data["output affinity"] += output["affinity"].tolist()
-
-        if "class" in output:
-            if "output class" not in output_data:
-                output_data["output class"] = []
-            output_data["output class"] += output["class"].tolist()
-            if "output classification" not in output_data:
-                output_data["output classification"] = []
-            output_data["output classification"] += output["classification"].tolist()
-
+        # list all ids of the data points
         if "ids" not in output_data:
             output_data["ids"] = []
         output_data["ids"] += truth["ids"]
 
+        # convert all one-hot encoded sequences to strings
         if "loop_sequence" not in output_data:
             output_data["loop_sequence"] = []
         output_data["loop_sequence"] += ["".join([aa.one_letter_code
@@ -402,76 +374,40 @@ class Trainer:
 
         return output_data
 
-    @staticmethod
-    def _save_outputs_as_csv(output_path: str, data: Dict[str, Any]):
-
-        batch_size = len(data["ids"])
-
-        if os.path.isfile(output_path):
-            table = pandas.read_csv(output_path)
-        else:
-            table = pandas.DataFrame(data={"id": [], "loop": []})
-            if "affinity" in data:
-                table["output affinity"] = []
-                table["true affinity"] = []
-            elif "class" in data:
-                table["output class"] = []
-                table["output 0"] = []
-                table["output 1"] = []
-                table["true class"] = []
-
-            table.set_index("id")
-
-        for batch_index in range(batch_size):
-
-            id_ = data["ids"][batch_index]
-
-            loop_sequence = data["loop_sequence"][batch_index]
-
-            row_data = {"id": [id_], "loop": [loop_sequence]}
-            if "affinity" in data and "output affinity" in data:
-                row_data["output affinity"] = [data["output affinity"][batch_index]]
-                row_data["true affinity"] = [data["affinity"][batch_index]]
-
-            if "class" in data and "output class" in data:
-                row_data["output class"] = [data["output class"][batch_index]]
-                row_data["output 0"] = [data["output classification"][batch_index][0]]
-                row_data["output 1"] = [data["output classification"][batch_index][1]]
-                row_data["true class"] = [data["class"][batch_index]]
-
-            row = pandas.DataFrame(row_data)
-            row.set_index("id")
-
-            table = pandas.concat((table, row))
-
-        table.to_csv(output_path, index=False)
-
     def test(self,
              test_loader: DataLoader,
-             structures_loader: Union[DataLoader, None],
-             run_id: str):
+             run_id: str,
+             model_path: Union[str, None],
+             animated_complex_ids: Optional[List[str]],
+    ):
 
-        model_path = f"{run_id}/best-predictor.pth"
-        model = Predictor(self._model_type,
-                          self.loop_maxlen,
+        if model_path is None:
+            model_path = f"{run_id}/best-predictor.pth"
+
+        # set up the model
+        model = Predictor(self.loop_maxlen,
                           self.protein_maxlen,
                           openfold_config.model)
         model = DataParallel(model)
 
         model.to(device=self._device)
         model.eval()
-        model.load_state_dict(torch.load(model_path))
+        model.load_state_dict(torch.load(model_path, map_location=self._device))
 
-        test_data = self._validate(-1, model, test_loader, True, run_id)
-
-        structures_data = None
-        if structures_loader is not None:
-            structures_data = self._validate(-1, model, structures_loader, True, run_id)
+        # run the model to output results
+        test_data = self._validate(-1, model, test_loader, True, True, run_id)
 
         self._output_metrics(run_id, "test", -1, test_data)
-        self._output_metrics(run_id, "structures", -1, structures_data)
 
-        self._save_outputs_as_csv(os.path.join(run_id, "test-output.csv"), test_data)
+        # do any requested animation snapshots
+        if animated_complex_ids is not None:
+
+            datasets = [test_loader.dataset]
+            animated_data = self._get_selection_data_batch(datasets, animated_complex_ids)
+
+            self._snapshot("test",
+                           model,
+                           run_id, animated_data)
 
     @staticmethod
     def _get_selection_data_batch(datasets: List[ProteinLoopDataset], names: List[str]) -> Dict[str, torch.Tensor]:
@@ -491,27 +427,26 @@ class Trainer:
               train_loader: DataLoader,
               valid_loader: DataLoader,
               test_loader: DataLoader,
-              warmup_count: int, epoch_count: int, fine_tune_count: int,
+              epoch_count: int, affinity_tune_count: int, fine_tune_count: int,
               run_id: Optional[str] = None,
               pretrained_model_path: Optional[str] = None,
               animated_complex_ids: Optional[List[str]] = None,
-              structures_loader: Optional[DataLoader] = None):
+    ):
 
         # Set up the model
-        model = Predictor(self._model_type,
-                          self.loop_maxlen,
+        model = Predictor(self.loop_maxlen,
                           self.protein_maxlen,
+                          self._model_type,
                           openfold_config.model)
         model = DataParallel(model)
 
         model.to(device=self._device)
-        model.train()
 
         if pretrained_model_path is not None:
             model.load_state_dict(torch.load(pretrained_model_path,
                                              map_location=self._device))
 
-        optimizer = Adam(model.parameters(), self._lr)
+        optimizer = Adam(model.parameters(), lr=self._lr)
         # scheduler = StepLR(optimizer, step_size=10, gamma=0.1)
 
         # define model paths
@@ -524,57 +459,39 @@ class Trainer:
         if animated_complex_ids is not None:
             # make snapshots for animation
             datasets = [train_loader.dataset, valid_loader.dataset, test_loader.dataset]
-            if structures_loader is not None:
-                datasets.append(structures_loader.dataset)
-
             animated_data = self._get_selection_data_batch(datasets, animated_complex_ids)
 
             self._snapshot("0.0",
                            model,
                            run_id, animated_data)
 
-        total_epochs = warmup_count + epoch_count + fine_tune_count
+        total_epochs = epoch_count + affinity_tune_count + fine_tune_count
         for epoch_index in range(total_epochs):
 
             # flip this setting after the given number of epochs
-            affinity_tune = (epoch_index >= warmup_count)
-
-            # flip this setting after the given number of epochs
-            fine_tune = (epoch_index >= (epoch_count + warmup_count))
-
-            _log.debug(f"entering epoch {epoch_index} with affinity_tune set to {affinity_tune} and fine_tune set to {fine_tune}")
+            affinity_tune = (epoch_index >= epoch_count)
+            fine_tune = (epoch_index >= (epoch_count + affinity_tune_count))
 
             # train during epoch
             with Timer(f"train epoch {epoch_index}") as t:
-                train_data = self._epoch(epoch_index, optimizer, model, train_loader,
-                                         affinity_tune, fine_tune,
+                train_data = self._epoch(epoch_index, optimizer, model, train_loader, affinity_tune, fine_tune,
                                          run_id, animated_data)
                 t.add_to_title(f"on {len(train_loader.dataset)} data points")
 
             # validate
             with Timer(f"valid epoch {epoch_index}") as t:
-                valid_data = self._validate(epoch_index, model, valid_loader, True, True)
+                valid_data = self._validate(epoch_index, model, valid_loader, True, True, run_id)
                 t.add_to_title(f"on {len(valid_loader.dataset)} data points")
 
             # test
             with Timer(f"test epoch {epoch_index}") as t:
-                test_data = self._validate(epoch_index, model, test_loader, True, True)
+                test_data = self._validate(epoch_index, model, test_loader, True, True, run_id)
                 t.add_to_title(f"on {len(test_loader.dataset)} data points")
-
-            # structures
-            structures_data = None
-            if structures_loader is not None:
-                with Timer(f"structures epoch {epoch_index}") as t:
-                    structures_data = self._validate(epoch_index, model, structures_loader, True, True)
-                    t.add_to_title(f"on {len(structures_loader.dataset)} data points")
 
             # write the metrics
             self._output_metrics(run_id, "train", epoch_index, train_data)
             self._output_metrics(run_id, "valid", epoch_index, valid_data)
             self._output_metrics(run_id, "test", epoch_index, test_data)
-
-            if structures_data is not None:
-                self._output_metrics(run_id, "structures", epoch_index, structures_data)
 
             # early stopping, if no more improvement
             if abs(valid_data["total loss"] - lowest_loss) < self._early_stop_epsilon:
@@ -590,10 +507,6 @@ class Trainer:
 
             #scheduler.step()
 
-            self._save_outputs_as_csv(os.path.join(run_id, f"epoch-{epoch_index}-train-output.csv"), train_data)
-            self._save_outputs_as_csv(os.path.join(run_id, f"epoch-{epoch_index}-valid-output.csv"), valid_data)
-            self._save_outputs_as_csv(os.path.join(run_id, f"epoch-{epoch_index}-test-output.csv"), test_data)
-
     @staticmethod
     def _init_metrics_dataframe():
 
@@ -608,6 +521,7 @@ class Trainer:
                         epoch_index: int,
                         data: Dict[str, Any]):
 
+        # load any previous versions of the table
         metrics_path = f"{run_id}/metrics.csv"
         if os.path.isfile(metrics_path):
 
@@ -616,36 +530,39 @@ class Trainer:
             metrics_dataframe = self._init_metrics_dataframe()
         metrics_dataframe.set_index("epoch")
 
+        # add a new row for this epoch
         while epoch_index > metrics_dataframe.shape[0]:
             metrics_dataframe = metrics_dataframe.append({name: [] for name in metrics_dataframe})
 
         metrics_dataframe.at[epoch_index, "epoch"] = int(epoch_index)
 
+        # write losses to the table
         for loss_name in filter(lambda s: s.endswith(" loss"), data.keys()):
 
             normalized_loss = data[loss_name] / len(data["ids"])
 
             metrics_dataframe.at[epoch_index, f"{pass_name} {loss_name}"] = round(normalized_loss, 3)
 
-        if "output class" in data and "class" in data:
-
-            if len(set(data["class"])) > 1:
-
-                mcc = matthews_corrcoef(data["output class"], data["class"])
-                metrics_dataframe.at[epoch_index, f"{pass_name} matthews correlation"] = round(mcc, 3)
-
-                auc = roc_auc_score(data["class"], [row[1] for row in data["output classification"]])
-                metrics_dataframe.at[epoch_index, f"{pass_name} ROC AUC"] = round(auc, 3)
-
-            acc = get_accuracy(data["output class"], data["class"])
-            metrics_dataframe.at[epoch_index, f"{pass_name} accuracy"] = round(acc, 3)
-
-        elif "output affinity" in data and "affinity" in data:
-            pcc = pearsonr(data["output affinity"], data["affinity"]).statistic
-            metrics_dataframe.at[epoch_index, f"{pass_name} affinity pearson correlation"] = round(pcc, 3)
-
+        # write RMSD to the table
         metrics_dataframe.at[epoch_index, f"{pass_name} binders C-alpha RMSD"] = round(data["binders_c_alpha_rmsd"], 3)
 
+        # write affinity-related metrics
+        if "output classification" in data and "true class" in data and len(set(data["true class"])) > 1:
+            auc = roc_auc_score(data["true class"], [row[1] for row in data["output classification"]])
+            metrics_dataframe.at[epoch_index, f"{pass_name} ROC AUC"] = round(auc, 3)
+
+        if "output class" in data and "true class" in data:
+            acc = get_accuracy(data["true class"], data["output class"])
+            metrics_dataframe.at[epoch_index, f"{pass_name} accuracy"] = round(acc, 3)
+
+            mcc = matthews_corrcoef(data["true class"], data["output class"])
+            metrics_dataframe.at[epoch_index, f"{pass_name} matthews correlation"] = round(mcc, 3)
+
+        if "output affinity" in data and "true affinity" in data:
+            r = pearsonr(data["output affinity"], data["true affinity"]).statistic
+            metrics_dataframe.at[epoch_index, f"{pass_name} pearson correlation"] = round(r, 3)
+
+        # save
         metrics_dataframe.to_csv(metrics_path, sep=",", index=False)
 
     def get_data_loader(self,
@@ -653,7 +570,7 @@ class Trainer:
                         batch_size: int,
                         device: torch.device) -> DataLoader:
 
-        dataset = ProteinLoopDataset(data_path, device, self._model_type,
+        dataset = ProteinLoopDataset(data_path, device,
                                      loop_maxlen=self.loop_maxlen,
                                      protein_maxlen=self.protein_maxlen)
 
@@ -685,21 +602,24 @@ if __name__ == "__main__":
 
     os.mkdir(run_id)
 
+    log_level = logging.INFO
+    if args.debug:
+        log_level = logging.DEBUG
+        torch.autograd.set_detect_anomaly(True)
+
     if args.log_stdout:
         logging.basicConfig(stream=sys.stdout,
-                            level=logging.DEBUG if args.debug else logging.INFO)
+                            level=log_level)
     else:
         logging.basicConfig(filename=f"{run_id}/tcrspec.log", filemode="a",
-                            level=logging.DEBUG if args.debug else logging.INFO)
+                            level=log_level)
 
     if torch.cuda.is_available():
         device_count = torch.cuda.device_count()
         _log.debug(f"using {device_count} cuda devices")
-
         device = torch.device("cuda")
     else:
         _log.debug("using cpu device")
-
         device = torch.device("cpu")
 
     if args.debug:
@@ -708,19 +628,13 @@ if __name__ == "__main__":
     _log.debug(f"using {args.workers} workers")
     torch.multiprocessing.set_start_method('spawn')
 
-    trainer = Trainer(device, args.workers, model_type, args.lr)
-
-    structures_loader = None
-    if args.structures_path is not None:
-        structures_loader = trainer.get_data_loader(args.structures_path, args.batch_size, device)
+    trainer = Trainer(device, args.workers, args.lr, model_type)
 
     if args.test_only:
 
         test_path = args.data_path[0]
 
         test_loader = trainer.get_data_loader(test_path, args.batch_size, device)
-
-        trainer.test(test_loader, structures_loader, run_id=run_id)
 
     else:  # train & test
 
@@ -731,6 +645,6 @@ if __name__ == "__main__":
         test_loader = trainer.get_data_loader(test_path, args.batch_size, device)
 
         trainer.train(train_loader, valid_loader, test_loader,
-                      args.warmup_count, args.epoch_count, args.fine_tune_count,
+                      args.epoch_count, args.affinity_tune_count, args.fine_tune_count,
                       run_id, args.pretrained_model,
-                      args.animate, structures_loader)
+                      args.animate)
