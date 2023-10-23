@@ -385,6 +385,7 @@ class Trainer:
              run_id: str,
              output_metrics_name: Optional[str],
              animated_complex_ids: List[str],
+             model_path: Optional[str] = None,
     ):
         """
         Call this function instead of train, when you just want to test the model.
@@ -395,7 +396,6 @@ class Trainer:
             output_metrics: where to to save metrics data in a csv file
         """
 
-        model_path = self.get_model_path(run_id)
         model = Predictor(self._model_type,
                           self.loop_maxlen,
                           self.protein_maxlen,
@@ -406,6 +406,8 @@ class Trainer:
         model.eval()
 
         # load the pretrained model
+        if model_path is None:
+            model_path = self.get_model_path(run_id)
         model.load_state_dict(torch.load(model_path,  map_location=self._device))
 
         # run the model to output results
