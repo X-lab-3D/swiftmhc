@@ -284,8 +284,7 @@ class Trainer:
 
         valid_data = {}
 
-        # using model.eval() here causes this issue:
-        # https://github.com/pytorch/pytorch/pull/98375#issuecomment-1499504721
+        model.eval()
 
         rmsds = {}
         with torch.no_grad():
@@ -430,7 +429,6 @@ class Trainer:
         model = DataParallel(model)
 
         model.to(device=self._device)
-        model.train()
 
         if pretrained_model_path is not None:
             model.load_state_dict(torch.load(pretrained_model_path,
