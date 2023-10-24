@@ -67,7 +67,7 @@ class Predictor(torch.nn.Module):
                                structure_module_config.no_qk_points,
                                structure_module_config.no_v_points,
                                self.protein_maxlen)
-        self.protein_ipa.inf = self.inf
+        self.protein_ipa.inf = 1e22
 
         self.protein_norm = torch.nn.Sequential(
             torch.nn.Dropout(p=0.1),
@@ -113,14 +113,12 @@ class Predictor(torch.nn.Module):
         """
 
         # [batch_size, loop_len, c_s]
-        loop_seq = batch["loop_sequence_onehot"]
+        loop_seq = batch["loop_sequence_onehot"].clone()
 
         # [batch_size, loop_len]
         loop_mask = batch["loop_self_residues_mask"]
 
         batch_size, loop_maxlen, loop_depth = loop_seq.shape
-
-        loop_upd, loop_att = self._loop_self_attention(loop_seq, loop_mask)
 
         # encode the loop positions
         loop_embd = self.posenc(loop_seq)
@@ -132,7 +130,7 @@ class Predictor(torch.nn.Module):
         # structure-based self-attention on the protein
         protein_T = Rigid.from_tensor_4x4(batch["protein_backbone_rigid_tensor"])
         protein_z = batch["protein_proximities"]
-        protein_embd = batch["protein_sequence_onehot"]
+        protein_embd = batch["protein_sequence_onehot"].clone()
         protein_mask = batch["protein_self_residues_mask"]
 
         for _ in range(self.n_ipa_repeat):
@@ -140,7 +138,7 @@ class Predictor(torch.nn.Module):
                                                                                  protein_z,
                                                                                  protein_T,
                                                                                  protein_mask.float())
-            protein_embd += protein_upd
+            protein_embd = protein_embd + protein_upd
 
         protein_embd = self.protein_norm(protein_embd)
 
@@ -161,22 +159,25 @@ class Predictor(torch.nn.Module):
         # [batch_size, loop_len, 14] (true or false)
         output = make_atom14_masks(output)
 
-        # adding hydrogens:
+        # changing atom format from 14-long to 37-long arrays:
         # [batch_size, loop_len, 37, 3]
         output["final_atom_positions"] = atom14_to_atom37(output["final_positions"], output)
 
+        # take updated s_i from structure module
+        loop_embd = loop_embd + output["single"]
+
         # [batch_size, loop_len]
-        p = self.affinity_reswise_mlp(loop_embd + output["single"])[..., 0]
+        p = self.affinity_reswise_mlp(loop_embd).reshape(batch_size, loop_maxlen)
 
         # affinity prediction
         if self.model_type == ModelType.REGRESSION:
             # [batch_size]
-            output["affinity"] = self.output_linear(loop_embd).reshape(batch_size)
+            output["affinity"] = self.output_linear(p).reshape(batch_size)
 
         elif self.model_type == ModelType.CLASSIFICATION:
             # softmax is required here, so that we can calculate ROC AUC
             # [batch_size, 2]
-            output["classification"] = torch.nn.functional.softmax(self.affinity_linear(p), dim=1)
+            output["classification"] = torch.nn.functional.softmax(self.output_linear(p), dim=1)
             # [batch_size]
             output["class"] = torch.argmax(output["classification"], dim=1)
 
