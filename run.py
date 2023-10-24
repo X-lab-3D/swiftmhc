@@ -532,21 +532,20 @@ class Trainer:
             metrics_dataframe.at[epoch_index, f"{pass_name} {loss_name}"] = round(normalized_loss, 3)
 
         # write affinity-related metrics
-        if "output class" in data and "class" in data:
+        if "output class" in data and "true class" in data:
+            if len(set(data["true class"])) > 1:
 
-            if len(set(data["class"])) > 1:
-
-                mcc = matthews_corrcoef(data["output class"], data["class"])
+                mcc = matthews_corrcoef(data["output class"], data["true class"])
                 metrics_dataframe.at[epoch_index, f"{pass_name} matthews correlation"] = round(mcc, 3)
 
-                auc = roc_auc_score(data["class"], [row[1] for row in data["output classification"]])
+                auc = roc_auc_score(data["true class"], [row[1] for row in data["output classification"]])
                 metrics_dataframe.at[epoch_index, f"{pass_name} ROC AUC"] = round(auc, 3)
 
-            acc = get_accuracy(data["output class"], data["class"])
+            acc = get_accuracy(data["output class"], data["true class"])
             metrics_dataframe.at[epoch_index, f"{pass_name} accuracy"] = round(acc, 3)
 
-        elif "output affinity" in data and "affinity" in data:
-            pcc = pearsonr(data["output affinity"], data["affinity"]).statistic
+        elif "output affinity" in data and "true affinity" in data:
+            pcc = pearsonr(data["output affinity"], data["true affinity"]).statistic
             metrics_dataframe.at[epoch_index, f"{pass_name} affinity pearson correlation"] = round(pcc, 3)
 
         # write RMSD to the table
