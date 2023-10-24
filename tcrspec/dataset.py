@@ -36,7 +36,6 @@ class ProteinLoopDataset(Dataset):
     def __init__(self,
                  hdf5_path: str,
                  device: torch.device,
-                 model_type: ModelType,
                  loop_maxlen: int,
                  protein_maxlen: int,
                  entry_names: Optional[List[str]] = None,
