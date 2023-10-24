@@ -336,14 +336,16 @@ class Trainer:
         # add data for the affinity scores
         for key in ["affinity", "classification", "class"]:
             if key in output:
-                if key not in output_data:
-                    output_data[f"output {key}"] = []
-                output_data[f"output {key}"] += output[key].cpu().tolist()
+                name = f"output {key}"
+                if name not in output_data:
+                    output_data[name] = []
+                output_data[name] += output[key].cpu().tolist()
 
             if key in truth:
-                if key not in output_data:
-                    output_data[f"true {key}"] = []
-                output_data[f"true {key}"] += truth[key].cpu().tolist()
+                name = f"true {key}"
+                if name not in output_data:
+                    output_data[name] = []
+                output_data[name] += truth[key].cpu().tolist()
 
         # list all ids of the data points
         if "ids" not in output_data:
