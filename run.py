@@ -74,8 +74,9 @@ arg_parser.add_argument("--pretrained-model", "-m", help="use a given pretrained
 arg_parser.add_argument("--test-only", "-t", help="skip training and test on a pretrained model", action='store_const', const=True, default=False)
 arg_parser.add_argument("--workers", "-w", help="number of workers to load batches", type=int, default=5)
 arg_parser.add_argument("--batch-size", "-b", help="batch size to use during training/validation/testing", type=int, default=8)
-arg_parser.add_argument("--epoch-count", "-e", help="how many epochs to run during training", type=int, default=100)
-arg_parser.add_argument("--fine-tune-count", "-u", help="how many epochs to run during fine-tuning", type=int, default=10)
+arg_parser.add_argument("--warmup-count", "-j", help="how many epochs to run during warmup, thus without affinity prediction", type=int, default=0)
+arg_parser.add_argument("--epoch-count", "-e", help="how many epochs to run during training", type=int, default=20)
+arg_parser.add_argument("--fine-tune-count", "-u", help="how many epochs to run during fine-tuning, at the end", type=int, default=10)
 arg_parser.add_argument("--animate", "-a", help="id of a data point to generate intermediary pdb for", nargs="+")
 arg_parser.add_argument("--lr", help="learning rate setting", type=float, default=0.001)
 arg_parser.add_argument("--classification", "-c", help="do classification instead of regression", action="store_const", const=True, default=False)
@@ -85,6 +86,18 @@ arg_parser.add_argument("data_path", help="path to the train, validation & test 
 _log = logging.getLogger(__name__)
 
 
+def get_accuracy(output: List[int], truth: List[int]) -> float:
+
+    right = 0
+    for i, o in enumerate(output):
+        t = truth[i]
+
+        if o == t:
+            right += 1
+
+    return float(right) / len(output)
+
+
 class Trainer:
     def __init__(self,
                  device: torch.device,
@@ -92,7 +105,6 @@ class Trainer:
                  lr: float,
                  model_type: ModelType,
     ):
-
         self._lr = lr
 
         self._model_type = model_type
@@ -227,7 +239,7 @@ class Trainer:
                affinity_tune: bool,
                fine_tune: bool,
                output_directory: Optional[str] = None,
-               animated_data: Optional[Dict[str, torch.Tensor]] = None
+               animated_data: Dict[str, torch.Tensor],
     ) -> Dict[str, Any]:
 
         epoch_data = {}
@@ -241,8 +253,7 @@ class Trainer:
             batch_loss, batch_output = self._batch(epoch_index,
                                                    batch_index, optimizer, model,
                                                    batch_data,
-                                                   affinity_tune,
-                                                   fine_tune)
+                                                   affinity_tune, fine_tune)
 
             if output_directory is not None and animated_data is not None and (batch_index + 1) % self._snap_period == 0:
 
@@ -402,7 +413,7 @@ class Trainer:
               train_loader: DataLoader,
               valid_loader: DataLoader,
               test_loader: DataLoader,
-              epoch_count: int, fine_tune_count: int,
+              warmup_count: int, epoch_count: int, fine_tune_count: int,
               run_id: Optional[str] = None,
               pretrained_model_path: Optional[str] = None,
               animated_complex_ids: Optional[List[str]] = None,
@@ -427,7 +438,6 @@ class Trainer:
 
         # define model paths
         model_path = f"{run_id}/best-predictor.pth"
-        protein_ipa_path = f"{run_id}/best-protein-ipa.pth"
 
         # Keep track of the lowest loss value.
         lowest_loss = float("inf")
@@ -449,11 +459,15 @@ class Trainer:
             fine_tune = (epoch_index >= epoch_count)
             affinity_tune = (epoch_index >= epoch_count)
 
-            _log.debug(f"entering epoch {epoch_index} with fine_tune set to {fine_tune}")
+            # flip this setting after the given number of epochs
+            fine_tune = (epoch_index >= (epoch_count + warmup_count))
+
+            _log.debug(f"entering epoch {epoch_index} with affinity_tune set to {affinity_tune} and fine_tune set to {fine_tune}")
 
             # train during epoch
             with Timer(f"train epoch {epoch_index}") as t:
-                train_data = self._epoch(epoch_index, optimizer, model, train_loader, affinity_tune, fine_tune,
+                train_data = self._epoch(epoch_index, optimizer, model, train_loader,
+                                         affinity_tune, fine_tune,
                                          run_id, animated_data)
                 t.add_to_title(f"on {len(train_loader.dataset)} data points")
 
@@ -474,21 +488,17 @@ class Trainer:
 
             # early stopping, if no more improvement
             if abs(valid_data["total loss"] - lowest_loss) < self._early_stop_epsilon:
-                if fine_tune:
-                    break
-                else:
-                    epoch_index = epoch_count
+                break
 
             # If the loss improves, save the model.
             if valid_data["total loss"] < lowest_loss:
                 lowest_loss = valid_data["total loss"]
 
                 torch.save(model.state_dict(), model_path)
-                torch.save(model.module.protein_ipa.state_dict(), protein_ipa_path)
             # else:
             #    model.load_state_dict(torch.load(model_path))
 
-            # scheduler.step()
+            #scheduler.step()
 
     @staticmethod
     def _init_metrics_dataframe():
@@ -526,21 +536,26 @@ class Trainer:
 
             metrics_dataframe.at[epoch_index, f"{pass_name} {loss_name}"] = round(normalized_loss, 3)
 
+        # write affinity-related metrics
+        if "output class" in data and "class" in data:
+
+            if len(set(data["class"])) > 1:
+
+                mcc = matthews_corrcoef(data["output class"], data["class"])
+                metrics_dataframe.at[epoch_index, f"{pass_name} matthews correlation"] = round(mcc, 3)
+
+                auc = roc_auc_score(data["class"], [row[1] for row in data["output classification"]])
+                metrics_dataframe.at[epoch_index, f"{pass_name} ROC AUC"] = round(auc, 3)
+
+            acc = get_accuracy(data["output class"], data["class"])
+            metrics_dataframe.at[epoch_index, f"{pass_name} accuracy"] = round(acc, 3)
+
+        elif "output affinity" in data and "affinity" in data:
+            pcc = pearsonr(data["output affinity"], data["affinity"]).statistic
+            metrics_dataframe.at[epoch_index, f"{pass_name} affinity pearson correlation"] = round(pcc, 3)
+
         # write RMSD to the table
         metrics_dataframe.at[epoch_index, f"{pass_name} binders C-alpha RMSD"] = round(data["binders_c_alpha_rmsd"], 3)
-
-        # write affinity-related metrics
-        if "output classification" in data and "true class" in data and len(set(data["true class"])) > 1:
-            auc = roc_auc_score(data["true class"], [row[1] for row in data["output classification"]])
-            metrics_dataframe.at[epoch_index, f"{pass_name} ROC AUC"] = round(auc, 3)
-
-        if "output affinity" in data and "true affinity" in data:
-            r = pearsonr(data["output affinity"], data["true affinity"]).statistic
-            metrics_dataframe.at[epoch_index, f"{pass_name} pearson correlation"] = round(r, 3)
-
-        if "output class" in data and "true class" in data:
-            mcc = matthews_corrcoef(data["true class"], data["output class"])
-            metrics_dataframe.at[epoch_index, f"{pass_name} matthews correlation"] = round(mcc, 3)
 
         # save
         metrics_dataframe.to_csv(metrics_path, sep=",", index=False)
@@ -600,6 +615,9 @@ if __name__ == "__main__":
     else:
         _log.debug("using cpu device")
         device = torch.device("cpu")
+
+    if args.debug:
+        torch.autograd.detect_anomaly(True)
 
     _log.debug(f"using {args.workers} workers")
     torch.multiprocessing.set_start_method('spawn')

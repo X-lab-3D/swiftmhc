@@ -447,6 +447,7 @@ def get_loss(output: TensorDict, batch: TensorDict,
         "affinity": affinity_loss.mean(dim=0),
     })
 
+    # add these separate components to the result too:
     for component_id, loss_tensor in fape_losses.items():
         result[f"{component_id} fape"] = loss_tensor.mean(dim=0)
 
