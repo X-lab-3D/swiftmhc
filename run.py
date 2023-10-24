@@ -74,9 +74,9 @@ arg_parser.add_argument("--pretrained-model", "-m", help="use a given pretrained
 arg_parser.add_argument("--test-only", "-t", help="skip training and test on a pretrained model", action='store_const', const=True, default=False)
 arg_parser.add_argument("--workers", "-w", help="number of workers to load batches", type=int, default=5)
 arg_parser.add_argument("--batch-size", "-b", help="batch size to use during training/validation/testing", type=int, default=8)
-arg_parser.add_argument("--epoch-count", "-e", help="how many epochs to run during training", type=int, default=20)
-arg_parser.add_argument("--affinity-tune-count", "-j", help="how many epochs to run during affinity-tune, thus with affinity prediction", type=int, default=0)
-arg_parser.add_argument("--fine-tune-count", "-u", help="how many epochs to run during fine-tuning, at the end", type=int, default=10)
+arg_parser.add_argument("--epoch-count", "-e", help="how many epochs to run during training", type=int, default=30)
+arg_parser.add_argument("--affinity-tune-count", "-j", help="how many epochs to run during affinity-tune, thus with affinity prediction", type=int, default=30)
+arg_parser.add_argument("--fine-tune-count", "-u", help="how many epochs to run during fine-tuning, at the end", type=int, default=30)
 arg_parser.add_argument("--animate", "-a", help="id of a data point to generate intermediary pdb for", nargs="+")
 arg_parser.add_argument("--lr", help="learning rate setting", type=float, default=0.001)
 arg_parser.add_argument("--classification", "-c", help="do classification instead of regression", action="store_const", const=True, default=False)
@@ -239,7 +239,7 @@ class Trainer:
                affinity_tune: bool,
                fine_tune: bool,
                output_directory: Optional[str] = None,
-               animated_data: Dict[str, torch.Tensor],
+               animated_data: Optional[Dict[str, torch.Tensor]] = None,
     ) -> Dict[str, Any]:
 
         epoch_data = {}
@@ -434,7 +434,7 @@ class Trainer:
                                              map_location=self._device))
 
         optimizer = Adam(model.parameters(), lr=self._lr)
-        # scheduler = StepLR(optimizer, step_size=10, gamma=0.1)
+        scheduler = StepLR(optimizer, step_size=30, gamma=0.1)
 
         # define model paths
         model_path = f"{run_id}/best-predictor.pth"
@@ -458,11 +458,6 @@ class Trainer:
             # flip this setting after the given number of epochs
             affinity_tune = (epoch_index >= epoch_count)
             fine_tune = (epoch_index >= (epoch_count + affinity_tune_count))
-
-            # flip this setting after the given number of epochs
-            fine_tune = (epoch_index >= (epoch_count + warmup_count))
-
-            _log.debug(f"entering epoch {epoch_index} with affinity_tune set to {affinity_tune} and fine_tune set to {fine_tune}")
 
             # train during epoch
             with Timer(f"train epoch {epoch_index}") as t:
@@ -498,7 +493,7 @@ class Trainer:
             # else:
             #    model.load_state_dict(torch.load(model_path))
 
-            #scheduler.step()
+            scheduler.step()
 
     @staticmethod
     def _init_metrics_dataframe():

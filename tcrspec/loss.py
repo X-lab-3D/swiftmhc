@@ -390,8 +390,8 @@ def _supervised_chi_loss(angles_sin_cos: torch.Tensor,
 
 AFFINITY_BINDING_TRESHOLD = 1.0 - log(500) / log(50000)
 
-_classification_loss_func = torch.nn.CrossEntropyLoss(reduction="none")
-_regression_loss_func = torch.nn.MSELoss(reduction="none")
+_classification_loss_function = torch.nn.CrossEntropyLoss(reduction="none")
+_regression_loss_function = torch.nn.MSELoss(reduction="none")
 
 
 def get_loss(output: TensorDict, batch: TensorDict,
