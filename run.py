@@ -316,8 +316,7 @@ class Trainer:
 
         valid_data = {}
 
-        # using model.eval() here causes this issue:
-        # https://github.com/pytorch/pytorch/pull/98375#issuecomment-1499504721
+        model.eval()
 
         sd = 0.0
         n = 0
@@ -505,14 +504,13 @@ class Trainer:
         model = DataParallel(model)
 
         model.to(device=self._device)
-        model.train()
 
         if pretrained_model_path is not None:
             model.load_state_dict(torch.load(pretrained_model_path,
                                              map_location=self._device))
 
         optimizer = Adam(model.parameters(), self._lr)
-        # scheduler = StepLR(optimizer, step_size=10, gamma=0.1)
+        #scheduler = StepLR(optimizer, step_size=100, gamma=0.1)
 
         # define model paths
         model_path = f"{run_id}/best-predictor.pth"
