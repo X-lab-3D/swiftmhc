@@ -1,6 +1,7 @@
 from typing import List, Tuple
 from collections import OrderedDict
 from math import sqrt
+import logging
 
 import numpy
 import torch
@@ -19,6 +20,9 @@ from Bio.PDB.Model import Model
 
 from ..domain.amino_acid import amino_acids_by_code
 from .amino_acid import one_hot_decode_sequence
+
+
+_log = logging.getLogger(__name__)
 
 
 def _get_atom(residue: Residue, name: str) -> Atom:
@@ -169,13 +173,27 @@ def get_residue_proximities(residues: List[Residue]) -> torch.Tensor:
 
 def get_atom14_positions(residue: Residue) -> Tuple[torch.Tensor, torch.Tensor]:
     atom_names = openfold_residue_atom14_names[residue.get_resname()]
-    mask = [len(name) > 0 for name in atom_names]
-    atoms = [_get_atom(residue, name) for name in atom_names]
-    positions = [atom.coord
-                 if atom is not None else (0, 0, 0)
-                 for atom in atoms]
 
-    return torch.tensor(numpy.array(positions)), torch.tensor(mask)
+    masks = []
+    positions = []
+    for atom_name in atom_names:
+
+        if len(atom_name) > 0:
+            try:
+                atom = _get_atom(residue, atom_name)
+                positions.append(atom.coord)
+                masks.append(True)
+
+            except Exception as e:
+                masks.append(False)
+                positions.append((0.0, 0.0, 0.0))
+
+                _log.warning(f"{residue.get_full_id()} not adding 14-formatted position for atom: {str(e)}")
+        else:
+            masks.append(False)
+            positions.append((0.0, 0.0, 0.0))
+
+    return torch.tensor(numpy.array(positions)), torch.tensor(masks)
 
 
 def recreate_structure(structure_id: str,
