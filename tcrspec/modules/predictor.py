@@ -16,7 +16,6 @@ from openfold.utils.loss import find_structural_violations
 from openfold.utils.feats import atom14_to_atom37
 from openfold.model.primitives import LayerNorm
 
-from ..models.types import ModelType
 from .position_encoding import PositionalEncoding
 from .cross_structure_module import CrossStructureModule
 from ..domain.amino_acid import AMINO_ACID_DIMENSION
@@ -24,6 +23,7 @@ from ..models.data import TensorDict
 from ..tools.amino_acid import one_hot_decode_sequence
 from .transform import DebuggableTransformerEncoderLayer
 from .ipa import DebuggableInvariantPointAttention as IPA
+from ..models.types import ModelType
 
 
 _log = logging.getLogger(__name__)
@@ -31,9 +31,9 @@ _log = logging.getLogger(__name__)
 
 class Predictor(torch.nn.Module):
     def __init__(self,
-                 model_type: ModelType,
                  loop_maxlen: int,
                  protein_maxlen: int,
+                 model_type: ModelType,
                  config: ml_collections.ConfigDict):
         super(Predictor, self).__init__()
 
@@ -43,17 +43,10 @@ class Predictor(torch.nn.Module):
         structure_module_config.no_blocks = 2
         structure_module_config.no_heads_ipa = 2
 
-        self.model_type = model_type
         self.loop_maxlen = loop_maxlen
         self.protein_maxlen = protein_maxlen
 
         self.n_head = structure_module_config.no_heads_ipa
-
-        #self.pos_enc = PositionalEncoding(structure_module_config.c_s, self.loop_maxlen)
-
-        #self.loop_enc = DebuggableTransformerEncoderLayer(structure_module_config.c_s,
-        #                                                  self.n_head)
-        #self.n_block = structure_module_config.no_blocks
 
         loop_input_size = self.loop_maxlen * structure_module_config.c_s
         c_loop = 512
@@ -86,33 +79,26 @@ class Predictor(torch.nn.Module):
 
         self.cross = CrossStructureModule(**structure_module_config)
 
-        c_affinity = 512
+        c_affinity = 128
 
-        #self.aff_norm = LayerNorm(structure_module_config.c_s)
-
-        #self.aff_trans = torch.nn.Sequential(
-        #    torch.nn.Linear(structure_module_config.c_s, 10),
-        #    torch.nn.GELU(),
-        #    torch.nn.Linear(10, structure_module_config.c_s),
-        #    torch.nn.Dropout(0.1),
-        #    torch.nn.LayerNorm(structure_module_config.c_s)
-        #)
-
-        if self.model_type == ModelType.REGRESSION:
-            output_size = 1
-
-        elif self.model_type == ModelType.CLASSIFICATION:
-            output_size = 2
-
-        self.aff_mlp = torch.nn.Sequential(
-            torch.nn.Linear(loop_input_size, c_affinity),
-            #torch.nn.Linear(structure_module_config.c_s, c_affinity),
+        self.affinity_reswise_mlp = torch.nn.Sequential(
+            torch.nn.Linear(structure_module_config.c_s, c_affinity),
             torch.nn.GELU(),
             torch.nn.Linear(c_affinity, c_affinity),
             torch.nn.GELU(),
-            torch.nn.Linear(c_affinity, output_size),
-            #torch.nn.LayerNorm(1),
+            torch.nn.Linear(c_affinity, 1),
         )
+
+        self.model_type = model_type
+
+        if model_type == ModelType.REGRESSION:
+            output_size = 1
+        elif model_type == ModelType.CLASSIFICATION:
+            output_size = 2
+        else:
+            raise TypeError(str(model_type))
+
+        self.affinity_linear = torch.nn.Linear(loop_maxlen, output_size)
 
     def forward(self, batch: TensorDict) -> TensorDict:
         """
@@ -206,22 +192,16 @@ class Predictor(torch.nn.Module):
         # [batch_size, loop_len, 37, 3]
         output["final_atom_positions"] = atom14_to_atom37(output["final_positions"], output)
 
-        # [batch_size, n_heads, loop_len, protein_len]
-        #cross_att = output["cross_attention"]
+        # [batch_size, loop_len]
+        p = self.affinity_reswise_mlp(output["single"])[..., 0]
 
-        # [batch_size, loop_maxlen, c_s]
-        updated_s_loop = output["single"]
-
+        # affinity prediction
         if self.model_type == ModelType.REGRESSION:
-            # [batch_size]
-            output["affinity"] = self.aff_mlp(updated_s_loop.reshape(batch_size, -1)).reshape(batch_size)
+            output["affinity"] = self.affinity_linear(p)
 
         elif self.model_type == ModelType.CLASSIFICATION:
-
-            # [batch_size, 2]
-            output["classification"] = torch.nn.functional.softmax(self.aff_mlp(updated_s_loop.reshape(batch_size, -1)), dim=1)
-
-            # [batch_size]
+            # softmax is required here, so that we can calculate ROC AUC
+            output["classification"] = torch.nn.functional.softmax(self.affinity_linear(p), dim=1)
             output["class"] = torch.argmax(output["classification"], dim=1)
 
         return output

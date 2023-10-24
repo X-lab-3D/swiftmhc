@@ -389,8 +389,9 @@ def _supervised_chi_loss(angles_sin_cos: torch.Tensor,
 
 
 AFFINITY_BINDING_TRESHOLD = 1.0 - log(500) / log(50000)
-_affinity_loss_function = MSELoss(reduction="none")
-_classification_loss_function = CrossEntropyLoss(reduction="none")
+
+_classification_loss_func = torch.nn.CrossEntropyLoss(reduction="none")
+_regression_loss_func = torch.nn.MSELoss(reduction="none")
 
 
 def get_loss(output: TensorDict, batch: TensorDict,
@@ -405,7 +406,6 @@ def get_loss(output: TensorDict, batch: TensorDict,
     elif "affinity" in output and "affinity" in batch:
         affinity_loss = _affinity_loss_function(output["affinity"], batch["affinity"])
         non_binders_index = batch["affinity"] < AFFINITY_BINDING_TRESHOLD
-
     else:
         raise ValueError("Cannot compute affinity loss without class or affinity in both output and batch data")
 
@@ -434,17 +434,17 @@ def get_loss(output: TensorDict, batch: TensorDict,
     if fine_tune:
         total_loss += 1.0 * violation_losses["total"]
 
-    # for true non-binders, the total loss has no structural component
+    # for true non-binders, the total loss is simply affinity-based
     if affinity_tune:
-        total_loss[non_binders_index] = 1.0 * affinity_loss[non_binders_index]
+        total_loss[non_binders_index] = affinity_loss[non_binders_index]
     else:
-        total_loss[non_binders_index] = affinity_loss.new_zeros(non_binders_index.sum())
+        total_loss[non_binders_index] = 0.0
 
     # average losses over batch dimension
     result = TensorDict({
         "total": total_loss.mean(dim=0),
-        "affinity": affinity_loss.mean(dim=0),
         "chi": chi_loss.mean(dim=0),
+        "affinity": affinity_loss.mean(dim=0),
     })
 
     # add these separate components to the result too:
@@ -457,10 +457,10 @@ def get_loss(output: TensorDict, batch: TensorDict,
     return result
 
 
-def get_calpha_square_deviation(output_data: Dict[str, torch.Tensor],
-                                batch_data: Dict[str, torch.Tensor]) -> Tuple[float, int]:
+def get_calpha_rmsd(output_data: Dict[str, torch.Tensor],
+                    batch_data: Dict[str, torch.Tensor]) -> Dict[str, float]:
     """
-    Returns: (sum of squares, number of squares)
+    Returns: [n_binders] rmsd per binder
     """
 
     # take binders only
@@ -473,10 +473,16 @@ def get_calpha_square_deviation(output_data: Dict[str, torch.Tensor],
     else:
         raise ValueError("Cannot compute RMSD without class or affinity output")
 
+    # prevent NaN, in case of no binders
+    if not torch.any(binders_index):
+        return torch.tensor([])
+
+    ids = [batch_data["ids"][i] for i in torch.nonzero(binders_index)]
+
     # [n_binders, max_loop_len, n_atoms, 3]
     output_positions = output_data["final_positions"][binders_index]
     true_positions = batch_data["loop_atom14_gt_positions"][binders_index]
- 
+
     # [n_binders, max_loop_len]
     mask = batch_data["loop_cross_residues_mask"][binders_index]
 
@@ -484,17 +490,16 @@ def get_calpha_square_deviation(output_data: Dict[str, torch.Tensor],
     # [n_binders, max_loop_len, 3]
     output_positions = output_positions[..., 1, :]
     true_positions = true_positions[..., 1, :]
+    squares = (output_positions - true_positions) ** 2
 
-    # [n_binders, max_loop_len, 3]
-    diff = output_positions - true_positions
+    # [batch_size]
+    sum_of_squares = (squares * mask[..., None]).sum(dim=2).sum(dim=1)
+    counts = torch.sum(mask.int(), dim=1)
 
-    sum_ = torch.sum((diff * mask.unsqueeze(-1)) ** 2).item()
-    count = mask.sum().item()
+    rmsd = torch.sqrt(sum_of_squares / counts)
 
-    if count > 0:
-        _log.debug(f"calculated CA rmsd {sqrt(sum_ / count)} for a batch of {count} binders")
 
-    return sum_, count
+    return {ids[i]: rmsd[i].item() for i in range(len(ids))}
 
 
 def get_mcc(probabilities: torch.Tensor, targets: torch.Tensor) -> float:
