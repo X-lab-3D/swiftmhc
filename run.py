@@ -414,7 +414,7 @@ class Trainer:
             test_data = self._validate(-1, model, test_loader, True, True, run_id)
 
             # save metrics
-            self._output_metrics(run_id, test_loader.dateset.name, -1, test_data)
+            self._output_metrics(run_id, test_loader.dataset.name, -1, test_data)
 
         # do any requested animation snapshots
         if animated_complex_ids is not None and len(animated_complex_ids) > 0:
