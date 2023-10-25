@@ -440,6 +440,9 @@ def get_loss(output: TensorDict, batch: TensorDict,
     else:
         total_loss[non_binders_index] = 0.0
 
+    if torch.any(torch.isnan(total_loss)):
+        raise ValueError("NaN detected")
+
     # average losses over batch dimension
     result = TensorDict({
         "total": total_loss.mean(dim=0),
