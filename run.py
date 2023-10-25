@@ -85,9 +85,9 @@ arg_parser.add_argument("--log-stdout", "-l", help="log to stdout", action='stor
 arg_parser.add_argument("--pretrained-model", "-m", help="use a given pretrained model state")
 arg_parser.add_argument("--workers", "-w", help="number of workers to load batches", type=int, default=5)
 arg_parser.add_argument("--batch-size", "-b", help="batch size to use during training/validation/testing", type=int, default=8)
-arg_parser.add_argument("--epoch-count", "-e", help="how many epochs to run during training", type=int, default=20)
-arg_parser.add_argument("--affinity-tune-count", "-j", help="how many epochs to run during affinity training", type=int, default=50)
-arg_parser.add_argument("--fine-tune-count", "-u", help="how many epochs to run during fine-tuning", type=int, default=10)
+arg_parser.add_argument("--epoch-count", "-e", help="how many epochs to run during training", type=int, default=100)
+arg_parser.add_argument("--affinity-tune-count", "-j", help="how many epochs to run during affinity training", type=int, default=100)
+arg_parser.add_argument("--fine-tune-count", "-u", help="how many epochs to run during fine-tuning", type=int, default=100)
 arg_parser.add_argument("--animate", "-a", help="id of a data point to generate intermediary pdb for", nargs="+")
 arg_parser.add_argument("--lr", help="learning rate setting", type=float, default=0.001)
 arg_parser.add_argument("--classification", "-c", help="do classification instead of regression", action="store_const", const=True, default=False)
@@ -463,7 +463,7 @@ class Trainer:
                                              map_location=self._device))
 
         optimizer = Adam(model.parameters(), lr=self._lr)
-        # scheduler = StepLR(optimizer, step_size=100, gamma=0.1)
+        #scheduler = StepLR(optimizer, step_size=100, gamma=0.1)
 
         # define model paths
         model_path = f"{run_id}/best-predictor.pth"
@@ -524,14 +524,6 @@ class Trainer:
             #    model.load_state_dict(torch.load(model_path))
 
             #scheduler.step()
-
-        # write the output pdb models
-        if output_pdb_path is not None:
-            model.load_state_dict(torch.load(model_path, map_location=self._device))
-
-            for loader in [train_loader, valid_loader, test_loader, structures_loader]:
-                if loader is not None:
-                    self._validate(-1, model, loader, True, output_pdb_path)
 
     @staticmethod
     def _init_metrics_dataframe():
