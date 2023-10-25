@@ -40,6 +40,8 @@ class ProteinLoopDataset(Dataset):
                  protein_maxlen: int,
                  entry_names: Optional[List[str]] = None,
     ):
+        self.name = os.path.splitext(os.path.basename(hdf5_path))[0]
+
         self._hdf5_path = hdf5_path
         self._device = device
         self._loop_maxlen = loop_maxlen

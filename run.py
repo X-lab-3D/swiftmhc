@@ -408,13 +408,13 @@ class Trainer:
         # load the pretrained model
         model.load_state_dict(torch.load(model_path,  map_location=self._device))
 
-        for test_index, test_loader in enumerate(test_loaders):
+        for test_loader in test_loaders:
 
             # run the model to output results
             test_data = self._validate(-1, model, test_loader, True, True, run_id)
 
             # save metrics
-            self._output_metrics(run_id, f"test {test_index}", -1, test_data)
+            self._output_metrics(run_id, test_loader.dateset.name, -1, test_data)
 
         # do any requested animation snapshots
         if animated_complex_ids is not None and len(animated_complex_ids) > 0:
@@ -514,7 +514,7 @@ class Trainer:
                     test_data = self._validate(epoch_index, model, test_loader, True, True, run_id)
                     t.add_to_title(f"on {len(test_loader.dataset)} data points")
 
-                self._output_metrics(run_id, f"test {test_index}", epoch_index, test_data)
+                self._output_metrics(run_id, test_loader.dataset.name, epoch_index, test_data)
 
             # early stopping, if no more improvement
             if abs(valid_data["total loss"] - lowest_loss) < self._early_stop_epsilon:
