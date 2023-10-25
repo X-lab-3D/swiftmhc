@@ -383,9 +383,8 @@ class Trainer:
     def test(self,
              test_loader: DataLoader,
              run_id: str,
-             output_metrics_name: Optional[str],
              animated_complex_ids: List[str],
-             model_path: Optional[str] = None,
+             model_path: str,
     ):
         """
         Call this function instead of train, when you just want to test the model.
@@ -396,9 +395,9 @@ class Trainer:
             output_metrics: where to to save metrics data in a csv file
         """
 
-        model = Predictor(self._model_type,
-                          self.loop_maxlen,
+        model = Predictor(self.loop_maxlen,
                           self.protein_maxlen,
+                          self._model_type,
                           openfold_config.model)
         model = DataParallel(model)
 
@@ -406,16 +405,13 @@ class Trainer:
         model.eval()
 
         # load the pretrained model
-        if model_path is None:
-            model_path = self.get_model_path(run_id)
         model.load_state_dict(torch.load(model_path,  map_location=self._device))
 
         # run the model to output results
         test_data = self._validate(-1, model, test_loader, True, True, run_id)
 
         # save metrics
-        if output_metrics_name is not None:
-            self._output_metrics(run_id, "test", -1, test_data)
+        self._output_metrics(run_id, "test", -1, test_data)
 
         # do any requested animation snapshots
         if animated_complex_ids is not None and len(animated_complex_ids) > 0:
@@ -692,16 +688,12 @@ if __name__ == "__main__":
     torch.multiprocessing.set_start_method('spawn')
 
     trainer = Trainer(device, args.workers, args.lr, model_type)
-    model_path = trainer.get_model_path(run_id)
 
     if args.test_only:
-        if not os.path.isfile(model_path):
-            raise FileNotFoundError(model_path)
-
         for test_path in args.data_path:
             data_name = os.path.splitext(os.path.basename(test_path))[0]
             test_loader = trainer.get_data_loader(test_path, args.batch_size, device)
-            trainer.test(test_loader, run_id, data_name, args.animate, pdb_output_path)
+            trainer.test(test_loader, run_id, args.animate, args.pretrained_model)
 
     else:  # train, validate, test
 
