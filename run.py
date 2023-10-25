@@ -689,9 +689,12 @@ if __name__ == "__main__":
             trainer.test(test_loader, run_id, args.animate, args.pretrained_model)
 
     else:  # train, validate, test
-
         if len(args.data_path) >= 3:
             train_path, valid_path, test_path = args.data_path[:3]
+
+            _log.debug(f"training on {train_path}")
+            _log.debug(f"validating on {valid_path}")
+            _log.debug(f"testing on {test_path}")
 
             train_loader = trainer.get_data_loader(train_path, args.batch_size, device)
             valid_loader = trainer.get_data_loader(valid_path, args.batch_size, device)
@@ -703,6 +706,10 @@ if __name__ == "__main__":
             train_loader = trainer.get_data_loader(args.data_path[0], args.batch_size, device, train_entry_names)
             valid_loader = trainer.get_data_loader(args.data_path[0], args.batch_size, device, valid_entry_names)
             test_loader = trainer.get_data_loader(args.data_path[1], args.batch_size, device)
+
+            _log.debug(f"training on {args.data_path[0]} subset")
+            _log.debug(f"validating on {args.data_path[0]} subset")
+            _log.debug(f"testing on {args.data_path[1]}")
 
             trainer.store_entry_names(run_id, 'train', train_entry_names)
             trainer.store_entry_names(run_id, 'valid', valid_entry_names)
@@ -716,6 +723,8 @@ if __name__ == "__main__":
             else:
                 train_entry_names, valid_test_entry_names = random_subdivision(get_entry_names(args.data_path[0]), 0.2)
                 valid_entry_names, test_entry_names = random_subdivision(valid_test_entry_names, 0.5)
+
+            _log.debug(f"training, validating & testing on {args.data_path[0]} subsets")
 
             train_loader = trainer.get_data_loader(args.data_path[0], args.batch_size, device, train_entry_names)
             valid_loader = trainer.get_data_loader(args.data_path[0], args.batch_size, device, valid_entry_names)
