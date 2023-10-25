@@ -532,11 +532,7 @@ class Trainer:
 
     @staticmethod
     def _init_metrics_dataframe():
-
-        metrics_dataframe = pandas.DataFrame(data={"epoch": [],
-                                                   "train total loss": [],
-                                                   "valid total loss": [],
-                                                   "test total loss": []})
+        metrics_dataframe = pandas.DataFrame(data={"epoch": []})
         return metrics_dataframe
 
     def _output_metrics(self, run_id: str,
