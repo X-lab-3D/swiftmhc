@@ -382,7 +382,7 @@ class Trainer:
         return output_data
 
     def test(self,
-             test_loader: DataLoader,
+             test_loaders: [DataLoader],
              run_id: str,
              animated_complex_ids: List[str],
              model_path: str,
@@ -391,7 +391,7 @@ class Trainer:
         Call this function instead of train, when you just want to test the model.
 
         Args:
-            test_loader: test data
+            test_loaders: test data
             run_id: run directory, where the model file is stored
             output_metrics: where to to save metrics data in a csv file
         """
@@ -408,15 +408,18 @@ class Trainer:
         # load the pretrained model
         model.load_state_dict(torch.load(model_path,  map_location=self._device))
 
-        # run the model to output results
-        test_data = self._validate(-1, model, test_loader, True, True, run_id)
+        for test_index, test_loader in enumerate(test_loaders):
 
-        # save metrics
-        self._output_metrics(run_id, "test", -1, test_data)
+            # run the model to output results
+            test_data = self._validate(-1, model, test_loader, True, True, run_id)
+
+            # save metrics
+            self._output_metrics(run_id, f"test {test_index}", -1, test_data)
 
         # do any requested animation snapshots
         if animated_complex_ids is not None and len(animated_complex_ids) > 0:
-            animated_data = self._get_selection_data_batch([test_loader.dataset], animated_complex_ids)
+            animated_data = self._get_selection_data_batch([test_loader.dataset for test_loader in test_loaders],
+                                                           animated_complex_ids)
 
             self._snapshot("test",
                            model,
@@ -443,7 +446,7 @@ class Trainer:
     def train(self,
               train_loader: DataLoader,
               valid_loader: DataLoader,
-              test_loader: DataLoader,
+              test_loaders: List[DataLoader],
               epoch_count: int, affinity_tune_count: int, fine_tune_count: int,
               run_id: Optional[str] = None,
               pretrained_model_path: Optional[str] = None,
@@ -476,7 +479,7 @@ class Trainer:
         animated_data = None
         if animated_complex_ids is not None:
             # make snapshots for animation
-            datasets = [train_loader.dataset, valid_loader.dataset, test_loader.dataset]
+            datasets = [train_loader.dataset, valid_loader.dataset] + [test_loader.dataset for test_loader in test_loaders]
             animated_data = self._get_selection_data_batch(datasets, animated_complex_ids)
 
             self._snapshot("0.0",
@@ -496,20 +499,22 @@ class Trainer:
                                          run_id, animated_data)
                 t.add_to_title(f"on {len(train_loader.dataset)} data points")
 
+            self._output_metrics(run_id, "train", epoch_index, train_data)
+
             # validate
             with Timer(f"valid epoch {epoch_index}") as t:
                 valid_data = self._validate(epoch_index, model, valid_loader, True, True, run_id)
                 t.add_to_title(f"on {len(valid_loader.dataset)} data points")
 
-            # test
-            with Timer(f"test epoch {epoch_index}") as t:
-                test_data = self._validate(epoch_index, model, test_loader, True, True, run_id)
-                t.add_to_title(f"on {len(test_loader.dataset)} data points")
-
-            # write the metrics
-            self._output_metrics(run_id, "train", epoch_index, train_data)
             self._output_metrics(run_id, "valid", epoch_index, valid_data)
-            self._output_metrics(run_id, "test", epoch_index, test_data)
+
+            # test
+            for test_index, test_loader in enumerate(test_loaders):
+                with Timer(f"test epoch {epoch_index}") as t:
+                    test_data = self._validate(epoch_index, model, test_loader, True, True, run_id)
+                    t.add_to_title(f"on {len(test_loader.dataset)} data points")
+
+                self._output_metrics(run_id, f"test {test_index}", epoch_index, test_data)
 
             # early stopping, if no more improvement
             if abs(valid_data["total loss"] - lowest_loss) < self._early_stop_epsilon:
@@ -602,12 +607,6 @@ class Trainer:
         return loader
 
 
-    def store_entry_names(self, run_id: str, subset_name: str, entry_names: List[str]):
-        with open(os.path.join(run_id, f"{subset_name}-entry-names.txt"), 'wt') as output_file:
-            for entry_name in entry_names:
-                output_file.write(f"{entry_name}\n")
-
-
 def read_ids_from(path: str) -> List[str]:
     ids = []
     with open(path) as file_:
@@ -683,36 +682,33 @@ if __name__ == "__main__":
     trainer = Trainer(device, args.workers, args.lr, model_type)
 
     if args.test_only:
-        for test_path in args.data_path:
-            data_name = os.path.splitext(os.path.basename(test_path))[0]
-            test_loader = trainer.get_data_loader(test_path, args.batch_size, device)
-            trainer.test(test_loader, run_id, args.animate, args.pretrained_model)
+        test_loaders = [trainer.get_data_loader(test_path, args.batch_size, device)
+                        for test_path in args.data_path]
+        trainer.test(test_loaders, run_id, args.animate, args.pretrained_model)
 
     else:  # train, validate, test
         if len(args.data_path) >= 3:
-            train_path, valid_path, test_path = args.data_path[:3]
+            train_path, valid_path = args.data_path[:2]
 
             _log.debug(f"training on {train_path}")
             _log.debug(f"validating on {valid_path}")
-            _log.debug(f"testing on {test_path}")
+            _log.debug(f"testing on {args.data_path[2:]}")
 
             train_loader = trainer.get_data_loader(train_path, args.batch_size, device)
             valid_loader = trainer.get_data_loader(valid_path, args.batch_size, device)
-            test_loader = trainer.get_data_loader(test_path, args.batch_size, device)
+            test_loaders = [trainer.get_data_loader(test_path, args.batch_size, device)
+                            for test_path in args.data_path[2:]]
 
         elif len(args.data_path) == 2:
 
             train_entry_names, valid_entry_names = random_subdivision(get_entry_names(args.data_path[0]), 0.1)
             train_loader = trainer.get_data_loader(args.data_path[0], args.batch_size, device, train_entry_names)
             valid_loader = trainer.get_data_loader(args.data_path[0], args.batch_size, device, valid_entry_names)
-            test_loader = trainer.get_data_loader(args.data_path[1], args.batch_size, device)
+            test_loaders = [trainer.get_data_loader(args.data_path[1], args.batch_size, device)]
 
             _log.debug(f"training on {args.data_path[0]} subset")
             _log.debug(f"validating on {args.data_path[0]} subset")
             _log.debug(f"testing on {args.data_path[1]}")
-
-            trainer.store_entry_names(run_id, 'train', train_entry_names)
-            trainer.store_entry_names(run_id, 'valid', valid_entry_names)
 
         else:  # only one hdf5 file
 
@@ -728,13 +724,9 @@ if __name__ == "__main__":
 
             train_loader = trainer.get_data_loader(args.data_path[0], args.batch_size, device, train_entry_names)
             valid_loader = trainer.get_data_loader(args.data_path[0], args.batch_size, device, valid_entry_names)
-            test_loader = trainer.get_data_loader(args.data_path[0], args.batch_size, device, test_entry_names)
+            test_loaders = [trainer.get_data_loader(args.data_path[0], args.batch_size, device, test_entry_names)]
 
-            trainer.store_entry_names(run_id, 'train', train_entry_names)
-            trainer.store_entry_names(run_id, 'valid', valid_entry_names)
-            trainer.store_entry_names(run_id, 'test', test_entry_names)
-
-        trainer.train(train_loader, valid_loader, test_loader,
+        trainer.train(train_loader, valid_loader, test_loaders,
                       args.epoch_count, args.affinity_tune_count, args.fine_tune_count,
                       run_id, args.pretrained_model,
                       args.animate)
