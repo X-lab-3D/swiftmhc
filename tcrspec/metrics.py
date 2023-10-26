@@ -107,14 +107,14 @@ class MetricsRecord:
             auc = roc_auc_score(self._truth_data["class"], [row[1] for row in self._output_data["classification"]])
             table.loc[epoch_index, f"{pass_name} ROC AUC"] = round(auc, 3)
 
-        if "class" in self.output_data and "class" in self.truth_data:
+        if "class" in self._output_data and "class" in self._truth_data:
             acc = get_accuracy(self._truth_data["class"], self._output_data["class"])
             table.loc[epoch_index, f"{pass_name} accuracy"] = round(acc, 3)
 
             mcc = matthews_corrcoef(self._truth_data["class"], self._output_data["class"])
             table.loc[epoch_index, f"{pass_name} matthews correlation"] = round(mcc, 3)
 
-        if "output affinity" in data and "true affinity" in data:
+        if "affinity" in self._output_data and "affinity" in self._truth_data:
             r = pearsonr(self._output_data["affinity"], self._truth_data["affinity"]).statistic
             table.loc[epoch_index, f"{pass_name} pearson correlation"] = round(r, 3)
 
