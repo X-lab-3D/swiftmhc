@@ -23,7 +23,7 @@ class MetricsRecord:
                   output: Dict[str, torch.Tensor],
                   truth: Dict[str, torch.Tensor]):
 
-        batch_size = output["loop_aatype"].shape[0]
+        batch_size = truth["loop_aatype"].shape[0]
         self._data_len += batch_size
 
         self._losses_sum += losses * batch_size
@@ -33,13 +33,13 @@ class MetricsRecord:
         for key in ["affinity", "class", "classification"]:
             if key in output:
                 if key not in self._output_data:
-                    self.output_data[key] = []
+                    self._output_data[key] = []
 
                 self._output_data[key] += output[key].cpu().tolist()
 
             if key in truth:
                 if key not in self._truth_data:
-                    self.truth_data[key] = []
+                    self._truth_data[key] = []
 
                 self._truth_data[key] += truth[key].cpu().tolist()
 

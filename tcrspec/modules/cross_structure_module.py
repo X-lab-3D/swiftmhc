@@ -173,9 +173,6 @@ class CrossStructureModule(torch.nn.Module):
         s_protein_initial = torch.clone(s_protein)
         s_protein = self.linear_in_protein(s_protein)
 
-        # [batch_size]
-        T_loop_initial = average_rigid(T_protein, dim=1, mask=protein_mask)
-
         # [batch_size, loop_maxlen]
         T_loop = Rigid.identity(
             s_loop.shape[:-1],
@@ -186,7 +183,9 @@ class CrossStructureModule(torch.nn.Module):
         )
 
         # center on protein
-        T_loop._trans = T_protein.get_trans()[protein_mask.unsqueeze(-1)].mean(dim=1).unsqueeze(1).repeat(1, T_loop.get_trans().shape[1], 1)
+        trans_mask = protein_mask.unsqueeze(-1).expand(list(protein_mask.shape) + [3])
+        protein_com = (T_protein.get_trans() * trans_mask).mean(dim=1)
+        T_loop._trans = protein_com.unsqueeze(1).repeat(1, T_loop.get_trans().shape[1], 1)
 
         outputs = []
         atts = []
@@ -196,7 +195,7 @@ class CrossStructureModule(torch.nn.Module):
 
             preds, att, att_sd, att_pts = self._block(
                 s_loop_initial,
-                T_loop_initial,
+                protein_com,
                 loop_aatype,
                 s_loop, s_protein,
                 T_loop, T_protein,
@@ -233,7 +232,7 @@ class CrossStructureModule(torch.nn.Module):
 
     def _block(self,
                s_loop_initial: torch.Tensor,
-               T_loop_initial: Rigid,
+               protein_com: torch.Tensor,
                loop_aatype: torch.Tensor,
                s_loop: torch.Tensor,
                s_protein: torch.Tensor,
@@ -242,7 +241,7 @@ class CrossStructureModule(torch.nn.Module):
                loop_mask: torch.Tensor,
                protein_mask: torch.Tensor) -> Dict[str, torch.Tensor]:
 
-        t0 = T_loop_initial.get_trans().unsqueeze(1).repeat(1, s_loop.shape[1], 1)
+        t0 = protein_com.unsqueeze(1).repeat(1, s_loop.shape[1], 1)
 
         # [batch_size, loop_len, c_s]
         s_upd, ipa_att, ipa_att_sd, ipa_att_pts = self.loop_ipa(
