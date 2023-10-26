@@ -406,7 +406,7 @@ class Trainer:
                     t.add_to_title(f"on {len(test_loader.dataset)} data points")
 
             # early stopping, if no more improvement
-            if abs(valid_data["total loss"] - lowest_loss) < self._early_stop_epsilon:
+            if abs(valid_loss - lowest_loss) < self._early_stop_epsilon:
                 break
 
             # If the loss improves, save the model.
