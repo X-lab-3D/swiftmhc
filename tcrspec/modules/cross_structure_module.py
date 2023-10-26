@@ -177,13 +177,16 @@ class CrossStructureModule(torch.nn.Module):
         T_loop_initial = average_rigid(T_protein, dim=1, mask=protein_mask)
 
         # [batch_size, loop_maxlen]
-        T_loop = Rigid(
-            rots=Rotation(quats=T_loop_initial.get_rots().get_quats().unsqueeze(1).repeat(1, loop_maxlen, 1)),
-            trans=(T_loop_initial.get_trans()).unsqueeze(1).repeat(1, loop_maxlen, 1),
+        T_loop = Rigid.identity(
+            s_loop.shape[:-1],
+            s_loop.dtype,
+            s_loop.device,
+            self.training,
+            fmt="quat",
         )
 
         # center on protein
-        T_loop._trans = T_protein.get_trans().mean(dim=1).unsqueeze(1).repeat(1, T_loop.get_trans().shape[1], 1)
+        T_loop._trans = T_protein.get_trans()[protein_mask.unsqueeze(-1)].mean(dim=1).unsqueeze(1).repeat(1, T_loop.get_trans().shape[1], 1)
 
         outputs = []
         atts = []
