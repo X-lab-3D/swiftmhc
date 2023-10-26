@@ -64,6 +64,7 @@ from tcrspec.models.data import TensorDict
 from tcrspec.tools.pdb import recreate_structure
 from tcrspec.domain.amino_acid import amino_acids_by_one_hot_index
 from tcrspec.models.types import ModelType
+from tcrspec.metrics import MetricsRecord
 
 
 def get_accuracy(truth: List[int], pred: List[int]) -> float:
@@ -110,6 +111,7 @@ def get_accuracy(output: List[int], truth: List[int]) -> float:
             right += 1
 
     return float(right) / len(output)
+
 
 
 class Trainer:
@@ -219,27 +221,6 @@ class Trainer:
                     if not key in animation_file:
                         animation_file.create_dataset(key, data=data[key][index].cpu())
 
-    @staticmethod
-    def _store_rmsds(output_directory: str, rmsds: Dict[str, float]):
-
-        table_path = os.path.join(output_directory, 'rmsd.csv')
-
-        # load old table first
-        if os.path.isfile(table_path):
-            old_table = pandas.read_csv(table_path)
-            for index, row in old_table.iterrows():
-                # old data does not overwrite new
-                if row["ID"] not in rmsds:
-                    rmsds[row["ID"]] = row["RMSD(Å)"]
-
-        # save to file
-        ids = list(rmsds.keys())
-        rmsd = [rmsds[id_] for id_ in ids]
-        table_dict = {"ID": ids, "RMSD(Å)": rmsd}
-
-        table = pandas.DataFrame(table_dict)
-        table.to_csv(table_path, encoding='utf-8', index=False, quoting=csv.QUOTE_NONNUMERIC)
-
     def _epoch(self,
                epoch_index: int,
                optimizer: Optimizer,
@@ -251,11 +232,10 @@ class Trainer:
                animated_data: Optional[Dict[str, torch.Tensor]] = None
     ) -> Dict[str, Any]:
 
-        epoch_data = {}
+        record = MetricsRecord()
 
         model.train()
 
-        rmsds = {}
         for batch_index, batch_data in enumerate(data_loader):
 
             # Do the training step.
@@ -265,21 +245,17 @@ class Trainer:
                                                    affinity_tune,
                                                    fine_tune)
 
-            if output_directory is not None and animated_data is not None and (batch_index + 1) % self._snap_period == 0:
+            if output_directory is not None:
+                if animated_data is not None and (batch_index + 1) % self._snap_period == 0:
 
-                self._snapshot(f"{epoch_index}.{batch_index + 1}",
-                               model,
-                               output_directory, animated_data)
+                    self._snapshot(f"{epoch_index}.{batch_index + 1}",
+                                   model,
+                                   output_directory, animated_data)
 
-            epoch_data = self._store_required_data(epoch_data, batch_loss, batch_output, batch_data)
-
-            rmsds.update(get_calpha_rmsd(batch_output, batch_data))
+                record.add_batch(batch_loss, batch_output, batch_data)
 
         if output_directory is not None:
-            self._store_rmsds(output_directory, rmsds)
-
-        epoch_data["binders_c_alpha_rmsd"] = numpy.mean(list(rmsds.values()))
-        return epoch_data
+            record.save(epoch_index, data_loader.dataset.name, output_directory)
 
     def _validate(self,
                   epoch_index: int,
@@ -290,96 +266,22 @@ class Trainer:
                   output_directory: Optional[str] = None,
     ) -> Dict[str, Any]:
 
-        valid_data = {}
+        record = MetricsRecord()
 
         model.eval()
 
-        rmsds = {}
         with torch.no_grad():
 
             for batch_index, batch_data in enumerate(data_loader):
-
-                batch_size = batch_data["loop_sequence_onehot"].shape[0]
 
                 batch_output = model(batch_data)
 
                 batch_loss = get_loss(batch_output, batch_data, affinity_tune, fine_tune)
 
-                valid_data = self._store_required_data(valid_data, batch_loss, batch_output, batch_data)
-
-                rmsds.update(get_calpha_rmsd(batch_output, batch_data))
+                record.add_batch(batch_loss, batch_output, batch_data)
 
         if output_directory is not None:
-            self._store_rmsds(output_directory, rmsds)
-
-        valid_data["binders_c_alpha_rmsd"] = numpy.mean(list(rmsds.values()))
-
-        return valid_data
-
-    @staticmethod
-    def _store_required_data(old_data: Dict[str, Any],
-                             losses: Dict[str, Any],
-                             output: Dict[str, Any],
-                             truth: Dict[str, Any]
-    ) -> Dict[str, Any]:
-        """
-        Args:
-            old_data: the old dictionary of epoch data
-            losses: the dictionary of loss values for the batch
-            output: the batch output
-            truth: the batch truth data
-        Returns: the new dictionary of epoch data
-
-        Stores the batch data needed to generate output files.
-        This will create a dictionary with epoch data, which can only
-        contain a limited number of fields. (because of memory usage)
-        """
-
-        # store the old data in the new dictionary
-        output_data = {}
-        for key in old_data:
-            output_data[key] = old_data[key]
-
-        # determine batch size from the number of ids
-        batch_size = len(truth["ids"])
-
-        # combine the means of the losses
-        for loss_name, loss_value in losses.items():
-            loss_name += " loss"
-
-            if loss_name not in output_data:
-                output_data[loss_name] = loss_value.item() * batch_size
-            else:
-                output_data[loss_name] += loss_value.item() * batch_size
-
-        # add data for the affinity scores
-        for key in ["affinity", "classification", "class"]:
-            if key in output:
-                name = f"output {key}"
-                if name not in output_data:
-                    output_data[name] = []
-                output_data[name] += output[key].cpu().tolist()
-
-            if key in truth:
-                name = f"true {key}"
-                if name not in output_data:
-                    output_data[name] = []
-                output_data[name] += truth[key].cpu().tolist()
-
-        # list all ids of the data points
-        if "ids" not in output_data:
-            output_data["ids"] = []
-        output_data["ids"] += truth["ids"]
-
-        # convert all one-hot encoded sequences to strings
-        if "loop_sequence" not in output_data:
-            output_data["loop_sequence"] = []
-        output_data["loop_sequence"] += ["".join([aa.one_letter_code
-                                                  for aa in one_hot_decode_sequence(embd)
-                                                  if aa is not None])
-                                         for embd in truth["loop_sequence_onehot"]]
-
-        return output_data
+            record.save(epoch_index, data_loader.dataset.name, output_directory)
 
     def test(self,
              test_loaders: [DataLoader],
@@ -411,10 +313,7 @@ class Trainer:
         for test_loader in test_loaders:
 
             # run the model to output results
-            test_data = self._validate(-1, model, test_loader, True, True, run_id)
-
-            # save metrics
-            self._output_metrics(run_id, test_loader.dataset.name, -1, test_data)
+            self._validate(-1, model, test_loader, True, True, run_id)
 
         # do any requested animation snapshots
         if animated_complex_ids is not None and len(animated_complex_ids) > 0:
@@ -495,26 +394,20 @@ class Trainer:
 
             # train during epoch
             with Timer(f"train epoch {epoch_index}") as t:
-                train_data = self._epoch(epoch_index, optimizer, model, train_loader, affinity_tune, fine_tune,
-                                         run_id, animated_data)
+                self._epoch(epoch_index, optimizer, model, train_loader, affinity_tune, fine_tune,
+                            run_id, animated_data)
                 t.add_to_title(f"on {len(train_loader.dataset)} data points")
-
-            self._output_metrics(run_id, "train", epoch_index, train_data)
 
             # validate
             with Timer(f"valid epoch {epoch_index}") as t:
-                valid_data = self._validate(epoch_index, model, valid_loader, True, True, run_id)
+                self._validate(epoch_index, model, valid_loader, True, True, run_id)
                 t.add_to_title(f"on {len(valid_loader.dataset)} data points")
-
-            self._output_metrics(run_id, "valid", epoch_index, valid_data)
 
             # test
             for test_index, test_loader in enumerate(test_loaders):
                 with Timer(f"test epoch {epoch_index}") as t:
-                    test_data = self._validate(epoch_index, model, test_loader, True, True, run_id)
+                    self._validate(epoch_index, model, test_loader, True, True, run_id)
                     t.add_to_title(f"on {len(test_loader.dataset)} data points")
-
-                self._output_metrics(run_id, test_loader.dataset.name, epoch_index, test_data)
 
             # early stopping, if no more improvement
             if abs(valid_data["total loss"] - lowest_loss) < self._early_stop_epsilon:
@@ -529,60 +422,6 @@ class Trainer:
             #    model.load_state_dict(torch.load(model_path))
 
             #scheduler.step()
-
-    @staticmethod
-    def _init_metrics_dataframe():
-        metrics_dataframe = pandas.DataFrame(data={"epoch": []})
-        return metrics_dataframe
-
-    def _output_metrics(self, run_id: str,
-                        pass_name: str,
-                        epoch_index: int,
-                        data: Dict[str, Any]):
-
-        # load any previous versions of the table
-        metrics_path = f"{run_id}/metrics.csv"
-        if os.path.isfile(metrics_path):
-
-            metrics_dataframe = pandas.read_csv(metrics_path, sep=',')
-        else:
-            metrics_dataframe = self._init_metrics_dataframe()
-        metrics_dataframe.set_index("epoch")
-
-        # add a new row for this epoch
-        while epoch_index > metrics_dataframe.shape[0]:
-            metrics_dataframe = metrics_dataframe.append({name: [] for name in metrics_dataframe})
-
-        metrics_dataframe.at[epoch_index, "epoch"] = int(epoch_index)
-
-        # write losses to the table
-        for loss_name in filter(lambda s: s.endswith(" loss"), data.keys()):
-
-            normalized_loss = data[loss_name] / len(data["ids"])
-
-            metrics_dataframe.at[epoch_index, f"{pass_name} {loss_name}"] = round(normalized_loss, 3)
-
-        # write RMSD to the table
-        metrics_dataframe.at[epoch_index, f"{pass_name} binders C-alpha RMSD"] = round(data["binders_c_alpha_rmsd"], 3)
-
-        # write affinity-related metrics
-        if "output classification" in data and "true class" in data and len(set(data["true class"])) > 1:
-            auc = roc_auc_score(data["true class"], [row[1] for row in data["output classification"]])
-            metrics_dataframe.at[epoch_index, f"{pass_name} ROC AUC"] = round(auc, 3)
-
-        if "output class" in data and "true class" in data:
-            acc = get_accuracy(data["true class"], data["output class"])
-            metrics_dataframe.at[epoch_index, f"{pass_name} accuracy"] = round(acc, 3)
-
-            mcc = matthews_corrcoef(data["true class"], data["output class"])
-            metrics_dataframe.at[epoch_index, f"{pass_name} matthews correlation"] = round(mcc, 3)
-
-        if "output affinity" in data and "true affinity" in data:
-            r = pearsonr(data["output affinity"], data["true affinity"]).statistic
-            metrics_dataframe.at[epoch_index, f"{pass_name} pearson correlation"] = round(r, 3)
-
-        # save
-        metrics_dataframe.to_csv(metrics_path, sep=",", index=False)
 
     def get_data_loader(self,
                         data_path: str,
