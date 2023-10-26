@@ -46,15 +46,14 @@ class MetricsRecord:
     def save(self, epoch_number: int, pass_name: str, directory_path: str):
 
         self._store_individual_rmsds(pass_name, directory_path)
-
         self._store_metrics_table(epoch_number, pass_name, directory_path)
 
     def _store_individual_rmsds(self, pass_name: str, directory_path: str):
 
         rmsds_path = os.path.join(directory_path, f"{pass_name}-rmsds.csv")
 
-        ids = list(rmsds.keys())
-        rmsd = [rmsds[id_] for id_ in ids]
+        ids = list(self._rmsds.keys())
+        rmsd = [self._rmsds[id_] for id_ in ids]
         table_dict = {"ID": ids, "RMSD(Å)": rmsd}
 
         table = pandas.DataFrame(table_dict)
