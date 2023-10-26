@@ -67,18 +67,6 @@ from tcrspec.models.types import ModelType
 from tcrspec.metrics import MetricsRecord
 
 
-def get_accuracy(truth: List[int], pred: List[int]) -> float:
-    count = 0
-    right = 0
-    for i, t in enumerate(truth):
-        p = pred[i]
-        count += 1
-        if p == t:
-            right += 1
-
-    return float(right) / count
-
-
 arg_parser = ArgumentParser(description="run a TCR-spec network model")
 arg_parser.add_argument("--run-id", "-r", help="name of the run and the directory to store it")
 arg_parser.add_argument("--debug", "-d", help="generate debug files", action='store_const', const=True, default=False)

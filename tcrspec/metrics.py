@@ -1,12 +1,27 @@
-from typing import Dict
+from typing import Dict, List
 import os
+import csv
 
 import torch
 import numpy
 import pandas
 
+from sklearn.metrics import roc_auc_score, matthews_corrcoef
+
 from .models.data import TensorDict
 from .loss import get_calpha_rmsd
+
+def get_accuracy(truth: List[int], pred: List[int]) -> float:
+    count = 0 
+    right = 0 
+    for i, t in enumerate(truth):
+        p = pred[i]
+        count += 1
+        if p == t:
+            right += 1
+
+    return float(right) / count
+
 
 
 class MetricsRecord:
@@ -63,7 +78,7 @@ class MetricsRecord:
 
         metrics_path = os.path.join(directory_path, "metrics.csv")
 
-        table = pandas.DataFrame()
+        table = pandas.DataFrame(data={"epoch": [epoch_number]})
         if os.path.isfile(metrics_path):
             table = pandas.read_csv(metrics_path, sep=',')
 
