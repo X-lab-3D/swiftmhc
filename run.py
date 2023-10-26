@@ -404,7 +404,7 @@ class Trainer:
                 t.add_to_title(f"on {len(valid_loader.dataset)} data points")
 
             # test
-            for test_index, test_loader in enumerate(test_loaders):
+            for test_loader in test_loaders:
                 with Timer(f"test epoch {epoch_index}") as t:
                     self._validate(epoch_index, model, test_loader, True, True, run_id)
                     t.add_to_title(f"on {len(test_loader.dataset)} data points")

@@ -57,7 +57,7 @@ class MetricsRecord:
         table_dict = {"ID": ids, "RMSD(Å)": rmsd}
 
         table = pandas.DataFrame(table_dict)
-        table.to_csv(table_path, sep=',', encoding='utf-8', index=False, quoting=csv.QUOTE_NONNUMERIC)
+        table.to_csv(rmsd_path, sep=',', encoding='utf-8', index=False, quoting=csv.QUOTE_NONNUMERIC)
 
     def _store_metrics_table(self, epoch_number: int, pass_name: str, directory_path: str):
 
