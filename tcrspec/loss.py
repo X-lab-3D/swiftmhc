@@ -476,7 +476,7 @@ def get_calpha_rmsd(output_data: Dict[str, torch.Tensor],
 
     # prevent NaN, in case of no binders
     if not torch.any(binders_index):
-        return torch.tensor([])
+        return {}
 
     ids = [batch_data["ids"][i] for i in torch.nonzero(binders_index)]
 
