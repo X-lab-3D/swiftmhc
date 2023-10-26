@@ -218,7 +218,7 @@ class Trainer:
                fine_tune: bool,
                output_directory: Optional[str] = None,
                animated_data: Optional[Dict[str, torch.Tensor]] = None
-    ) -> Dict[str, Any]:
+    ):
 
         record = MetricsRecord()
 
@@ -252,11 +252,14 @@ class Trainer:
                   affinity_tune: bool,
                   fine_tune: bool,
                   output_directory: Optional[str] = None,
-    ) -> Dict[str, Any]:
+    ) -> float:
 
         record = MetricsRecord()
 
         model.eval()
+
+        datapoint_count = 0
+        sum_of_losses = 0.0
 
         with torch.no_grad():
 
@@ -266,10 +269,15 @@ class Trainer:
 
                 batch_loss = get_loss(batch_output, batch_data, affinity_tune, fine_tune)
 
+                datapoint_count += batch_data['loop_aatype'].shape[0]
+                sum_of_losses += batch_loss['total'].item() * batch_data['loop_aatype'].shape[0]
+
                 record.add_batch(batch_loss, batch_output, batch_data)
 
         if output_directory is not None:
             record.save(epoch_index, data_loader.dataset.name, output_directory)
+
+        return sum_of_losses / datapoint_count
 
     def test(self,
              test_loaders: [DataLoader],
@@ -388,7 +396,7 @@ class Trainer:
 
             # validate
             with Timer(f"valid epoch {epoch_index}") as t:
-                self._validate(epoch_index, model, valid_loader, True, True, run_id)
+                valid_loss = self._validate(epoch_index, model, valid_loader, True, True, run_id)
                 t.add_to_title(f"on {len(valid_loader.dataset)} data points")
 
             # test
@@ -402,8 +410,8 @@ class Trainer:
                 break
 
             # If the loss improves, save the model.
-            if valid_data["total loss"] < lowest_loss:
-                lowest_loss = valid_data["total loss"]
+            if valid_loss < lowest_loss:
+                lowest_loss = valid_loss
 
                 torch.save(model.state_dict(), model_path)
             # else:
