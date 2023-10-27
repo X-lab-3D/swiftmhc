@@ -436,9 +436,12 @@ def get_loss(output: TensorDict, batch: TensorDict,
 
     # for true non-binders, the total loss is simply affinity-based
     if affinity_tune:
-        total_loss[non_binders_index] = affinity_loss[non_binders_index]
+        total_loss[non_binders_index] = 1.0 * affinity_loss[non_binders_index]
     else:
         total_loss[non_binders_index] = 0.0
+
+    if torch.any(torch.isnan(total_loss)):
+        raise ValueError("NaN detected")
 
     # average losses over batch dimension
     result = TensorDict({
@@ -455,7 +458,6 @@ def get_loss(output: TensorDict, batch: TensorDict,
         result[f"{component_id} violation"] = loss_tensor.mean(dim=0)
 
     return result
-
 
 def get_calpha_rmsd(output_data: Dict[str, torch.Tensor],
                     batch_data: Dict[str, torch.Tensor]) -> Dict[str, float]:
@@ -475,7 +477,7 @@ def get_calpha_rmsd(output_data: Dict[str, torch.Tensor],
 
     # prevent NaN, in case of no binders
     if not torch.any(binders_index):
-        return torch.tensor([])
+        return {}
 
     ids = [batch_data["ids"][i] for i in torch.nonzero(binders_index)]
 
@@ -498,24 +500,5 @@ def get_calpha_rmsd(output_data: Dict[str, torch.Tensor],
 
     rmsd = torch.sqrt(sum_of_squares / counts)
 
-
     return {ids[i]: rmsd[i].item() for i in range(len(ids))}
 
-
-def get_mcc(probabilities: torch.Tensor, targets: torch.Tensor) -> float:
-
-    predictions = torch.argmax(probabilities, dim=1)
-
-    tp = torch.count_nonzero(torch.logical_and(predictions, targets)).item()
-    fp = torch.count_nonzero(torch.logical_and(predictions, torch.logical_not(targets))).item()
-    tn = torch.count_nonzero(torch.logical_and(torch.logical_not(predictions), torch.logical_not(targets))).item()
-    fn = torch.count_nonzero(torch.logical_and(torch.logical_not(predictions), targets)).item()
-
-    mcc_numerator = tn * tp - fp * fn
-    if mcc_numerator == 0:
-        mcc = 0.0
-    else:
-        mcc_denominator = sqrt((tn + fn) * (fp + tp) * (tn + fp) * (fn + tp))
-        mcc = mcc_numerator / mcc_denominator
-
-    return mcc

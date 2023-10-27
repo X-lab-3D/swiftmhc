@@ -139,10 +139,6 @@ class CrossInvariantPointAttention(torch.nn.Module):
         # [batch_size, len_src, H, C_hidden]
         k, v = torch.split(kv, self.c_hidden, dim=-1)
 
-        _log.debug(f"cross: q ranges {q.min()} - {q.max()}")
-        _log.debug(f"cross: k ranges {k.min()} - {k.max()}")
-        _log.debug(f"cross: v ranges {v.min()} - {v.max()}")
-
         # [batch_size, len_dst, H * P_q * 3]
         q_pts = self.linear_q_points(s_dst)
 

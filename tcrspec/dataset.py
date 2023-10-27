@@ -14,6 +14,7 @@ from sklearn.decomposition import PCA
 
 from openfold.utils.rigid_utils import Rigid
 
+from .models.types import ModelType
 from .models.data import TensorDict
 from .models.residue import Residue
 from .models.complex import ComplexClass, ComplexTableEntry, ComplexDataEntry, StructureDataEntry
@@ -26,15 +27,34 @@ from .modules.sequence_encoding import mask_loop_left_center_right
 _log = logging.getLogger(__name__)
 
 
+def get_entry_names(hdf5_path: str) -> List[str]:
+    with h5py.File(hdf5_path, 'r') as hdf5_file:
+        return list(hdf5_file.keys())
+
+
 class ProteinLoopDataset(Dataset):
-    def __init__(self, hdf5_path: str, device: torch.device, loop_maxlen: int, protein_maxlen: int):
+    def __init__(self,
+                 hdf5_path: str,
+                 device: torch.device,
+                 loop_maxlen: int,
+                 protein_maxlen: int,
+                 entry_names: Optional[List[str]] = None,
+    ):
+        self.name = os.path.splitext(os.path.basename(hdf5_path))[0]
+
         self._hdf5_path = hdf5_path
         self._device = device
         self._loop_maxlen = loop_maxlen
         self._protein_maxlen = protein_maxlen
 
-        with h5py.File(self._hdf5_path, 'r') as hdf5_file:
-            self._entry_names = list(hdf5_file.keys())
+        if entry_names is not None:
+            self._entry_names = entry_names
+        else:
+            self._entry_names = get_entry_names(self._hdf5_path)
+
+    @property
+    def entry_names(self) -> List[str]:
+        return self._entry_names
 
     def __len__(self) -> int:
         return len(self._entry_names)
@@ -43,7 +63,10 @@ class ProteinLoopDataset(Dataset):
 
         entry_name = self._entry_names[index]
 
-        return self.get_entry(entry_name)
+        try:
+            return self.get_entry(entry_name)
+        except Exception as e:
+            raise RuntimeError(f"in entry {entry_name}: {str(e)}")
 
     def has_entry(self,  entry_name: str) -> bool:
         return entry_name in self._entry_names
@@ -76,13 +99,12 @@ class ProteinLoopDataset(Dataset):
                 elif length > max_length:
                     raise ValueError(f"{entry_name} {prefix} length is {length}, which is larger than the max {max_length}")
 
-                # For the protein, put all residues leftmost
-                index = torch.zeros(max_length, device=self._device, dtype=torch.bool)
-                index[:length] = True
-
-                # For the loop, put residues partly leftmost, partly centered, partly rightmost
-                if prefix == PREPROCESS_LOOP_NAME:
+                if prefix == "loop":
                     index = mask_loop_left_center_right(length, max_length)
+                else:
+                    # For the protein, put all residues leftmost
+                    index = torch.zeros(max_length, device=self._device, dtype=torch.bool)
+                    index[:length] = True
 
                 result[f"{prefix}_aatype"] = torch.zeros(max_length, device=self._device, dtype=torch.long)
                 result[f"{prefix}_aatype"][index] = torch.tensor(aatype_data, device=self._device, dtype=torch.long)
