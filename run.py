@@ -21,7 +21,7 @@ import torch
 from torch.utils.data import DataLoader
 from torch.nn.modules.module import Module
 from torch.optim import Adam, Optimizer
-from torch.optim.lr_scheduler import StepLR, _LRScheduler
+from torch.optim.lr_scheduler import StepLR, _LRScheduler, LambdaLR
 from torch.nn import CrossEntropyLoss, MSELoss
 from torch.nn.utils import clip_grad_norm_
 from torch.nn import DataParallel
@@ -360,8 +360,18 @@ class Trainer:
             model.load_state_dict(torch.load(pretrained_model_path,
                                              map_location=self._device))
 
+        def lr_lambda(epoch_index: int):
+            lr = self._lr
+            if epoch_index >= epoch_count:
+                lr *= 0.1
+
+            if epoch_index >= (epoch_count + affinity_tune_count):
+                lr *= 0.1
+
+            return lr
+
         optimizer = Adam(model.parameters(), lr=self._lr)
-        #scheduler = StepLR(optimizer, step_size=100, gamma=0.1)
+        scheduler = LambdaLR(optimizer, lr_lambda=lr_lambda)
 
         # define model paths
         model_path = f"{run_id}/best-predictor.pth"
@@ -417,7 +427,7 @@ class Trainer:
             # else:
             #    model.load_state_dict(torch.load(model_path))
 
-            #scheduler.step()
+            scheduler.step(epoch=epoch_index)
 
     def get_data_loader(self,
                         data_path: str,
