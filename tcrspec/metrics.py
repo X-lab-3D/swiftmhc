@@ -11,9 +11,14 @@ from sklearn.metrics import roc_auc_score, matthews_corrcoef
 from .models.data import TensorDict
 from .loss import get_calpha_rmsd
 
+
 def get_accuracy(truth: List[int], pred: List[int]) -> float:
-    count = 0 
-    right = 0 
+    """
+    A simple method to calculate accuracy from two equally long lists of class values
+    """
+
+    count = 0
+    right = 0
     for i, t in enumerate(truth):
         p = pred[i]
         count += 1
@@ -37,18 +42,25 @@ class MetricsRecord:
                   losses: Dict[str, torch.Tensor],
                   output: Dict[str, torch.Tensor],
                   truth: Dict[str, torch.Tensor]):
+        """
+        Call this once per batch, to keep track of the model's output and losses.
+        """
 
+        # count how many datapoints have passed
         batch_size = truth["loop_aatype"].shape[0]
         self._data_len += batch_size
 
+        # add up the losses, from the given means
         for key, value in losses.items():
             if key not in self._losses_sum:
                 self._losses_sum[key] = 0.0
 
             self._losses_sum[key] += value * batch_size
 
+        # store the rmsd per data point
         self._rmsds.update(get_calpha_rmsd(output, truth))
 
+        # store the affinity predictions and truth values per data point
         for key in ["affinity", "class", "classification"]:
             if key in output:
                 if key not in self._output_data:
@@ -63,25 +75,38 @@ class MetricsRecord:
                 self._truth_data[key] += truth[key].cpu().tolist()
 
     def save(self, epoch_number: int, pass_name: str, directory_path: str):
+        """
+        Call this when all batches have passed, to save the resulting metrics.
+
+        Args:
+            epoch_number: to indicate at which epoch row it should be stored
+            pass_name: can be train/valid/test or other
+            directory_path: a directory where to store the files
+        """
 
         self._store_individual_rmsds(pass_name, directory_path)
         self._store_metrics_table(epoch_number, pass_name, directory_path)
 
     def _store_individual_rmsds(self, pass_name: str, directory_path: str):
 
+        # store to this file
         rmsds_path = os.path.join(directory_path, f"{pass_name}-rmsds.csv")
 
+        # create a table
         ids = list(self._rmsds.keys())
         rmsd = [self._rmsds[id_] for id_ in ids]
         table_dict = {"ID": ids, "RMSD(Å)": rmsd}
-
         table = pandas.DataFrame(table_dict)
+
+        # save to file
         table.to_csv(rmsds_path, sep=',', encoding='utf-8', index=False, quoting=csv.QUOTE_NONNUMERIC)
 
     def _store_metrics_table(self, epoch_number: int, pass_name: str, directory_path: str):
 
+        # store to this file
         metrics_path = os.path.join(directory_path, "metrics.csv")
 
+        # load previous data from table file
         table = pandas.DataFrame(data={"epoch": [epoch_number]})
         if os.path.isfile(metrics_path):
             table = pandas.read_csv(metrics_path, sep=',')

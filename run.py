@@ -89,19 +89,6 @@ arg_parser.add_argument("data_path", help="path to a hdf5 file", nargs="+")
 _log = logging.getLogger(__name__)
 
 
-def get_accuracy(output: List[int], truth: List[int]) -> float:
-
-    right = 0
-    for i, o in enumerate(output):
-        t = truth[i]
-
-        if o == t:
-            right += 1
-
-    return float(right) / len(output)
-
-
-
 class Trainer:
     def __init__(self,
                  device: torch.device,
@@ -124,36 +111,17 @@ class Trainer:
 
         self.workers_count = workers_count
 
-    def _batch(self,
-               epoch_index: int,
-               batch_index: int,
-               optimizer: Optimizer,
-               model: Predictor,
-               data: TensorDict,
-               affinity_tune: bool,
-               fine_tune: bool,
-    ) -> Tuple[TensorDict, Dict[str, torch.Tensor]]:
-
-        optimizer.zero_grad()
-
-        output = model(data)
-
-        losses = get_loss(output, data, affinity_tune, fine_tune)
-
-        loss = losses["total"]
-
-        loss.backward()
-
-        # only do this if necessary, when the training isn't stable
-        #clip_grad_norm_(model.parameters(), 0.5)
-
-        optimizer.step()
-
-        return (losses.detach(), output)
-
     @staticmethod
     def _save_structure_to_hdf5(structure: Structure,
                                 group: h5py.Group):
+        """
+        Save a biopython structure object as PDB in an HDF5 file.
+
+        Args:
+            structure: data to store
+            group: HDF5 group to store the data to
+        """
+
         pdbio = PDBIO()
         pdbio.set_structure(structure)
         with StringIO() as sio:
@@ -174,6 +142,15 @@ class Trainer:
                   model: Predictor,
                   output_directory: str,
                   data: Dict[str, torch.Tensor]):
+        """
+        Use the given model to predict output for the given data and store a snapshot of the output.
+
+        Args:
+            frame_id: name of the frame to store the snapshot under
+            model: the model for which the output is snapshot
+            output_directory: where to store the resuling animation HDF5 file
+            data: input data for the model, to take snapshots for
+        """
 
         # predict the animated complexes
         with torch.no_grad():
@@ -209,6 +186,49 @@ class Trainer:
                     if not key in animation_file:
                         animation_file.create_dataset(key, data=data[key][index].cpu())
 
+    def _batch(self,
+               optimizer: Optimizer,
+               model: Predictor,
+               data: TensorDict,
+               affinity_tune: bool,
+               fine_tune: bool,
+    ) -> Tuple[TensorDict, Dict[str, torch.Tensor]]:
+        """
+        Action performed when training on a single batch.
+        This involves backpropagation.
+
+        Args:
+            optimizer: needed to optimize the model
+            model: the model that is trained
+            data: input data for the model
+            affinity_tune: whether to include affinity loss in backward propagation
+            fine_tune: whether to include fine tuning losses in backward propagation
+
+        Returns:
+            the losses and the output data
+        """
+
+        # set all gradients to zero
+        optimizer.zero_grad()
+
+        # get model output
+        output = model(data)
+
+        # calculate losses
+        losses = get_loss(output, data, affinity_tune, fine_tune)
+
+        # backward propagation
+        loss = losses["total"]
+        loss.backward()
+
+        # only do this if necessary, when the training isn't stable
+        #clip_grad_norm_(model.parameters(), 0.5)
+
+        # optimize
+        optimizer.step()
+
+        return (losses.detach(), output)
+
     def _epoch(self,
                epoch_index: int,
                optimizer: Optimizer,
@@ -219,29 +239,48 @@ class Trainer:
                output_directory: Optional[str] = None,
                animated_data: Optional[Dict[str, torch.Tensor]] = None
     ):
+        """
+        Do one training epoch, with backward propagation.
+        The model parameters are adjusted per batch.
 
+        Args:
+            epoch_index: the number of the epoch to save the metrics to
+            optimizer: needed to optimize the model
+            model: the model that will be trained
+            data_loader: data to insert into the model
+            affinity_tune: whether to include affinity loss in backward propagation
+            fine_tune: whether to include fine tuning losses in backward propagation
+            output_directory: where to store the results
+            animated_data: data to store snapshot structures from, for a given fraction of the batches.
+        """
+
+        # start with an empty metrics record
         record = MetricsRecord()
 
+        # put model in train mode
         model.train()
 
         for batch_index, batch_data in enumerate(data_loader):
 
             # Do the training step.
-            batch_loss, batch_output = self._batch(epoch_index,
-                                                   batch_index, optimizer, model,
+            batch_loss, batch_output = self._batch(optimizer, model,
                                                    batch_data,
                                                    affinity_tune,
                                                    fine_tune)
 
             if output_directory is not None:
+
+                # make the snapshot, if requested
                 if animated_data is not None and (batch_index + 1) % self._snap_period == 0:
 
                     self._snapshot(f"{epoch_index}.{batch_index + 1}",
                                    model,
                                    output_directory, animated_data)
 
+                # Save to metrics
                 record.add_batch(batch_loss, batch_output, batch_data)
 
+        # Create the metrics row for this epoch
         if output_directory is not None:
             record.save(epoch_index, data_loader.dataset.name, output_directory)
 
@@ -249,13 +288,25 @@ class Trainer:
                   epoch_index: int,
                   model: Predictor,
                   data_loader: DataLoader,
-                  affinity_tune: bool,
-                  fine_tune: bool,
                   output_directory: Optional[str] = None,
     ) -> float:
+        """
+        Run an evaluation of the model, thus no backward propagation.
+        The model parameters stay the same in this call.
 
+        Args:
+            epoch_index: the number of the epoch to save the metrics to
+            model: the model that will be evaluated
+            data_loader: data to insert into the model
+            output_directory: where to store the results
+        Returns:
+            the mean total loss for all inserted data
+        """
+
+        # start with an empty metrics record
         record = MetricsRecord()
 
+        # put model in evaluation mode
         model.eval()
 
         datapoint_count = 0
@@ -265,18 +316,24 @@ class Trainer:
 
             for batch_index, batch_data in enumerate(data_loader):
 
+                # make the model generate output
                 batch_output = model(batch_data)
 
-                batch_loss = get_loss(batch_output, batch_data, affinity_tune, fine_tune)
+                # calculate the losses, for monitoring only
+                batch_loss = get_loss(batch_output, batch_data, True, True)
 
+                # count the number of loss values
                 datapoint_count += batch_data['loop_aatype'].shape[0]
                 sum_of_losses += batch_loss['total'].item() * batch_data['loop_aatype'].shape[0]
 
+                # Save to metrics
                 record.add_batch(batch_loss, batch_output, batch_data)
 
+        # Create the metrics row for this epoch
         if output_directory is not None:
             record.save(epoch_index, data_loader.dataset.name, output_directory)
 
+        # calculate the mean of losses
         return sum_of_losses / datapoint_count
 
     def test(self,
@@ -289,17 +346,18 @@ class Trainer:
         Call this function instead of train, when you just want to test the model.
 
         Args:
-            test_loaders: test data
+            test_loaders: test datasets to run the model on
             run_id: run directory, where the model file is stored
-            output_metrics: where to to save metrics data in a csv file
+            animated_complex_ids: list of complex names, of which the structures should be saved
+            model_path: pretrained model to use
         """
 
+        # init model
         model = Predictor(self.loop_maxlen,
                           self.protein_maxlen,
                           self._model_type,
                           openfold_config.model)
         model = DataParallel(model)
-
         model.to(device=self._device)
         model.eval()
 
@@ -309,7 +367,7 @@ class Trainer:
         for test_loader in test_loaders:
 
             # run the model to output results
-            self._validate(-1, model, test_loader, True, True, run_id)
+            self._validate(-1, model, test_loader, run_id)
 
         # do any requested animation snapshots
         if animated_complex_ids is not None and len(animated_complex_ids) > 0:
@@ -322,6 +380,17 @@ class Trainer:
 
     @staticmethod
     def _get_selection_data_batch(datasets: List[ProteinLoopDataset], names: List[str]) -> Dict[str, torch.Tensor]:
+        """
+        Searches for the requested entries in the datasets and collates them together in a batch.
+
+        Args:
+            datasets: all datasets to search through
+            names: the entries to search for
+        Returns:
+            the data batch
+        Raises:
+            ValueError if a single entry cannot be found
+        """
 
         entries = []
         for name in names:
@@ -330,12 +399,15 @@ class Trainer:
                     entries.append(dataset.get_entry(name))
                     break
             else:
-                raise ValueError(f"entry not found in datasets: {name}")
+                dataset_name_s = ",".join([dataset.name for dataset in datasets])
+                raise ValueError(f"entry {name} not found in datasets: {dataset_name_s}")
 
         return ProteinLoopDataset.collate(entries)
 
     @staticmethod
     def get_model_path(run_id: str) -> str:
+        "pathname to use for storing the model"
+
         return f"{run_id}/best-predictor.pth"
 
     def train(self,
@@ -347,19 +419,36 @@ class Trainer:
               pretrained_model_path: Optional[str] = None,
               animated_complex_ids: Optional[List[str]] = None,
     ):
+        """
+        Call this method for training a model
+
+        Args:
+            train_loader: dataset for training
+            valid_loader: dataset for validation, selecting the best model and deciding on early stopping
+            test_loaders: datasets for testing on
+            epoch_count: number of epochs to run optimizing just fape and chi for binding peptides
+            affinity_tune_count: number of epochs to run optimizing fape and chi for binding peptides and affinity prediction
+            fine_tune_count: number of epochs to run optimizing everything
+            run_id: directory to store the resulting files
+            pretrained_model_path: an optional pretrained model file to start from
+            animated_complex_ids: names of complexes to animate during the run. their structure snapshots will be stored in an HDF5
+        """
+
         # Set up the model
         model = Predictor(self.loop_maxlen,
                           self.protein_maxlen,
                           self._model_type,
                           openfold_config.model)
         model = DataParallel(model)
-
         model.to(device=self._device)
 
+        # continue on a pretrained model, if provided
         if pretrained_model_path is not None:
             model.load_state_dict(torch.load(pretrained_model_path,
                                              map_location=self._device))
 
+        # set the trajectory for optimization.
+        # LR is reduced after a given number of epochs
         def lr_lambda(epoch_index: int):
             lr = self._lr
             if epoch_index >= epoch_count:
@@ -378,12 +467,13 @@ class Trainer:
         if pretrained_model_path is not None:
             model_path = pretrained_model_path
 
-        # Keep track of the lowest loss value.
+        # Keep track of the lowest loss value seen during the run.
         lowest_loss = float("inf")
 
+        # make the initial snapshots for animation, if we're animating something
         animated_data = None
         if animated_complex_ids is not None:
-            # make snapshots for animation
+
             datasets = [train_loader.dataset, valid_loader.dataset] + [test_loader.dataset for test_loader in test_loaders]
             animated_data = self._get_selection_data_batch(datasets, animated_complex_ids)
 
@@ -391,6 +481,7 @@ class Trainer:
                            model,
                            run_id, animated_data)
 
+        # do the actual learning iteration
         total_epochs = epoch_count + affinity_tune_count + fine_tune_count
         for epoch_index in range(total_epochs):
 
@@ -406,13 +497,13 @@ class Trainer:
 
             # validate
             with Timer(f"valid epoch {epoch_index}") as t:
-                valid_loss = self._validate(epoch_index, model, valid_loader, True, True, run_id)
+                valid_loss = self._validate(epoch_index, model, valid_loader, run_id)
                 t.add_to_title(f"on {len(valid_loader.dataset)} data points")
 
             # test
             for test_loader in test_loaders:
                 with Timer(f"test epoch {epoch_index}") as t:
-                    self._validate(epoch_index, model, test_loader, True, True, run_id)
+                    self._validate(epoch_index, model, test_loader, run_id)
                     t.add_to_title(f"on {len(test_loader.dataset)} data points")
 
             # early stopping, if no more improvement
@@ -424,9 +515,8 @@ class Trainer:
                 lowest_loss = valid_loss
 
                 torch.save(model.state_dict(), model_path)
-            # else:
-            #    model.load_state_dict(torch.load(model_path))
 
+            # notify the scheduler, so that it can adjust the LR at the right epoch
             scheduler.step(epoch=epoch_index)
 
     def get_data_loader(self,
@@ -434,6 +524,16 @@ class Trainer:
                         batch_size: int,
                         device: torch.device,
                         entry_ids: Optional[List[str]] = None) -> DataLoader:
+        """
+        Builds a data loader from a hdf5 dataset path.
+        Args:
+            data_path: HDF5 path to load
+            batch_size: number of data points per batch, that the loader should output
+            device: to load the batch data on
+            entry_ids: an optional list of datapoint names to use, if omitted load all data.
+        Returns:
+            a data loader, providing access to the requested data
+        """
 
         dataset = ProteinLoopDataset(data_path, device,
                                      loop_maxlen=self.loop_maxlen,
@@ -449,6 +549,8 @@ class Trainer:
 
 
 def read_ids_from(path: str) -> List[str]:
+    "reads the context of a text file as a list of data point ids"
+
     ids = []
     with open(path) as file_:
         for line in file_:
@@ -457,6 +559,7 @@ def read_ids_from(path: str) -> List[str]:
 
 
 def random_subdivision(ids: List[str], fraction: float) -> Tuple[List[str], List[str]]:
+    "Randomly divides a list of ids in two, given a fraction [0 - 1] to take"
 
     n = int(round(fraction * len(ids)))
 
@@ -466,6 +569,15 @@ def random_subdivision(ids: List[str], fraction: float) -> Tuple[List[str], List
 
 
 def get_excluded(names_from: List[str], names_exclude: List[str]) -> List[str]:
+    """
+    Remove the names from one list from the other list
+    Args:
+        names_from: list from which names should be removed
+        names_exclude: list of names that should be removed
+    Returns:
+        the list of remaining names
+    """
+
     remaining_names = []
     for name in names_from:
         if name not in names_exclude:
@@ -478,27 +590,34 @@ if __name__ == "__main__":
 
     args = arg_parser.parse_args()
 
+    # The commandline argument determines whether we do regression or classification.
     model_type = ModelType.REGRESSION
     if args.classification:
         model_type = ModelType.CLASSIFICATION
 
+    # Make a directory to store the result files.
+    # It must have an unique name.
     if args.run_id is not None:
         run_id = args.run_id
 
         suffix = 0
         while os.path.isdir(run_id):
+            # if the directory already exists, add a suffix to the name
             suffix += 1
             run_id = f"{args.run_id}-{suffix}"
     else:
+        # no name given, so make a random one
         run_id = str(uuid4())
-
     os.mkdir(run_id)
 
+    # apply debug settings, if chosen so
     log_level = logging.INFO
     if args.debug:
         log_level = logging.DEBUG
         torch.autograd.set_detect_anomaly(True)
 
+    # If the user wants to log to stdout, set it.
+    # Otherwise log to a file.
     if args.log_stdout:
         logging.basicConfig(stream=sys.stdout,
                             level=log_level)
@@ -506,6 +625,7 @@ if __name__ == "__main__":
         logging.basicConfig(filename=f"{run_id}/tcrspec.log", filemode="a",
                             level=log_level)
 
+    # If cuda is available, use it.
     if torch.cuda.is_available():
         device_count = torch.cuda.device_count()
         _log.debug(f"using {device_count} cuda devices")
@@ -514,21 +634,22 @@ if __name__ == "__main__":
         _log.debug("using cpu device")
         device = torch.device("cpu")
 
-    if args.debug:
-        torch.autograd.detect_anomaly(True)
-
+    # Make sure we can use multiple workers:
     _log.debug(f"using {args.workers} workers")
     torch.multiprocessing.set_start_method('spawn')
 
+    # Init trainer object with given arguments
     trainer = Trainer(device, args.workers, args.lr, model_type)
 
     if args.test_only:
+        # We do a test, no training
         test_loaders = [trainer.get_data_loader(test_path, args.batch_size, device)
                         for test_path in args.data_path]
         trainer.test(test_loaders, run_id, args.animate, args.pretrained_model)
 
     else:  # train, validate, test
         if len(args.data_path) >= 3:
+            # the sets are separate HDF5 files
             train_path, valid_path = args.data_path[:2]
 
             _log.debug(f"training on {train_path}")
@@ -542,6 +663,8 @@ if __name__ == "__main__":
 
         elif len(args.data_path) == 2:
 
+            # assume that the train and validation sets are one HDF5 file, the other is the test set
+
             train_entry_names, valid_entry_names = random_subdivision(get_entry_names(args.data_path[0]), 0.1)
             train_loader = trainer.get_data_loader(args.data_path[0], args.batch_size, device, train_entry_names)
             valid_loader = trainer.get_data_loader(args.data_path[0], args.batch_size, device, valid_entry_names)
@@ -551,13 +674,17 @@ if __name__ == "__main__":
             _log.debug(f"validating on {args.data_path[0]} subset")
             _log.debug(f"testing on {args.data_path[1]}")
 
-        else:  # only one hdf5 file
+        else:
+            # only one hdf5 file for train, validation and test.
 
             if args.test_subset_path is not None:
+
+                # If a test subset path was provided, take a fraction of the HDF5 file.
                 test_entry_names = read_ids_from(args.test_subset_path)
                 train_valid_entry_names = get_excluded(get_entry_names(args.data_path[0]), test_entry_names)
                 train_entry_names, valid_entry_names = random_subdivision(train_valid_entry_names, 0.1)
             else:
+                # Otherwise, subdivide randomly
                 train_entry_names, valid_test_entry_names = random_subdivision(get_entry_names(args.data_path[0]), 0.2)
                 valid_entry_names, test_entry_names = random_subdivision(valid_test_entry_names, 0.5)
 
@@ -567,6 +694,7 @@ if __name__ == "__main__":
             valid_loader = trainer.get_data_loader(args.data_path[0], args.batch_size, device, valid_entry_names)
             test_loaders = [trainer.get_data_loader(args.data_path[0], args.batch_size, device, test_entry_names)]
 
+        # train with the composed datasets and user-provided settings
         trainer.train(train_loader, valid_loader, test_loaders,
                       args.epoch_count, args.affinity_tune_count, args.fine_tune_count,
                       run_id, args.pretrained_model,
