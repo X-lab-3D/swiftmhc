@@ -343,9 +343,7 @@ class Trainer:
         if output_directory is not None:
             record.save(epoch_index, data_loader.dataset.name, output_directory)
 
-        valid_data["binders_c_alpha_rmsd"] = numpy.mean(list(rmsds.values()))
-
-        return valid_data
+        return (sum_of_losses / datapoint_count)
 
     def test(self,
              test_loaders: [DataLoader],
