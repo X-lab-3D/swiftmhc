@@ -399,12 +399,14 @@ def get_loss(output: TensorDict, batch: TensorDict,
              fine_tune: bool) -> TensorDict:
 
     # compute our own affinity-based loss
-    if "class" in output and "class" in batch:
-        affinity_loss = _classification_loss_function(output["classification"], batch["class"])
+    #if "class" in output and "class" in batch:
+    if "class" in batch:
+    #    affinity_loss = _classification_loss_function(output["classification"], batch["class"])
         non_binders_index = torch.logical_not(batch["class"])
 
-    elif "affinity" in output and "affinity" in batch:
-        affinity_loss = _affinity_loss_function(output["affinity"], batch["affinity"])
+    #elif "affinity" in output and "affinity" in batch:
+    elif "affinity" in batch:
+    #    affinity_loss = _affinity_loss_function(output["affinity"], batch["affinity"])
         non_binders_index = batch["affinity"] < AFFINITY_BINDING_TRESHOLD
     else:
         raise ValueError("Cannot compute affinity loss without class or affinity in both output and batch data")
@@ -428,17 +430,17 @@ def get_loss(output: TensorDict, batch: TensorDict,
     # combine the loss terms
     total_loss = 1.0 * chi_loss + 1.0 * fape_losses["total"]
 
-    if affinity_tune:
-        total_loss += 1.0 * affinity_loss
+    #if affinity_tune:
+    #    total_loss += 1.0 * affinity_loss
 
     if fine_tune:
         total_loss += 1.0 * violation_losses["total"]
 
     # for true non-binders, the total loss is simply affinity-based
-    if affinity_tune:
-        total_loss[non_binders_index] = 1.0 * affinity_loss[non_binders_index]
-    else:
-        total_loss[non_binders_index] = 0.0
+    #if affinity_tune:
+    #    total_loss[non_binders_index] = 1.0 * affinity_loss[non_binders_index]
+    #else:
+    total_loss[non_binders_index] = 0.0
 
     if torch.any(torch.isnan(total_loss)):
         raise ValueError("NaN detected")
@@ -447,7 +449,7 @@ def get_loss(output: TensorDict, batch: TensorDict,
     result = TensorDict({
         "total": total_loss.mean(dim=0),
         "chi": chi_loss.mean(dim=0),
-        "affinity": affinity_loss.mean(dim=0),
+   #     "affinity": affinity_loss.mean(dim=0),
     })
 
     # add these separate components to the result too:

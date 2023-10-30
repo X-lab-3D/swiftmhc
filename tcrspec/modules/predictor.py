@@ -81,24 +81,24 @@ class Predictor(torch.nn.Module):
 
         c_affinity = 128
 
-        self.affinity_reswise_mlp = torch.nn.Sequential(
-            torch.nn.Linear(structure_module_config.c_s, c_affinity),
-            torch.nn.GELU(),
-            torch.nn.Linear(c_affinity, c_affinity),
-            torch.nn.GELU(),
-            torch.nn.Linear(c_affinity, 1),
-        )
+        #self.affinity_reswise_mlp = torch.nn.Sequential(
+        #    torch.nn.Linear(structure_module_config.c_s, c_affinity),
+        #    torch.nn.GELU(),
+        #    torch.nn.Linear(c_affinity, c_affinity),
+        #    torch.nn.GELU(),
+        #    torch.nn.Linear(c_affinity, 1),
+        #)
 
         self.model_type = model_type
 
-        if model_type == ModelType.REGRESSION:
-            output_size = 1
-        elif model_type == ModelType.CLASSIFICATION:
-            output_size = 2
-        else:
-            raise TypeError(str(model_type))
+        #if model_type == ModelType.REGRESSION:
+        #    output_size = 1
+        #elif model_type == ModelType.CLASSIFICATION:
+        #    output_size = 2
+        #else:
+        #    raise TypeError(str(model_type))
 
-        self.affinity_linear = torch.nn.Linear(loop_maxlen, output_size)
+        #self.affinity_linear = torch.nn.Linear(loop_maxlen, output_size)
 
     def forward(self, batch: TensorDict) -> TensorDict:
         """
@@ -193,16 +193,16 @@ class Predictor(torch.nn.Module):
         output["final_atom_positions"] = atom14_to_atom37(output["final_positions"], output)
 
         # [batch_size, loop_len]
-        p = self.affinity_reswise_mlp(output["single"])[..., 0]
+        #p = self.affinity_reswise_mlp(output["single"])[..., 0]
 
         # affinity prediction
-        if self.model_type == ModelType.REGRESSION:
-            output["affinity"] = self.affinity_linear(p)
+        #if self.model_type == ModelType.REGRESSION:
+        #    output["affinity"] = self.affinity_linear(p)
 
-        elif self.model_type == ModelType.CLASSIFICATION:
-            # softmax is required here, so that we can calculate ROC AUC
-            output["classification"] = torch.nn.functional.softmax(self.affinity_linear(p), dim=1)
-            output["class"] = torch.argmax(output["classification"], dim=1)
+        #elif self.model_type == ModelType.CLASSIFICATION:
+        #    # softmax is required here, so that we can calculate ROC AUC
+        #    output["classification"] = torch.nn.functional.softmax(self.affinity_linear(p), dim=1)
+        #    output["class"] = torch.argmax(output["classification"], dim=1)
 
         return output
 
