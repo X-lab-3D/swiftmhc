@@ -99,12 +99,13 @@ class ProteinLoopDataset(Dataset):
                 elif length > max_length:
                     raise ValueError(f"{entry_name} {prefix} length is {length}, which is larger than the max {max_length}")
 
-                if prefix == "loop":
+                # For the protein, put all residues leftmost
+                index = torch.zeros(max_length, device=self._device, dtype=torch.bool)
+                index[:length] = True
+
+                if prefix == PREPROCESS_LOOP_NAME:
+                    # For the loop, put residues partly leftmost, partly centered, partly rightmost
                     index = mask_loop_left_center_right(length, max_length)
-                else:
-                    # For the protein, put all residues leftmost
-                    index = torch.zeros(max_length, device=self._device, dtype=torch.bool)
-                    index[:length] = True
 
                 result[f"{prefix}_aatype"] = torch.zeros(max_length, device=self._device, dtype=torch.long)
                 result[f"{prefix}_aatype"][index] = torch.tensor(aatype_data, device=self._device, dtype=torch.long)
@@ -121,6 +122,7 @@ class ProteinLoopDataset(Dataset):
                         result[f"{prefix}_{interfix}_residues_mask"][index] = True
 
                 # alphafold needs each connected pair of residues to be one index apart
+                # unconnected residues must be further apart
                 result[f"{prefix}_residue_index"] = torch.zeros(max_length, dtype=torch.long, device=self._device)
                 result[f"{prefix}_residue_index"][index] = torch.arange(start_index,
                                                                         start_index + length,
