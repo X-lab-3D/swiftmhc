@@ -79,26 +79,34 @@ class Predictor(torch.nn.Module):
 
         self.cross = CrossStructureModule(**structure_module_config)
 
-        c_affinity = 128
+        c_affinity = 512
 
-        #self.affinity_reswise_mlp = torch.nn.Sequential(
-        #    torch.nn.Linear(structure_module_config.c_s, c_affinity),
+        #self.aff_norm = LayerNorm(structure_module_config.c_s)
+
+        #self.aff_trans = torch.nn.Sequential(
+        #    torch.nn.Linear(structure_module_config.c_s, 10),
+        #    torch.nn.GELU(),
+        #    torch.nn.Linear(10, structure_module_config.c_s),
+        #    torch.nn.Dropout(0.1),
+        #    torch.nn.LayerNorm(structure_module_config.c_s)
+        #)
+
+        #self.model_type = model_type
+        #if self.model_type == ModelType.REGRESSION:
+        #    output_size = 1
+        #
+        #elif self.model_type == ModelType.CLASSIFICATION:
+        #    output_size = 2
+
+        #self.aff_mlp = torch.nn.Sequential(
+        #    torch.nn.Linear(loop_input_size, c_affinity),
+        #    #torch.nn.Linear(structure_module_config.c_s, c_affinity),
         #    torch.nn.GELU(),
         #    torch.nn.Linear(c_affinity, c_affinity),
         #    torch.nn.GELU(),
-        #    torch.nn.Linear(c_affinity, 1),
+        #    torch.nn.Linear(c_affinity, output_size),
+        #    #torch.nn.LayerNorm(1),
         #)
-
-        self.model_type = model_type
-
-        #if model_type == ModelType.REGRESSION:
-        #    output_size = 1
-        #elif model_type == ModelType.CLASSIFICATION:
-        #    output_size = 2
-        #else:
-        #    raise TypeError(str(model_type))
-
-        #self.affinity_linear = torch.nn.Linear(loop_maxlen, output_size)
 
     def forward(self, batch: TensorDict) -> TensorDict:
         """
@@ -192,18 +200,20 @@ class Predictor(torch.nn.Module):
         # [batch_size, loop_len, 37, 3]
         output["final_atom_positions"] = atom14_to_atom37(output["final_positions"], output)
 
-        # [batch_size, loop_len]
-        #p = self.affinity_reswise_mlp(output["single"])[..., 0]
+        # [batch_size, n_heads, loop_len, protein_len]
+        #cross_att = output["cross_attention"]
 
-        # affinity prediction
+        # [batch_size, loop_maxlen, c_s]
+        #updated_s_loop = output["single"]
+
         #if self.model_type == ModelType.REGRESSION:
-        #    output["affinity"] = self.affinity_linear(p)
-
+        #    # [batch_size]
+        #    output["affinity"] = self.aff_mlp(updated_s_loop.reshape(batch_size, -1)).reshape(batch_size)
+        #
         #elif self.model_type == ModelType.CLASSIFICATION:
-        #    # softmax is required here, so that we can calculate ROC AUC
-        #    output["classification"] = torch.nn.functional.softmax(self.affinity_linear(p), dim=1)
+        #    output["classification"] = self.aff_mlp(updated_s_loop.reshape(batch_size, -1))
         #    output["class"] = torch.argmax(output["classification"], dim=1)
-
+        #
         return output
 
     def get_storage_size(self):
