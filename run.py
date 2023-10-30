@@ -89,18 +89,6 @@ arg_parser.add_argument("data_path", help="path to a hdf5 file", nargs="+")
 _log = logging.getLogger(__name__)
 
 
-def get_accuracy(output: List[int], truth: List[int]) -> float:
-
-    right = 0
-    for i, o in enumerate(output):
-        t = truth[i]
-
-        if o == t:
-            right += 1
-
-    return float(right) / len(output)
-
-
 class Trainer:
     def __init__(self,
                  device: torch.device,
@@ -469,7 +457,7 @@ class Trainer:
             return lr
 
         optimizer = Adam(model.parameters(), lr=self._lr)
-        scheduler = LambdaLR(optimizer, lr_lambda=lr_lambda)
+        #scheduler = LambdaLR(optimizer, lr_lambda=lr_lambda)
 
         # define model paths
         model_path = f"{run_id}/best-predictor.pth"
@@ -527,7 +515,7 @@ class Trainer:
             # else:
             #    model.load_state_dict(torch.load(model_path))
 
-            scheduler.step(epoch=epoch_index)
+            #scheduler.step(epoch=epoch_index)
 
     def get_data_loader(self,
                         data_path: str,

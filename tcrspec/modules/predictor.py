@@ -79,7 +79,7 @@ class Predictor(torch.nn.Module):
 
         self.cross = CrossStructureModule(**structure_module_config)
 
-        c_affinity = 512
+        #c_affinity = 512
 
         #self.aff_norm = LayerNorm(structure_module_config.c_s)
 
