@@ -79,34 +79,22 @@ class Predictor(torch.nn.Module):
 
         self.cross = CrossStructureModule(**structure_module_config)
 
-        #c_affinity = 512
+        c_affinity = 512
 
-        #self.aff_norm = LayerNorm(structure_module_config.c_s)
+        self.model_type = model_type
+        if self.model_type == ModelType.REGRESSION:
+            output_size = 1
 
-        #self.aff_trans = torch.nn.Sequential(
-        #    torch.nn.Linear(structure_module_config.c_s, 10),
-        #    torch.nn.GELU(),
-        #    torch.nn.Linear(10, structure_module_config.c_s),
-        #    torch.nn.Dropout(0.1),
-        #    torch.nn.LayerNorm(structure_module_config.c_s)
-        #)
+        elif self.model_type == ModelType.CLASSIFICATION:
+            output_size = 2
 
-        #self.model_type = model_type
-        #if self.model_type == ModelType.REGRESSION:
-        #    output_size = 1
-        #
-        #elif self.model_type == ModelType.CLASSIFICATION:
-        #    output_size = 2
-
-        #self.aff_mlp = torch.nn.Sequential(
-        #    torch.nn.Linear(loop_input_size, c_affinity),
-        #    #torch.nn.Linear(structure_module_config.c_s, c_affinity),
-        #    torch.nn.GELU(),
-        #    torch.nn.Linear(c_affinity, c_affinity),
-        #    torch.nn.GELU(),
-        #    torch.nn.Linear(c_affinity, output_size),
-        #    #torch.nn.LayerNorm(1),
-        #)
+        self.aff_mlp = torch.nn.Sequential(
+            torch.nn.Linear(loop_input_size, c_affinity),
+            torch.nn.GELU(),
+            torch.nn.Linear(c_affinity, c_affinity),
+            torch.nn.GELU(),
+            torch.nn.Linear(c_affinity, output_size),
+        )
 
     def forward(self, batch: TensorDict) -> TensorDict:
         """
@@ -204,16 +192,19 @@ class Predictor(torch.nn.Module):
         #cross_att = output["cross_attention"]
 
         # [batch_size, loop_maxlen, c_s]
-        #updated_s_loop = output["single"]
+        updated_s_loop = output["single"]
 
-        #if self.model_type == ModelType.REGRESSION:
-        #    # [batch_size]
-        #    output["affinity"] = self.aff_mlp(updated_s_loop.reshape(batch_size, -1)).reshape(batch_size)
-        #
-        #elif self.model_type == ModelType.CLASSIFICATION:
-        #    output["classification"] = self.aff_mlp(updated_s_loop.reshape(batch_size, -1))
-        #    output["class"] = torch.argmax(output["classification"], dim=1)
-        #
+        if self.model_type == ModelType.REGRESSION:
+            # [batch_size]
+            output["affinity"] = self.aff_mlp(updated_s_loop.reshape(batch_size, -1)).reshape(batch_size)
+
+        elif self.model_type == ModelType.CLASSIFICATION:
+            # [batch_size, 2]
+            output["classification"] = self.aff_mlp(updated_s_loop.reshape(batch_size, -1))
+
+            # [batch_size]
+            output["class"] = torch.argmax(output["classification"], dim=1)
+
         return output
 
     def get_storage_size(self):
