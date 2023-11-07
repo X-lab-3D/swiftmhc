@@ -3,7 +3,7 @@
 import shutil
 from typing import List
 from tempfile import mkdtemp
-from threading import Thread
+from multiprocessing import Process
 import logging
 from argparse import ArgumentParser
 import os
@@ -25,7 +25,7 @@ arg_parser.add_argument("protein_self_mask", help="file with mask data, to indic
 arg_parser.add_argument("protein_cross_mask", help="file with mask data, to indicate which protein residues to use for cross attention")
 arg_parser.add_argument("output_path", help="hdf5 file where to store the data")
 arg_parser.add_argument("--debug", "-d", help="adds debug statments", action="store_const", const=True, default=False)
-arg_parser.add_argument("--n-threads", "-t", help="number of simultaneous threads", type=int, default=1)
+arg_parser.add_argument("--processes", "-p", help="number of processes", type=int, default=1)
 
 
 def split_table(table_path: str, dir_path: str, split_count: int) -> List[str]:
@@ -64,20 +64,20 @@ if __name__ == "__main__":
     try:
         table_paths = split_table(args.table_path, tmp_dir, args.n_threads)
 
-        threads = []
+        ps = []
         tmp_output_paths = []
         for table_path in table_paths:
 
             output_path = f"{table_path}.hdf5"
 
-            t = Thread(target=preprocess, args=(table_path, args.models_dir, args.protein_self_mask, args.protein_cross_mask, output_path))
-            threads.append(t)
+            p = Process(target=preprocess, args=(table_path, args.models_dir, args.protein_self_mask, args.protein_cross_mask, output_path))
+            ps.append(t)
 
             tmp_output_paths.append(output_path)
-            t.start()
+            p.start()
 
-        for t in threads:
-            t.join()
+        for p in ps:
+            p.join()
 
         with h5py.File(args.output_path, 'w') as output_file:
             for tmp_output_path in tmp_output_paths:

@@ -58,11 +58,11 @@ def _write_preprocessed_data(hdf5_path: str, storage_id: str,
 
         protein_group = storage_group.require_group(PREPROCESS_PROTEIN_NAME)
         for field_name, field_data in protein_data.items():
-            protein_group.create_dataset(field_name, data=field_data, compression="lzf")
+            protein_group.create_dataset(field_name, data=field_data.cpu(), compression="lzf")
 
         loop_group = storage_group.require_group(PREPROCESS_LOOP_NAME)
         for field_name, field_data in loop_data.items():
-            loop_group.create_dataset(field_name, data=field_data, compression="lzf")
+            loop_group.create_dataset(field_name, data=field_data.cpu(), compression="lzf")
 
 
 def _read_targets_by_id(table_path: str) -> List[Tuple[str, Union[float, ComplexClass]]]:
@@ -188,6 +188,11 @@ def _mask_residues(residues: List[Residue],
                    mask_ids: List[Tuple[str, int, AminoAcid]],
                    alignment_map: Dict[int, int]) -> torch.Tensor:
 
+    if torch.cuda.is_available():
+        device = torch.device("cuda")
+    else:
+        device = torch.device("cpu")
+
     mask_residue_numbers = [mask_id[1] for mask_id in mask_ids]
 
     mask = []
@@ -202,7 +207,7 @@ def _mask_residues(residues: List[Residue],
         else:
             mask.append(False)
 
-    mask = torch.tensor(mask, dtype=torch.bool)
+    mask = torch.tensor(mask, dtype=torch.bool, device=device)
 
     if not torch.any(mask):
         raise ValueError(f"none found of {mask_ids}")
@@ -228,10 +233,15 @@ def _read_residue_data(residues: List[Residue]) -> Dict[str, torch.Tensor]:
     if len(residues) < 3:
         raise ValueError(f"Only {len(residues)} residues")
 
+    if torch.cuda.is_available():
+        device = torch.device("cuda")
+    else:
+        device = torch.device("cpu")
+
     # embed the sequence
     amino_acids = [amino_acids_by_code[r.get_resname()] for r in residues]
     sequence_onehot = torch.stack([aa.one_hot_code for aa in amino_acids])
-    aatype = torch.tensor([aa.index for aa in amino_acids])
+    aatype = torch.tensor([aa.index for aa in amino_acids], device=device)
 
     # get atom positions and mask
     atom14_positions = []
@@ -245,7 +255,7 @@ def _read_residue_data(residues: List[Residue]) -> Dict[str, torch.Tensor]:
 
     atom14_positions = torch.stack(atom14_positions)
     atom14_mask = torch.stack(atom14_mask)
-    residue_numbers = torch.tensor(residue_numbers)
+    residue_numbers = torch.tensor(residue_numbers, device=device)
 
     blosum62 = _get_blosum_encoding(aatype, 62)
 
@@ -282,21 +292,22 @@ def _create_symmetry_alternative(chain: Chain) -> Chain:
 
 def _create_proximities(residues1: List[Residue], residues2: List[Residue]) -> torch.Tensor:
 
+    if torch.cuda.is_available():
+        device = torch.device("cuda")
+    else:
+        device = torch.device("cpu")
+
     residue_distances = torch.empty((len(residues1), len(residues2), 1), dtype=torch.float32)
 
+    atom_positions1 = [torch.tensor(numpy.array([atom.coord for atom in residue.get_atoms()]), device=device)
+                       for residue in residues1]
+    atom_positions2 = [torch.tensor(numpy.array([atom.coord for atom in residue.get_atoms()]), device=device)
+                       for residue in residues2]
+
     for i in range(len(residues1)):
-
-        atoms_i = list(residues1[i].get_atoms())
-        atom_count_i = len(atoms_i)
-        atom_positions_i = torch.tensor(numpy.array([atom.coord for atom in atoms_i]))
-
         for j in range(len(residues2)):
 
-            atoms_j = list(residues2[j].get_atoms())
-            atom_count_j = len(atoms_j)
-            atom_positions_j = torch.tensor(numpy.array([atom.coord for atom in atoms_j]))
-
-            atomic_distances_ij = torch.cdist(atom_positions_i, atom_positions_j, p=2)
+            atomic_distances_ij = torch.cdist(atom_positions1[i], atom_positions2[j], p=2)
 
             min_distance = torch.min(atomic_distances_ij).item()
 
@@ -319,14 +330,20 @@ def preprocess(table_path: str,
 
     _log.debug(f"{len(entries_present)} entries already present in {output_path}")
 
-    targets_by_id = _read_targets_by_id(table_path)
+    #targets_by_id = _read_targets_by_id(table_path)
 
     protein_residues_self_mask = _read_mask_data(protein_self_mask_path)
     protein_residues_cross_mask = _read_mask_data(protein_cross_mask_path)
 
-    for id_, target in targets_by_id:
+    table = pandas.read_csv(table_path)
+
+    for table_index, row in table.iterrows():
+
+        id_ = row["ID"]
         if id_ in entries_present:
             continue
+
+        target = row["measurement_value"]
 
         # parse the pdb file
         model_path = os.path.join(models_path, f"{id_}.pdb")
