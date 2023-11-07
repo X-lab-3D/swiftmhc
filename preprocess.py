@@ -8,6 +8,8 @@ import logging
 from argparse import ArgumentParser
 import os
 
+from uuid import uuid4
+
 import pandas
 import h5py
 from tcrspec.preprocess import preprocess
@@ -56,7 +58,9 @@ if __name__ == "__main__":
 
     logging.basicConfig(filename="preprocess.log", filemode="a", level=logging.DEBUG if args.debug else logging.INFO)
 
-    tmp_dir = mkdtemp()
+    tmp_dir = os.path.join(os.path.dirname(args.output_path), str(uuid4()))
+    os.mkdir(tmp_dir)
+
     try:
         table_paths = split_table(args.table_path, tmp_dir, args.n_threads)
 
@@ -83,4 +87,5 @@ if __name__ == "__main__":
 
                 os.remove(tmp_output_path)
     finally:
-        shutil.rmtree(tmp_dir)
+        #shutil.rmtree(tmp_dir)
+        pass
