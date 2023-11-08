@@ -125,6 +125,9 @@ class Predictor(torch.nn.Module):
         # mask out residues that don't exist
         loop_embd = loop_embd * batch["loop_self_residues_mask"][..., None]
 
+        # skip connection
+        loop_embd = loop_seq + loop_embd
+
         # structure-based self-attention on the protein
         protein_T = Rigid.from_tensor_4x4(batch["protein_backbone_rigid_tensor"])
 
