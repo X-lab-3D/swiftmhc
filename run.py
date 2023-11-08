@@ -136,6 +136,37 @@ class Trainer:
                                  data=structure_data,
                                  compression="lzf")
 
+    def _save_structures(self, output_directory: str, data: Dict[str, torch.Tensor], output: Dict[str, torch.Tensor]):
+        """
+        Used to save all models (truth) and (prediction) to two hdf5 files
+
+        Args:
+            output_directory: where to store the hdf5 files under
+            data: truth data
+            output: model output
+        """
+
+        truth_path = os.path.join(output_directory, 'true-structures.hdf5')
+        pred_path = os.path.join(output_directory, 'predicted-structures.hdf5')
+
+        for index, id_ in enumerate(data["ids"]):
+            true_structure = recreate_structure(id_,
+                                                [("P", data["loop_residue_numbers"][index], data["loop_sequence_onehot"][index], data["loop_atom14_gt_positions"][index]),
+                                                 ("M", data["protein_residue_numbers"][index], data["protein_sequence_onehot"][index], data["protein_atom14_gt_positions"][index])])
+
+            with h5py.File(truth_path, 'a') as truth_file:
+                id_group = truth_file.require_group(id_)
+                self._save_structure_to_hdf5(true_structure, id_group)
+
+            pred_structure = recreate_structure(id_,
+                                                [("P", data["loop_residue_numbers"][index], data["loop_sequence_onehot"][index], output["final_positions"][index]),
+                                                 ("M", data["protein_residue_numbers"][index], data["protein_sequence_onehot"][index], data["protein_atom14_gt_positions"][index])])
+
+            with h5py.File(pred_path, 'a') as pred_file:
+                id_group = pred_file.require_group(id_)
+                self._save_structure_to_hdf5(pred_structure, id_group)
+
+
     def _snapshot(self,
                   frame_id: str,
                   model: Predictor,
@@ -287,6 +318,7 @@ class Trainer:
                   model: Predictor,
                   data_loader: DataLoader,
                   output_directory: Optional[str] = None,
+                  save_structures: Optional[bool] = False,
     ) -> float:
         """
         Run an evaluation of the model, thus no backward propagation.
@@ -324,6 +356,9 @@ class Trainer:
                 datapoint_count += batch_data['loop_aatype'].shape[0]
                 sum_of_losses += batch_loss['total'].item() * batch_data['loop_aatype'].shape[0]
 
+                if save_structures and output_directory is not None:
+                    self._save_structures(output_directory, batch_data, batch_output)
+
                 # Save to metrics
                 record.add_batch(batch_loss, batch_output, batch_data)
 
@@ -341,6 +376,7 @@ class Trainer:
     ):
         """
         Call this function instead of train, when you just want to test the model.
+        It saves the generated structures to hdf5 files.
 
         Args:
             test_loaders: test datasets to run the model on
@@ -364,16 +400,7 @@ class Trainer:
         for test_loader in test_loaders:
 
             # run the model to output results
-            self._validate(-1, model, test_loader, run_id)
-
-        # do any requested animation snapshots
-        if animated_complex_ids is not None and len(animated_complex_ids) > 0:
-            animated_data = self._get_selection_data_batch([test_loader.dataset for test_loader in test_loaders],
-                                                           animated_complex_ids)
-
-            self._snapshot("test",
-                           model,
-                           run_id, animated_data)
+            self._validate(-1, model, test_loader, run_id, save_structures=True)
 
     @staticmethod
     def _get_selection_data_batch(datasets: List[ProteinLoopDataset], names: List[str]) -> Dict[str, torch.Tensor]:
