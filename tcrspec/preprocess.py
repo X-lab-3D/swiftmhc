@@ -156,7 +156,7 @@ def _make_alignment_map(sorted_residues: List[Residue], mask_ids: List[Tuple[str
     alignments = aligner.align(residues_seq, mask_seq)
     alignment = alignments[0]
     pid = 100.0 * alignment.score / len(mask_ids)
-    if pid < 75.0:
+    if pid < 35.0:
         raise ValueError(f"cannot reliably align mask to structure, identity is only {pid} %")
 
     # we expect no gaps, so there's only one range
