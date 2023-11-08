@@ -182,11 +182,6 @@ class CrossStructureModule(torch.nn.Module):
             fmt="quat",
         )
 
-        # center on protein
-        trans_mask = protein_mask.unsqueeze(-1).expand(list(protein_mask.shape) + [3])
-        protein_com = (T_protein.get_trans() * trans_mask).mean(dim=1)
-        T_loop._trans = protein_com.unsqueeze(1).repeat(1, T_loop.get_trans().shape[1], 1)
-
         outputs = []
         atts = []
         atts_sd = []
@@ -195,7 +190,6 @@ class CrossStructureModule(torch.nn.Module):
 
             preds, att, att_sd, att_pts = self._block(
                 s_loop_initial,
-                protein_com,
                 loop_aatype,
                 s_loop, s_protein,
                 T_loop, T_protein,
@@ -232,7 +226,6 @@ class CrossStructureModule(torch.nn.Module):
 
     def _block(self,
                s_loop_initial: torch.Tensor,
-               protein_com: torch.Tensor,
                loop_aatype: torch.Tensor,
                s_loop: torch.Tensor,
                s_protein: torch.Tensor,
@@ -240,8 +233,6 @@ class CrossStructureModule(torch.nn.Module):
                T_protein: Rigid,
                loop_mask: torch.Tensor,
                protein_mask: torch.Tensor) -> Dict[str, torch.Tensor]:
-
-        t0 = protein_com.unsqueeze(1).repeat(1, s_loop.shape[1], 1)
 
         # [batch_size, loop_len, c_s]
         s_upd, ipa_att, ipa_att_sd, ipa_att_pts = self.loop_ipa(
@@ -268,7 +259,7 @@ class CrossStructureModule(torch.nn.Module):
             T_loop.get_trans(),
         )
 
-        backb_to_global = backb_to_global.apply_trans_fn(lambda t: t0 + (t - t0) * self.trans_scale_factor)
+        backb_to_global = backb_to_global.scale_translation(self.trans_scale_factor)
 
         # [batch_size, loop_len, 7, 2]
         unnormalized_angles, angles = self.angle_resnet(s_loop, s_loop_initial)
@@ -286,7 +277,7 @@ class CrossStructureModule(torch.nn.Module):
             loop_aatype,
         )
 
-        scaled_T_loop = T_loop.apply_trans_fn(lambda t: t0 + (t - t0) * self.trans_scale_factor)
+        scaled_T_loop = T_loop.scale_translation(self.trans_scale_factor)
 
         preds = {
             "unscaled_frames": T_loop.to_tensor_7(),
