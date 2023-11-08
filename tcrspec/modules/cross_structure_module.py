@@ -19,6 +19,7 @@ from openfold.np.residue_constants import (
 )
 
 from .cross_ipa import CrossInvariantPointAttention
+from ..operate import average_rigid
 
 
 _log = logging.getLogger(__name__)
@@ -99,7 +100,7 @@ class CrossStructureModule(torch.nn.Module):
         self.linear_in_loop = Linear(self.c_s, self.c_s)
         self.linear_in_protein = Linear(self.c_s, self.c_s)
 
-        self.ipa = CrossInvariantPointAttention(
+        self.loop_ipa = CrossInvariantPointAttention(
             self.c_s,
             self.c_ipa,
             self.no_heads_ipa,
@@ -107,12 +108,11 @@ class CrossStructureModule(torch.nn.Module):
             self.no_v_points,
             eps=self.epsilon,
         )
-
-        self.ipa_dropout = torch.nn.Dropout(self.dropout_rate)
-        self.layer_norm_ipa = LayerNorm(self.c_s)
-        self.transition = StructureModuleTransition(self.c_s,
-                                                    self.n_transition_layers,
-                                                    self.dropout_rate)
+        self.loop_ipa_dropout = torch.nn.Dropout(self.dropout_rate)
+        self.loop_layer_norm_ipa = LayerNorm(self.c_s)
+        self.loop_transition = StructureModuleTransition(self.c_s,
+                                                         self.n_transition_layers,
+                                                         self.dropout_rate)
 
         self.bb_update = BackboneUpdate(self.c_s)
 
@@ -152,6 +152,8 @@ class CrossStructureModule(torch.nn.Module):
             single:           [batch_size, loop_len, c_s]
         """
 
+        batch_size, loop_maxlen, embd_depth = s_loop_initial.shape
+
         s_loop = torch.clone(s_loop_initial)
         s_protein = torch.clone(s_protein_initial)
 
@@ -171,7 +173,7 @@ class CrossStructureModule(torch.nn.Module):
         s_protein_initial = torch.clone(s_protein)
         s_protein = self.linear_in_protein(s_protein)
 
-        # [batch_size, loop_len]
+        # [batch_size, loop_maxlen]
         T_loop = Rigid.identity(
             s_loop.shape[:-1],
             s_loop.dtype,
@@ -181,7 +183,9 @@ class CrossStructureModule(torch.nn.Module):
         )
 
         # center on protein
-        T_loop._trans = T_protein.get_trans().mean(dim=1).unsqueeze(1).repeat(1, T_loop.get_trans().shape[1], 1)
+        trans_mask = protein_mask.unsqueeze(-1).expand(list(protein_mask.shape) + [3])
+        protein_com = (T_protein.get_trans() * trans_mask).mean(dim=1)
+        T_loop._trans = protein_com.unsqueeze(1).repeat(1, T_loop.get_trans().shape[1], 1)
 
         outputs = []
         atts = []
@@ -191,11 +195,14 @@ class CrossStructureModule(torch.nn.Module):
 
             preds, att, att_sd, att_pts = self._block(
                 s_loop_initial,
+                protein_com,
                 loop_aatype,
                 s_loop, s_protein,
                 T_loop, T_protein,
                 loop_mask, protein_mask,
             )
+
+            s_loop = preds["states"]
 
             T_loop = Rigid.from_tensor_7(preds["unscaled_frames"])
 
@@ -225,6 +232,7 @@ class CrossStructureModule(torch.nn.Module):
 
     def _block(self,
                s_loop_initial: torch.Tensor,
+               protein_com: torch.Tensor,
                loop_aatype: torch.Tensor,
                s_loop: torch.Tensor,
                s_protein: torch.Tensor,
@@ -233,19 +241,18 @@ class CrossStructureModule(torch.nn.Module):
                loop_mask: torch.Tensor,
                protein_mask: torch.Tensor) -> Dict[str, torch.Tensor]:
 
-        _log.debug(f"cross block: s_protein ranges {s_protein.min()} - {s_protein.max()}")
+        t0 = protein_com.unsqueeze(1).repeat(1, s_loop.shape[1], 1)
 
         # [batch_size, loop_len, c_s]
-        s_upd, ipa_att, ipa_att_sd, ipa_att_pts = self.ipa(
+        s_upd, ipa_att, ipa_att_sd, ipa_att_pts = self.loop_ipa(
             s_loop, s_protein,
             T_loop, T_protein,
             loop_mask, protein_mask,
         )
-
         s_loop = s_loop + s_upd
-        s_loop = self.ipa_dropout(s_loop)
-        s_loop = self.layer_norm_ipa(s_loop)
-        s_loop = self.transition(s_loop)
+        s_loop = self.loop_ipa_dropout(s_loop)
+        s_loop = self.loop_layer_norm_ipa(s_loop)
+        s_loop = self.loop_transition(s_loop)
 
         # [batch_size, loop_len]
         T_loop = T_loop.compose_q_update_vec(self.bb_update(s_loop))
@@ -261,9 +268,7 @@ class CrossStructureModule(torch.nn.Module):
             T_loop.get_trans(),
         )
 
-        backb_to_global = backb_to_global.scale_translation(
-            self.trans_scale_factor
-        )
+        backb_to_global = backb_to_global.apply_trans_fn(lambda t: t0 + (t - t0) * self.trans_scale_factor)
 
         # [batch_size, loop_len, 7, 2]
         unnormalized_angles, angles = self.angle_resnet(s_loop, s_loop_initial)
@@ -281,7 +286,7 @@ class CrossStructureModule(torch.nn.Module):
             loop_aatype,
         )
 
-        scaled_T_loop = T_loop.scale_translation(self.trans_scale_factor)
+        scaled_T_loop = T_loop.apply_trans_fn(lambda t: t0 + (t - t0) * self.trans_scale_factor)
 
         preds = {
             "unscaled_frames": T_loop.to_tensor_7(),

@@ -16,7 +16,6 @@ from openfold.utils.loss import find_structural_violations
 from openfold.utils.feats import atom14_to_atom37
 from openfold.model.primitives import LayerNorm
 
-from ..models.types import ModelType
 from .position_encoding import PositionalEncoding
 from .cross_structure_module import CrossStructureModule
 from ..domain.amino_acid import AMINO_ACID_DIMENSION
@@ -24,6 +23,7 @@ from ..models.data import TensorDict
 from ..tools.amino_acid import one_hot_decode_sequence
 from .transform import DebuggableTransformerEncoderLayer
 from .ipa import DebuggableInvariantPointAttention as IPA
+from ..models.types import ModelType
 
 
 _log = logging.getLogger(__name__)
@@ -31,9 +31,9 @@ _log = logging.getLogger(__name__)
 
 class Predictor(torch.nn.Module):
     def __init__(self,
-                 model_type: ModelType,
                  loop_maxlen: int,
                  protein_maxlen: int,
+                 model_type: ModelType,
                  config: ml_collections.ConfigDict):
         super(Predictor, self).__init__()
 
@@ -43,17 +43,10 @@ class Predictor(torch.nn.Module):
         structure_module_config.no_blocks = 2
         structure_module_config.no_heads_ipa = 2
 
-        self.model_type = model_type
         self.loop_maxlen = loop_maxlen
         self.protein_maxlen = protein_maxlen
 
         self.n_head = structure_module_config.no_heads_ipa
-
-        #self.pos_enc = PositionalEncoding(structure_module_config.c_s, self.loop_maxlen)
-
-        #self.loop_enc = DebuggableTransformerEncoderLayer(structure_module_config.c_s,
-        #                                                  self.n_head)
-        #self.n_block = structure_module_config.no_blocks
 
         loop_input_size = self.loop_maxlen * structure_module_config.c_s
         c_loop = 512
@@ -88,16 +81,7 @@ class Predictor(torch.nn.Module):
 
         c_affinity = 512
 
-        #self.aff_norm = LayerNorm(structure_module_config.c_s)
-
-        #self.aff_trans = torch.nn.Sequential(
-        #    torch.nn.Linear(structure_module_config.c_s, 10),
-        #    torch.nn.GELU(),
-        #    torch.nn.Linear(10, structure_module_config.c_s),
-        #    torch.nn.Dropout(0.1),
-        #    torch.nn.LayerNorm(structure_module_config.c_s)
-        #)
-
+        self.model_type = model_type
         if self.model_type == ModelType.REGRESSION:
             output_size = 1
 
@@ -106,12 +90,10 @@ class Predictor(torch.nn.Module):
 
         self.aff_mlp = torch.nn.Sequential(
             torch.nn.Linear(loop_input_size, c_affinity),
-            #torch.nn.Linear(structure_module_config.c_s, c_affinity),
             torch.nn.GELU(),
             torch.nn.Linear(c_affinity, c_affinity),
             torch.nn.GELU(),
             torch.nn.Linear(c_affinity, output_size),
-            #torch.nn.LayerNorm(1),
         )
 
     def forward(self, batch: TensorDict) -> TensorDict:
@@ -119,7 +101,6 @@ class Predictor(torch.nn.Module):
             Returns:
                 single:               [batch_size, loop_len, c_s]
                 aatype:               [batch_size, loop_len]  (int)
-                residue_index:        [batch_size, loop_len]  (int)
                 affinity:             [batch_size]
 
                 frames:               [n_blocks, batch_size, loop_len, 4, 4]
@@ -198,15 +179,6 @@ class Predictor(torch.nn.Module):
         # [batch_size, loop_len]
         output["aatype"] = batch["loop_aatype"]
 
-        # alphafold needs this variable:
-        # amino acid sequence index: [0, 1, 2, 3, 4, ... ], representing the order of amino acids
-        # [batch_size, loop_len]
-        output["residue_index"] = torch.arange(0,
-                                               loop_seq.shape[1], 1,
-                                               dtype=torch.int64,
-                                               device=loop_seq.device
-        ).unsqueeze(dim=0).expand(batch_size, -1)
-
         # whether the heavy atoms exists or not
         # for each loop residue
         # [batch_size, loop_len, 14] (true or false)
@@ -221,20 +193,17 @@ class Predictor(torch.nn.Module):
 
         # [batch_size, loop_maxlen, c_s]
         updated_s_loop = output["single"]
+        loop_embd = loop_embd + updated_s_loop
 
         if self.model_type == ModelType.REGRESSION:
             # [batch_size]
-            output["affinity"] = self.aff_mlp(updated_s_loop.reshape(batch_size, -1)).reshape(batch_size)
-
-            if torch.any(torch.isnan(output["affinity"])):
-                raise RuntimeError(f"got NaN output")
+            output["affinity"] = self.aff_mlp(loop_embd.reshape(batch_size, -1)).reshape(batch_size)
 
         elif self.model_type == ModelType.CLASSIFICATION:
-            output["classification"] = self.aff_mlp(updated_s_loop.reshape(batch_size, -1))
+            # [batch_size, 2]
+            output["classification"] = self.aff_mlp(loop_embd.reshape(batch_size, -1))
 
-            if torch.any(torch.isnan(output["classification"])):
-                raise RuntimeError(f"got NaN output")
-
+            # [batch_size]
             output["class"] = torch.argmax(output["classification"], dim=1)
 
         return output
@@ -245,4 +214,3 @@ class Predictor(torch.nn.Module):
             total_size += sys.getsizeof(parameter.storage().cpu())
 
         return total_size
-
