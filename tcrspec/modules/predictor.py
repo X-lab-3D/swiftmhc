@@ -48,14 +48,12 @@ class Predictor(torch.nn.Module):
 
         self.n_head = structure_module_config.no_heads_ipa
 
-        loop_input_size = self.loop_maxlen * structure_module_config.c_s
-        c_loop = 512
+        self.posenc = PositionalEncoding(structure_module_config.c_s, self.loop_maxlen)
 
-        self.loop_mlp = torch.nn.Sequential(
-            torch.nn.Linear(loop_input_size, c_loop),
-            torch.nn.GELU(),
-            torch.nn.Linear(c_loop, loop_input_size),
-        )
+        self.transform = torch.nn.ModuleList([
+            DebuggableTransformerEncoderLayer(structure_module_config.c_s, self.n_head)
+            for _ in range(structure_module_config.no_blocks)
+        ])
 
         self.n_ipa_repeat = structure_module_config.no_blocks
 
@@ -117,16 +115,12 @@ class Predictor(torch.nn.Module):
         batch_size, loop_maxlen, loop_depth = loop_seq.shape
 
         # positional encoding
-        #loop_pos_enc = self.pos_enc(loop_seq)
+        loop_embd = self.pos_enc(loop_seq)
 
-        # transition on the loop
-        loop_embd = self.loop_mlp(loop_seq.reshape(batch_size, -1)).reshape(batch_size, loop_maxlen, loop_depth)
-
-        # mask out residues that don't exist
-        loop_embd = loop_embd * batch["loop_self_residues_mask"][..., None]
-
-        # skip connection
-        loop_embd = loop_seq + loop_embd
+        # transform the loop
+        for encoder in self.transform:
+            loop_upd, loop_att = encoder(loop_embd, batch["loop_self_residues_mask"])
+            loop_embd += loop_upd
 
         # structure-based self-attention on the protein
         protein_T = Rigid.from_tensor_4x4(batch["protein_backbone_rigid_tensor"])
