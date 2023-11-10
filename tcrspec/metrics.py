@@ -112,7 +112,7 @@ class MetricsRecord:
             table = pandas.read_csv(metrics_path, sep=',')
 
         # make sure the table has a row for this epoch
-        if epoch_number not in table["epoch"]:
+        if epoch_number not in table["epoch"].values:
             row = pandas.DataFrame()
             for key in table:
                 row[key] = [None]
@@ -120,33 +120,33 @@ class MetricsRecord:
 
             table = pandas.concat((table, row))
 
-        epoch_index = (table["epoch"] == epoch_number)
+        row_index = (table["epoch"] == epoch_number)
 
         # write losses to the table
         for loss_name, loss_value in self._losses_sum.items():
             normalized = round((loss_value / self._data_len).item(), 3)
 
-            table.loc[epoch_index, f"{pass_name} {loss_name} loss"] = normalized
+            table.loc[row_index, f"{pass_name} {loss_name} loss"] = normalized
 
         # write rmsd
         mean = round(numpy.mean(list(self._rmsds.values())), 3)
-        table.loc[epoch_index, f"{pass_name} mean binders C-alpha RMSD(Å)"] = mean
+        table.loc[row_index, f"{pass_name} mean binders C-alpha RMSD(Å)"] = mean
 
         # write affinity-related metrics
         if "classification" in self._output_data and "class" in self._truth_data and len(set(self._truth_data["class"])) > 1:
             auc = roc_auc_score(self._truth_data["class"], [row[1] for row in self._output_data["classification"]])
-            table.loc[epoch_index, f"{pass_name} ROC AUC"] = round(auc, 3)
+            table.loc[row_index, f"{pass_name} ROC AUC"] = round(auc, 3)
 
         if "class" in self._output_data and "class" in self._truth_data:
             acc = get_accuracy(self._truth_data["class"], self._output_data["class"])
-            table.loc[epoch_index, f"{pass_name} accuracy"] = round(acc, 3)
+            table.loc[row_index, f"{pass_name} accuracy"] = round(acc, 3)
 
             mcc = matthews_corrcoef(self._truth_data["class"], self._output_data["class"])
-            table.loc[epoch_index, f"{pass_name} matthews correlation"] = round(mcc, 3)
+            table.loc[row_index, f"{pass_name} matthews correlation"] = round(mcc, 3)
 
         if "affinity" in self._output_data and "affinity" in self._truth_data:
             r = pearsonr(self._output_data["affinity"], self._truth_data["affinity"]).statistic
-            table.loc[epoch_index, f"{pass_name} pearson correlation"] = round(r, 3)
+            table.loc[row_index, f"{pass_name} pearson correlation"] = round(r, 3)
 
         # store metrics
         table.to_csv(metrics_path, sep=',', encoding='utf-8', index=False, quoting=csv.QUOTE_NONNUMERIC)
