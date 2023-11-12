@@ -20,7 +20,7 @@ class DebuggableTransformerEncoderLayer(torch.nn.Module):
         super(DebuggableTransformerEncoderLayer, self).__init__()
 
         self.n_head = n_head
-        self.inf = 1e22
+        self.inf = 1e9
 
         self.dropout = torch.nn.Dropout(dropout)
 
@@ -28,7 +28,7 @@ class DebuggableTransformerEncoderLayer(torch.nn.Module):
         self.linear_k = torch.nn.Linear(depth, depth * self.n_head, bias=False)
         self.linear_v = torch.nn.Linear(depth, depth * self.n_head, bias=False)
 
-        self.linear_o = torch.nn.Linear(self.n_head * depth, depth, bias=False)
+        self.linear_o = torch.nn.Linear(self.n_head, 1, bias=False)
 
         self.norm_att = torch.nn.LayerNorm(depth)
 
@@ -66,7 +66,7 @@ class DebuggableTransformerEncoderLayer(torch.nn.Module):
         heads = torch.matmul(a, v)
 
         # [batch_size, seq_len, d]
-        o = self.linear_o(heads.transpose(1, 2).reshape(batch_size, seq_len, d * self.n_head))
+        o = self.linear_o(heads.transpose(1, 2).transpose(2, 3))
 
         return o, a
 
