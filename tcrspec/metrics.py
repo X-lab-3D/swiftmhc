@@ -125,7 +125,7 @@ class MetricsRecord:
         affinities_path = os.path.join(directory_path, f"{pass_name}-affinities.csv")
 
         sequence_order = []
-        for i, id_ in enumerate(self._id_order):
+        for id_ in self._id_order:
             sequence_order.append(self._loop_sequences[id_])
 
         table_dict = {"ID": self._id_order, "loop": sequence_order}
@@ -136,6 +136,11 @@ class MetricsRecord:
 
             if key in self._output_data:
                 table_dict[f"output {key}"] = self._output_data[key]
+
+        table = pandas.DataFrame(table_dict)
+
+        # save to file
+        table.to_csv(affinities_path, sep=',', encoding='utf-8', index=False, quoting=csv.QUOTE_NONNUMERIC)
 
 
     def _store_metrics_table(self, epoch_number: int, pass_name: str, directory_path: str):
