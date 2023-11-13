@@ -36,7 +36,7 @@ unknown_amino_acid = AminoAcid("unknown", "UNK", "X")
 
 
 canonical_amino_acids = [alanine, cysteine, aspartate, glutamate, phenylalanine,
-                         glycine, histidine, isoleucine, lysine, leucine, methionine,
+                         glycine, histidine, isoleucine, leucine, methionine,
                          asparagine, glutamine, arginine, serine, threonine,
                          valine, tyrosine, tryptophan, lysine, proline]
 
