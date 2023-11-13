@@ -86,9 +86,10 @@ class MetricsRecord:
                 self._truth_data[key] += truth[key].cpu().tolist()
 
         # store the loop sequences
+        loop_aatype = truth["loop_aatype"].cpu().tolist()
         for i in range(batch_size):
             id_ = truth["ids"][i]
-            loop_sequence = get_sequence(truth["loop_aatype"][i])
+            loop_sequence = get_sequence(loop_aatype[i])
             self._loop_sequences[id_] = loop_sequence
 
     def save(self, epoch_number: int, pass_name: str, directory_path: str):
