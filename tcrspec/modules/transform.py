@@ -66,7 +66,7 @@ class DebuggableTransformerEncoderLayer(torch.nn.Module):
         heads = torch.matmul(a, v)
 
         # [batch_size, seq_len, d]
-        o = self.linear_o(heads.transpose(1, 2).transpose(2, 3))
+        o = self.linear_o(heads.transpose(1, 2).transpose(2, 3))[...,0]
 
         return o, a
 
