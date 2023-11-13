@@ -1,7 +1,7 @@
 from typing import List, Tuple, Union, Optional, Dict
 import os
 import logging
-from math import isinf
+from math import isinf, floor, ceil
 import tarfile
 
 import h5py
@@ -322,18 +322,30 @@ def get_structure(models_path: str, model_id: str) -> Structure:
 
     pdb_parser = PDBParser()
 
-    model_name = f"{model_id_}.pdb"
+    model_name = f"{model_id}.pdb"
     if os.path.isdir(models_path):
         model_path = os.path.join(models_path, model_name)
-        return pdb_parser.get_structure(model_id, model_path)
+        if os.path.isfile(model_path):
+            return pdb_parser.get_structure(model_id, model_path)
+
+        elif id_.startswith("BA-"):
+            number = int(id_[3:])
+
+            subset_start = 1000 * floor(number / 1000) + 1
+            subset_end = 1000 * ceil(number / 1000)
+
+            subdir_name = f"{subset_start}_{subset_end}"
+            model_path = os.path.join(models_path, subdir_name, f"pdb/{id_}.pdb")
+            if os.path.isfile(model_path):
+                return pdb_parser.get_structure(model_id, model_path)
 
     elif models_path.endswith("tar.xz"):
         model_path = os.path.join(models_path, model_name)
         with tarfile.open(models_path, 'r:xz') as tf:
             with tf.extractfile(model_path) as f:
                 return pdb_parser.get_structure(model_id, f)
-    else:
-        raise TypeError(f"No implementation to get structures from this path: {models_path}")
+
+    raise TypeError(f"No implementation to get structures from this path: {models_path}")
 
 
 def preprocess(table_path: str,
@@ -368,7 +380,7 @@ def preprocess(table_path: str,
         # parse the pdb file
         try:
             structure = get_structure(models_path, id_)
-        except KeyError, FileNotFoundError:
+        except (KeyError, FileNotFoundError):
             _log.exception(f"on {id_}")
             continue
 
