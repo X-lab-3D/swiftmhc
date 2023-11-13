@@ -488,8 +488,6 @@ class Trainer:
 
         # define model paths
         model_path = f"{run_id}/best-predictor.pth"
-        if pretrained_model_path is not None:
-            model_path = pretrained_model_path
 
         # Keep track of the lowest loss value seen during the run.
         lowest_loss = float("inf")
