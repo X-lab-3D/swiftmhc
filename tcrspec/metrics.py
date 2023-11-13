@@ -13,9 +13,14 @@ from .models.data import TensorDict
 from .loss import get_calpha_rmsd
 
 
-def get_sequence(aatype: List[int]) -> str:
-    return "".join([amino_acids_by_one_hot_index[i].one_letter_code
-                    for i in aatype])
+def get_sequence(aatype: List[int], mask: List[bool]) -> str:
+
+    s = ""
+    for i, b in enumerate(mask):
+        if b:
+            s += amino_acids_by_one_hot_index[aatype[i]].one_letter_code
+
+    return s
 
 
 def get_accuracy(truth: List[int], pred: List[int]) -> float:
@@ -77,19 +82,26 @@ class MetricsRecord:
                 if key not in self._output_data:
                     self._output_data[key] = []
 
-                self._output_data[key] += output[key].cpu().tolist()
+                if output[key].dtype == torch.float:
+                    self._output_data[key] += output[key].cpu().round(decimals=3).tolist()
+                else:
+                    self._output_data[key] += output[key].cpu().tolist()
 
             if key in truth:
                 if key not in self._truth_data:
                     self._truth_data[key] = []
 
-                self._truth_data[key] += truth[key].cpu().tolist()
+                if truth[key].dtype == torch.float:
+                    self._truth_data[key] += truth[key].cpu().round(decimals=3).tolist()
+                else:
+                    self._truth_data[key] += truth[key].cpu().tolist()
 
         # store the loop sequences
         loop_aatype = truth["loop_aatype"].cpu().tolist()
+        loop_mask = truth["loop_self_residues_mask"].cpu().tolist()
         for i in range(batch_size):
             id_ = truth["ids"][i]
-            loop_sequence = get_sequence(loop_aatype[i])
+            loop_sequence = get_sequence(loop_aatype[i], loop_mask[i])
             self._loop_sequences[id_] = loop_sequence
 
     def save(self, epoch_number: int, pass_name: str, directory_path: str):
