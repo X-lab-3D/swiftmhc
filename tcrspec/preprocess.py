@@ -328,14 +328,14 @@ def get_structure(models_path: str, model_id: str) -> Structure:
         if os.path.isfile(model_path):
             return pdb_parser.get_structure(model_id, model_path)
 
-        elif id_.startswith("BA-"):
-            number = int(id_[3:])
+        elif model_id.startswith("BA-"):
+            number = int(model_id[3:])
 
             subset_start = 1000 * floor(number / 1000) + 1
             subset_end = 1000 * ceil(number / 1000)
 
             subdir_name = f"{subset_start}_{subset_end}"
-            model_path = os.path.join(models_path, subdir_name, f"pdb/{id_}.pdb")
+            model_path = os.path.join(models_path, subdir_name, model_id, "pdb", f"{model_id}.pdb")
             if os.path.isfile(model_path):
                 return pdb_parser.get_structure(model_id, model_path)
 
