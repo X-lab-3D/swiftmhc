@@ -23,6 +23,7 @@ class CrossInvariantPointAttention(torch.nn.Module):
         no_qk_points: int,
         no_v_points: int,
         eps: float = 1e-8,
+        inf: float = 1e5
     ):
         """
         Args:
@@ -70,7 +71,7 @@ class CrossInvariantPointAttention(torch.nn.Module):
         self.softmax = torch.nn.Softmax(dim=-1)
         self.softplus = torch.nn.Softplus()
 
-        self.inf = 1e22
+        self.inf = inf
 
         self.head_weights = torch.nn.Parameter(torch.zeros((no_heads)))
         ipa_point_weights_init_(self.head_weights)
