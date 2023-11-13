@@ -2,12 +2,14 @@ from typing import List, Tuple, Union, Optional, Dict
 import os
 import logging
 from math import isinf
+import tarfile
 
 import h5py
 import pandas
 import numpy
 import torch
 from Bio.PDB.PDBParser import PDBParser
+from Bio.PDB.Structure import Structure
 from Bio.PDB.Chain import Chain
 from Bio.PDB.Residue import Residue
 from Bio.Align import PairwiseAligner
@@ -316,6 +318,24 @@ def _create_proximities(residues1: List[Residue], residues2: List[Residue]) -> t
     return 1.0 / (1.0 + residue_distances)
 
 
+def get_structure(models_path: str, model_id: str) -> Structure:
+
+    pdb_parser = PDBParser()
+
+    model_name = f"{model_id_}.pdb"
+    if os.path.isdir(models_path):
+        model_path = os.path.join(models_path, model_name)
+        return pdb_parser.get_structure(model_id, model_path)
+
+    elif models_path.endswith("tar.xz"):
+        model_path = os.path.join(models_path, model_name)
+        with tarfile.open(models_path, 'r:xz') as tf:
+            with tf.extractfile(model_path) as f:
+                return pdb_parser.get_structure(model_id, f)
+    else:
+        raise TypeError(f"No implementation to get structures from this path: {models_path}")
+
+
 def preprocess(table_path: str,
                models_path: str,
                protein_self_mask_path: str,
@@ -346,21 +366,18 @@ def preprocess(table_path: str,
         target = row["measurement_value"]
 
         # parse the pdb file
-        model_path = os.path.join(models_path, f"{id_}.pdb")
-        if not os.path.isfile(model_path):
-            _log.warning(f"file not found: {model_path}")
+        try:
+            structure = get_structure(models_path, id_)
+        except KeyError, FileNotFoundError:
+            _log.exception(f"on {id_}")
             continue
-
-        pdb_parser = PDBParser()
-
-        structure = pdb_parser.get_structure(id_, model_path)
 
         # locate protein and loop
         chains_by_id = {c.id: c for c in structure.get_chains()}
         if "M" not in chains_by_id:
-            raise ValueError(f"missing protein chain M in {model_path}")
+            raise ValueError(f"missing protein chain M in {id_}")
         if "P" not in chains_by_id:
-            raise ValueError(f"missing loop chain P in {model_path}")
+            raise ValueError(f"missing loop chain P in {id_}")
 
         # get residues from the protein (chain M)
         protein_chain = chains_by_id["M"]
@@ -409,5 +426,5 @@ def preprocess(table_path: str,
                                      loop_data,
                                      target)
         except:
-            _log.exception(f"on {model_path}")
+            _log.exception(f"on {id_}")
             continue
