@@ -62,7 +62,7 @@ if __name__ == "__main__":
     os.mkdir(tmp_dir)
 
     try:
-        table_paths = split_table(args.table_path, tmp_dir, args.n_threads)
+        table_paths = split_table(args.table_path, tmp_dir, args.processes)
 
         ps = []
         tmp_output_paths = []
@@ -71,7 +71,7 @@ if __name__ == "__main__":
             output_path = f"{table_path}.hdf5"
 
             p = Process(target=preprocess, args=(table_path, args.models_dir, args.protein_self_mask, args.protein_cross_mask, output_path))
-            ps.append(t)
+            ps.append(p)
 
             tmp_output_paths.append(output_path)
             p.start()
@@ -87,5 +87,4 @@ if __name__ == "__main__":
 
                 os.remove(tmp_output_path)
     finally:
-        #shutil.rmtree(tmp_dir)
-        pass
+        shutil.rmtree(tmp_dir)
