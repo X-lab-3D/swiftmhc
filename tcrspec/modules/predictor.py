@@ -80,8 +80,6 @@ class Predictor(torch.nn.Module):
         self.affinity_reswise_mlp = torch.nn.Sequential(
             torch.nn.Linear(structure_module_config.c_s, c_affinity),
             torch.nn.GELU(),
-            torch.nn.Linear(c_affinity, c_affinity),
-            torch.nn.GELU(),
             torch.nn.Linear(c_affinity, 1),
         )
 
@@ -94,7 +92,7 @@ class Predictor(torch.nn.Module):
         else:
             raise TypeError(str(model_type))
 
-        self.output_linear = torch.nn.Linear(self.loop_maxlen, output_size, bias=False)
+        self.output_linear = torch.nn.Linear(self.loop_maxlen, output_size)
 
     def forward(self, batch: TensorDict) -> TensorDict:
         """
@@ -196,7 +194,6 @@ class Predictor(torch.nn.Module):
 
         # [batch_size, loop_len]
         p = self.affinity_reswise_mlp(loop_embd).reshape(batch_size, loop_maxlen)
-        p = p * batch["loop_self_residues_mask"]
 
         # affinity prediction
         if self.model_type == ModelType.REGRESSION:
