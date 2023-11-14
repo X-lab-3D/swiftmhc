@@ -243,7 +243,7 @@ class CrossStructureModule(torch.nn.Module):
         s_loop = s_loop + s_upd
         s_loop = self.loop_ipa_dropout(s_loop)
         s_loop = self.loop_layer_norm_ipa(s_loop)
-        s_loop = self.loop_transition(s_loop)
+        #s_loop = self.loop_transition(s_loop)
 
         # [batch_size, loop_len]
         T_loop = T_loop.compose_q_update_vec(self.bb_update(s_loop))
