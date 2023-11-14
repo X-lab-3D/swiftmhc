@@ -394,9 +394,8 @@ _classification_loss_function = torch.nn.CrossEntropyLoss(reduction="none")
 _regression_loss_function = torch.nn.MSELoss(reduction="none")
 
 
-def get_loss(output: TensorDict, batch: Dict[str, torch.Tensor]) -> TensorDict:
-#             affinity_tune: bool,
-#             fine_tune: bool) -> TensorDict:
+def get_loss(output: TensorDict, batch: Dict[str, torch.Tensor],
+             fine_tune: bool) -> TensorDict:
 
     # compute our own affinity-based loss
     if "class" in output and "class" in batch:
@@ -410,52 +409,50 @@ def get_loss(output: TensorDict, batch: Dict[str, torch.Tensor]) -> TensorDict:
         raise ValueError("Cannot compute affinity loss without class or affinity in both output and batch data")
 
     # compute chi loss, as in openfold
-    #chi_loss = _supervised_chi_loss(output["final_angles"],
-    #                                output["final_unnormalized_angles"],
-    #                                batch["loop_aatype"],
-    #                                batch["loop_self_residues_mask"],
-    #                                batch["loop_torsion_angles_mask"][..., 3:],
-    #                                batch["loop_torsion_angles_sin_cos"][..., 3:, :],
-    #                                **openfold_config.loss.supervised_chi)
+    chi_loss = _supervised_chi_loss(output["final_angles"],
+                                    output["final_unnormalized_angles"],
+                                    batch["loop_aatype"],
+                                    batch["loop_self_residues_mask"],
+                                    batch["loop_torsion_angles_mask"][..., 3:],
+                                    batch["loop_torsion_angles_sin_cos"][..., 3:, :],
+                                    **openfold_config.loss.supervised_chi)
 
     # compute fape loss, as in openfold
-    #fape_losses = _compute_fape_loss(output, batch,
-    #                                 openfold_config.loss.fape)
+    fape_losses = _compute_fape_loss(output, batch,
+                                     openfold_config.loss.fape)
 
     # compute violations loss, using an adjusted function
-    #violation_losses = _compute_cross_violation_loss(output, batch, openfold_config.loss.violation)
+    violation_losses = _compute_cross_violation_loss(output, batch, openfold_config.loss.violation)
 
     # combine the loss terms
     #total_loss = 1.0 * chi_loss + 1.0 * fape_losses["total"]
 
-    #if affinity_tune:
-    #total_loss += 1.0 * affinity_loss
+    # incorporate affinity loss
     total_loss = 1.0 * affinity_loss
+    #total_loss += 1.0 * affinity_loss
 
-    #if fine_tune:
-    #    total_loss += 1.0 * violation_losses["total"]
+    if fine_tune:
+        total_loss += 1.0 * violation_losses["total"]
 
     # for true non-binders, the total loss is simply affinity-based
-    #if affinity_tune:
-    #    total_loss[non_binders_index] = 1.0 * affinity_loss[non_binders_index]
-    #else:
-    #    total_loss[non_binders_index] = 0.0
+    total_loss[non_binders_index] = 1.0 * affinity_loss[non_binders_index]
 
     # average losses over batch dimension
     result = TensorDict({
         "total": total_loss.mean(dim=0),
-        #"chi": chi_loss.mean(dim=0),
-        #"affinity": affinity_loss.mean(dim=0),
+        "chi": chi_loss.mean(dim=0),
+        "affinity": affinity_loss.mean(dim=0),
     })
 
     # add these separate components to the result too:
-    #for component_id, loss_tensor in fape_losses.items():
-    #    result[f"{component_id} fape"] = loss_tensor.mean(dim=0)
+    for component_id, loss_tensor in fape_losses.items():
+        result[f"{component_id} fape"] = loss_tensor.mean(dim=0)
 
-    #for component_id, loss_tensor in violation_losses.items():
-    #    result[f"{component_id} violation"] = loss_tensor.mean(dim=0)
+    for component_id, loss_tensor in violation_losses.items():
+        result[f"{component_id} violation"] = loss_tensor.mean(dim=0)
 
     return result
+
 
 def get_calpha_rmsd(output_data: Dict[str, torch.Tensor],
                     batch_data: Dict[str, torch.Tensor]) -> Dict[str, float]:

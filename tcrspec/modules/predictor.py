@@ -74,7 +74,7 @@ class Predictor(torch.nn.Module):
         #    LayerNorm(structure_module_config.c_s)
         #)
 
-        #self.cross = CrossStructureModule(**structure_module_config)
+        self.cross = CrossStructureModule(**structure_module_config)
 
         c_affinity = 512
 
@@ -126,66 +126,43 @@ class Predictor(torch.nn.Module):
         #loop_embd = loop_seq + loop_embd
 
         # structure-based self-attention on the protein
-        #protein_T = Rigid.from_tensor_4x4(batch["protein_backbone_rigid_tensor"])
+        protein_T = Rigid.from_tensor_4x4(batch["protein_backbone_rigid_tensor"])
 
         # [batch_size, protein_len, c_s]
-        #protein_embd = batch["protein_sequence_onehot"]
+        protein_embd = batch["protein_sequence_onehot"]
         #protein_norm_prox = self.protein_dist_norm(batch["protein_proximities"])
 
-        #protein_as = []
-        #protein_as_sd = []
-        #protein_as_b = []
         #for _ in range(self.n_ipa_repeat):
         #    protein_embd, protein_a, protein_a_sd, protein_a_b = self.protein_ipa(protein_embd,
         #                                                                          protein_norm_prox,
         #                                                                          protein_T,
         #                                                                          batch["protein_self_residues_mask"].float())
-        #    protein_as.append(protein_a.clone().detach())
-        #    protein_as_sd.append(protein_a_sd.detach())
-        #    protein_as_b.append(protein_a_b.detach())
-
-        # store the attention weights, for debugging
-        # [batch_size, n_block, n_head, protein_len, protein_len]
-        #protein_as = torch.stack(protein_as).transpose(0, 1)
-        #protein_as_sd = torch.stack(protein_as_sd).transpose(0, 1)
-        #protein_as_b = torch.stack(protein_as_b).transpose(0, 1)
-
         #protein_embd = self.protein_norm(protein_embd)
 
-        output = {}
         # cross attention and loop structure prediction
-        #output = self.cross(batch["loop_aatype"],
-        #                    loop_embd,
-        #                    batch["loop_cross_residues_mask"],
-        #                    protein_embd,
-        #                    batch["protein_cross_residues_mask"],
-        #                    protein_T)
-
-        #output["loop_embd"] = loop_embd
-        #output["loop_init"] = loop_seq
-        #output["protein_self_attention"] = protein_as
-        #output["protein_self_attention_sd"] = protein_as_sd
-        #output["protein_self_attention_b"] = protein_as_b
+        output = self.cross(batch["loop_aatype"],
+                            loop_embd,
+                            batch["loop_cross_residues_mask"],
+                            protein_embd,
+                            batch["protein_cross_residues_mask"],
+                            protein_T)
 
         # amino acid sequence: [1, 0, 2, ... ] meaning : Ala, Met, Cys
         # [batch_size, loop_len]
-        #output["aatype"] = batch["loop_aatype"]
+        output["aatype"] = batch["loop_aatype"]
 
         # whether the heavy atoms exists or not
         # for each loop residue
         # [batch_size, loop_len, 14] (true or false)
-        #output = make_atom14_masks(output)
+        output = make_atom14_masks(output)
 
         # adding hydrogens:
         # [batch_size, loop_len, 37, 3]
-        #output["final_atom_positions"] = atom14_to_atom37(output["final_positions"], output)
-
-        # [batch_size, n_heads, loop_len, protein_len]
-        #cross_att = output["cross_attention"]
+        output["final_atom_positions"] = atom14_to_atom37(output["final_positions"], output)
 
         # [batch_size, loop_maxlen, c_s]
-        #updated_s_loop = output["single"]
-        #loop_embd = loop_embd + updated_s_loop
+        updated_s_loop = output["single"]
+        loop_embd = loop_embd + updated_s_loop
 
         if self.model_type == ModelType.REGRESSION:
             # [batch_size]
