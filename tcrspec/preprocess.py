@@ -345,7 +345,7 @@ def get_structure(models_path: str, model_id: str) -> Structure:
             with tf.extractfile(model_path) as f:
                 return pdb_parser.get_structure(model_id, f)
 
-    raise TypeError(f"No implementation to get structures from this path: {models_path}")
+    raise FileNotFoundError(f"Cannot find {model_id} under {models_path}")
 
 
 def preprocess(table_path: str,

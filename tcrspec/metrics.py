@@ -13,9 +13,14 @@ from .models.data import TensorDict
 from .loss import get_calpha_rmsd
 
 
-def get_sequence(aatype: List[int]) -> str:
-    return "".join([amino_acids_by_one_hot_index[i].one_letter_code
-                    for i in aatype])
+def get_sequence(aatype: List[int], mask: List[bool]) -> str:
+
+    s = ""
+    for i, b in enumerate(mask):
+        if b:
+            s += amino_acids_by_one_hot_index[aatype[i]].one_letter_code
+
+    return s
 
 
 def get_accuracy(truth: List[int], pred: List[int]) -> float:
@@ -86,9 +91,11 @@ class MetricsRecord:
                 self._truth_data[key] += truth[key].cpu().tolist()
 
         # store the loop sequences
+        loop_aatype = truth["loop_aatype"].cpu().tolist()
+        loop_mask = truth["loop_self_residues_mask"].cpu().tolist()
         for i in range(batch_size):
             id_ = truth["ids"][i]
-            loop_sequence = get_sequence(truth["loop_aatype"][i])
+            loop_sequence = get_sequence(loop_aatype[i], loop_mask[i])
             self._loop_sequences[id_] = loop_sequence
 
     def save(self, epoch_number: int, pass_name: str, directory_path: str):
@@ -124,7 +131,7 @@ class MetricsRecord:
         affinities_path = os.path.join(directory_path, f"{pass_name}-affinities.csv")
 
         sequence_order = []
-        for i, id_ in enumerate(self._id_order):
+        for id_ in self._id_order:
             sequence_order.append(self._loop_sequences[id_])
 
         table_dict = {"ID": self._id_order, "loop": sequence_order}
@@ -136,6 +143,10 @@ class MetricsRecord:
             if key in self._output_data:
                 table_dict[f"output {key}"] = self._output_data[key]
 
+        table = pandas.DataFrame(table_dict)
+
+        # save to file
+        table.to_csv(affinities_path, sep=',', encoding='utf-8', index=False, quoting=csv.QUOTE_NONNUMERIC)
 
     def _store_metrics_table(self, epoch_number: int, pass_name: str, directory_path: str):
 

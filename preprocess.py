@@ -81,10 +81,11 @@ if __name__ == "__main__":
 
         with h5py.File(args.output_path, 'w') as output_file:
             for tmp_output_path in tmp_output_paths:
-                with h5py.File(tmp_output_path, 'r') as tmp_file:
-                    for key, value in tmp_file.items():
-                         tmp_file.copy(value, output_file)
+                if os.path.isfile(tmp_output_path):
+                    with h5py.File(tmp_output_path, 'r') as tmp_file:
+                        for key, value in tmp_file.items():
+                             tmp_file.copy(value, output_file)
 
-                os.remove(tmp_output_path)
+                    os.remove(tmp_output_path)
     finally:
         shutil.rmtree(tmp_dir)
