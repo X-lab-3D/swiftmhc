@@ -61,8 +61,6 @@ class Predictor(torch.nn.Module):
 
         self.protein_dist_norm = torch.nn.LayerNorm((self.protein_maxlen, self.protein_maxlen, 1))
 
-        self.inf = 1e22
-
         self.protein_ipa = IPA(structure_module_config.c_s,
                                structure_module_config.c_z,
                                structure_module_config.c_ipa,
@@ -70,7 +68,6 @@ class Predictor(torch.nn.Module):
                                structure_module_config.no_qk_points,
                                structure_module_config.no_v_points,
                                self.protein_maxlen)
-        self.protein_ipa.inf = self.inf
 
         self.protein_norm = torch.nn.Sequential(
             torch.nn.Dropout(p=0.1),

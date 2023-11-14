@@ -20,7 +20,7 @@ class DebuggableTransformerEncoderLayer(torch.nn.Module):
         super(DebuggableTransformerEncoderLayer, self).__init__()
 
         self.n_head = n_head
-        self.inf = 1e22
+        self.inf = 1e9
 
         self.dropout = torch.nn.Dropout(dropout)
 
