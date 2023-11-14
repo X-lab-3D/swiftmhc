@@ -44,7 +44,7 @@ class MetricsRecord:
     def __init__(self):
         self._data_len = 0
         self._losses_sum = {}
-        self._rmsds = {}
+        #self._rmsds = {}
         self._loop_sequences = {}
 
         self._id_order = []
@@ -74,7 +74,7 @@ class MetricsRecord:
             self._losses_sum[key] += value * batch_size
 
         # store the rmsd per data point
-        self._rmsds.update(get_calpha_rmsd(output, truth))
+        #self._rmsds.update(get_calpha_rmsd(output, truth))
 
         # store the affinity predictions and truth values per data point
         for key in ["affinity", "class", "classification"]:
@@ -108,7 +108,7 @@ class MetricsRecord:
             directory_path: a directory where to store the files
         """
 
-        self._store_individual_rmsds(pass_name, directory_path)
+        #self._store_individual_rmsds(pass_name, directory_path)
         self._store_inidividual_affinities(pass_name, directory_path)
         self._store_metrics_table(epoch_number, pass_name, directory_path)
 
@@ -176,8 +176,8 @@ class MetricsRecord:
             table.loc[row_index, f"{pass_name} {loss_name} loss"] = normalized
 
         # write rmsd
-        mean = round(numpy.mean(list(self._rmsds.values())), 3)
-        table.loc[row_index, f"{pass_name} mean binders C-alpha RMSD(Å)"] = mean
+        #mean = round(numpy.mean(list(self._rmsds.values())), 3)
+        #table.loc[row_index, f"{pass_name} mean binders C-alpha RMSD(Å)"] = mean
 
         # write affinity-related metrics
         if "classification" in self._output_data and "class" in self._truth_data and len(set(self._truth_data["class"])) > 1:
