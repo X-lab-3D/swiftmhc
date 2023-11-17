@@ -201,7 +201,7 @@ class Predictor(torch.nn.Module):
 
         elif self.model_type == ModelType.CLASSIFICATION:
             # [batch_size, 2]
-            output["classification"] = self.aff_mlp(loop_embd.reshape(batch_size, -1))
+            output["classification"] = torch.nn.functional.softmax(self.aff_mlp(loop_embd.reshape(batch_size, -1)), dim=1)
 
             # [batch_size]
             output["class"] = torch.argmax(output["classification"], dim=1)
