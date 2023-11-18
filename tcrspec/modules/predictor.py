@@ -76,22 +76,41 @@ class Predictor(torch.nn.Module):
 
         self.cross = CrossStructureModule(**structure_module_config)
 
+        #self.concat_linear = torch.nn.Linear(2 * structure_module_config.c_s, structure_module_config.c_s)
+        #self.dropout = torch.nn.Dropout(0.1)
+        #self.norm = LayerNorm(structure_module_config.c_s)
+
         c_affinity = 512
 
         self.model_type = model_type
         if self.model_type == ModelType.REGRESSION:
             output_size = 1
-
+        
         elif self.model_type == ModelType.CLASSIFICATION:
             output_size = 2
 
-        self.aff_mlp = torch.nn.Sequential(
+        self.sequence_mlp = torch.nn.Sequential(
+            torch.nn.Flatten(1, -1),
             torch.nn.Linear(loop_input_size, c_affinity),
             torch.nn.GELU(),
             torch.nn.Linear(c_affinity, c_affinity),
             torch.nn.GELU(),
             torch.nn.Linear(c_affinity, output_size),
         )
+
+        self.structure_mlp = torch.nn.Sequential(
+            torch.nn.Flatten(1, -1),
+            torch.nn.Linear(loop_input_size, c_affinity),
+            torch.nn.GELU(),
+            torch.nn.Linear(c_affinity, c_affinity),
+            torch.nn.GELU(),
+            torch.nn.Linear(c_affinity, 1),
+        )
+
+        with torch.no_grad():
+            for p in self.structure_mlp.parameters():
+                p.data.fill_(0.0)
+
 
     def forward(self, batch: TensorDict) -> TensorDict:
         """
@@ -161,16 +180,26 @@ class Predictor(torch.nn.Module):
         output["final_atom_positions"] = atom14_to_atom37(output["final_positions"], output)
 
         # [batch_size, loop_maxlen, c_s]
-        updated_s_loop = output["single"]
-        loop_embd = loop_embd + updated_s_loop
+        updated_loop = output["single"]
+
+        # [batch_size, output_size]
+        seq_output = self.sequence_mlp(loop_embd)
+        # [batch_size, 1]
+        struct_output = self.structure_mlp(updated_loop)
 
         if self.model_type == ModelType.REGRESSION:
+        
             # [batch_size]
-            output["affinity"] = self.aff_mlp(loop_embd.reshape(batch_size, -1)).reshape(batch_size)
+            output["affinity"] = (seq_output + struct_output).reshape(batch_size)
 
         elif self.model_type == ModelType.CLASSIFICATION:
+
             # [batch_size, 2]
-            output["classification"] = self.aff_mlp(loop_embd.reshape(batch_size, -1))
+            z = seq_output
+            z[:, 1] += struct_output[:, 0]
+
+            # [batch_size, 2]
+            output["classification"] = torch.nn.functional.softmax(z, dim=1)
 
             # [batch_size]
             output["class"] = torch.argmax(output["classification"], dim=1)

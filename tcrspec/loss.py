@@ -431,8 +431,8 @@ def get_loss(output: TensorDict, batch: Dict[str, torch.Tensor],
     total_loss = 1.0 * affinity_loss
     #total_loss += 1.0 * affinity_loss
 
-    if fine_tune:
-        total_loss += 1.0 * violation_losses["total"]
+    #if fine_tune:
+    #    total_loss += 1.0 * violation_losses["total"]
 
     # for true non-binders, the total loss is simply affinity-based
     total_loss[non_binders_index] = 1.0 * affinity_loss[non_binders_index]
