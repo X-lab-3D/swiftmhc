@@ -74,8 +74,9 @@ arg_parser.add_argument("--log-stdout", "-l", help="log to stdout", action='stor
 arg_parser.add_argument("--pretrained-model", "-m", help="use a given pretrained model state")
 arg_parser.add_argument("--workers", "-w", help="number of workers to load batches", type=int, default=5)
 arg_parser.add_argument("--batch-size", "-b", help="batch size to use during training/validation/testing", type=int, default=8)
-arg_parser.add_argument("--epoch-count", "-e", help="how many epochs to run during training", type=int, default=30)
-arg_parser.add_argument("--fine-tune-count", "-u", help="how many epochs to run during fine-tuning, at the end", type=int, default=30)
+arg_parser.add_argument("--epoch-count", "-e", help="how many epochs to run during structure training", type=int, default=5)
+arg_parser.add_argument("--fine-tune-count", "-u", help="how many epochs to run during fine-tuning, at the end", type=int, default=5)
+arg_parser.add_argument("--affinity-tune-count", "-j", help="how many epochs to run during affinity-tuning", type=int, default=5)
 arg_parser.add_argument("--animate", "-a", help="id of a data point to generate intermediary pdb for", nargs="+")
 arg_parser.add_argument("--lr", help="learning rate setting", type=float, default=0.001)
 arg_parser.add_argument("--classification", "-c", help="do classification instead of regression", action="store_const", const=True, default=False)
@@ -219,6 +220,7 @@ class Trainer:
                optimizer: Optimizer,
                model: Predictor,
                data: TensorDict,
+               affinity_tune: bool,
                fine_tune: bool,
     ) -> Tuple[TensorDict, Dict[str, torch.Tensor]]:
         """
@@ -243,7 +245,7 @@ class Trainer:
         output = model(data)
 
         # calculate losses
-        losses = get_loss(output, data, fine_tune)
+        losses = get_loss(output, data, affinity_tune, fine_tune)
 
         # backward propagation
         loss = losses["total"]
@@ -262,6 +264,7 @@ class Trainer:
                optimizer: Optimizer,
                model: Predictor,
                data_loader: DataLoader,
+               affinity_tune: bool,
                fine_tune: bool,
                output_directory: Optional[str] = None,
                animated_data: Optional[Dict[str, torch.Tensor]] = None,
@@ -292,6 +295,7 @@ class Trainer:
             # Do the training step.
             batch_loss, batch_output = self._batch(optimizer, model,
                                                    batch_data,
+                                                   affinity_tune,
                                                    fine_tune)
 
             if output_directory is not None:
@@ -347,7 +351,7 @@ class Trainer:
                 batch_output = model(batch_data)
 
                 # calculate the losses, for monitoring only
-                batch_loss = get_loss(batch_output, batch_data, True)
+                batch_loss = get_loss(batch_output, batch_data, True, True)
 
                 # count the number of loss values
                 datapoint_count += batch_data['loop_aatype'].shape[0]
@@ -435,7 +439,7 @@ class Trainer:
               train_loader: DataLoader,
               valid_loader: DataLoader,
               test_loaders: List[DataLoader],
-              epoch_count: int, fine_tune_count: int,
+              epoch_count: int, affinity_tune_count: int, fine_tune_count: int,
               run_id: Optional[str] = None,
               pretrained_model_path: Optional[str] = None,
               animated_complex_ids: Optional[List[str]] = None,
@@ -500,15 +504,18 @@ class Trainer:
                            run_id, animated_data)
 
         # do the actual learning iteration
-        total_epochs = epoch_count + fine_tune_count
+        total_epochs = epoch_count + fine_tune_count + affinity_tune_count
         for epoch_index in range(total_epochs):
 
+            affinity_tune = epoch_index >= epoch_count
+
             # flip this setting after the given number of epochs
-            fine_tune = (epoch_index >= epoch_count)
+            fine_tune = (epoch_index >= (epoch_count + affinity_tune_count))
 
             # train during epoch
             with Timer(f"train epoch {epoch_index}") as t:
-                self._epoch(epoch_index, optimizer, model, train_loader, fine_tune,
+                self._epoch(epoch_index, optimizer, model, train_loader,
+                            affinity_tune, fine_tune,
                             run_id, animated_data)
                 t.add_to_title(f"on {len(train_loader.dataset)} data points")
 
@@ -714,6 +721,6 @@ if __name__ == "__main__":
 
         # train with the composed datasets and user-provided settings
         trainer.train(train_loader, valid_loader, test_loaders,
-                      args.epoch_count, args.fine_tune_count,
+                      args.epoch_count, args.affinity_tune_count, args.fine_tune_count,
                       run_id, args.pretrained_model,
                       args.animate)
