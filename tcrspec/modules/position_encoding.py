@@ -67,6 +67,8 @@ class PositionalEncoding(torch.nn.Module):
         """
         super().__init__()
 
+        self.d = d_model
+
         # Create matrix of [SeqLen, HiddenDim] representing the positional encoding for max_len inputs
         pe = torch.zeros(max_len, d_model)
         position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
@@ -79,8 +81,16 @@ class PositionalEncoding(torch.nn.Module):
         # persistent=False tells PyTorch to not add the buffer to the state dict (e.g. when we save the model)
         self.register_buffer('pe', pe, persistent=False)
 
-    def forward(self, x):
-        _, l, d = x.shape
-        x = x + self.pe[None, :l, :d]
-        return x
+    def forward(self, seqs: torch.Tensor, masks: torch.Tensor):
+
+        # each seq can have a different mask, that's why we have this iteration
+        for i in range(seqs.shape[0]):
+            length = masks[i].sum().item()
+            seq = seqs[i]
+            p = torch.zeros(length, seq.shape[-1], device=seq.device)
+            p[:, -self.d:] = self.pe[:length, :]
+            seq[masks[i]] += p
+            seqs[i] = seq
+
+        return seqs
 
