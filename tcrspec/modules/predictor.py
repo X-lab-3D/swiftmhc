@@ -51,28 +51,34 @@ class Predictor(torch.nn.Module):
         loop_input_size = self.loop_maxlen * structure_module_config.c_s
         #c_loop = 512
 
+        self.posenc = PositionalEncoding(12, loop_maxlen) 
+        #self.encoders = torch.nn.ModuleList([
+        #    DebuggableTransformerEncoderLayer(structure_module_config.c_s, self.n_head)
+        #    for _ in range(structure_module_config.no_blocks)
+        #])
+
         #self.loop_mlp = torch.nn.Sequential(
         #    torch.nn.Linear(loop_input_size, c_loop),
         #    torch.nn.GELU(),
         #    torch.nn.Linear(c_loop, loop_input_size),
         #)
 
-        #self.n_ipa_repeat = structure_module_config.no_blocks
+        self.n_ipa_repeat = structure_module_config.no_blocks
 
         #self.protein_dist_norm = torch.nn.LayerNorm((self.protein_maxlen, self.protein_maxlen, 1))
 
-        #self.protein_ipa = IPA(structure_module_config.c_s,
-        #                       structure_module_config.c_z,
-        #                       structure_module_config.c_ipa,
-        #                       structure_module_config.no_heads_ipa,
-        #                       structure_module_config.no_qk_points,
-        #                       structure_module_config.no_v_points,
-        #                       self.protein_maxlen)
+        self.protein_ipa = IPA(structure_module_config.c_s,
+                               structure_module_config.c_z,
+                               structure_module_config.c_ipa,
+                               structure_module_config.no_heads_ipa,
+                               structure_module_config.no_qk_points,
+                               structure_module_config.no_v_points,
+                               self.protein_maxlen)
 
-        #self.protein_norm = torch.nn.Sequential(
-        #    torch.nn.Dropout(p=0.1),
-        #    LayerNorm(structure_module_config.c_s)
-        #)
+        self.protein_norm = torch.nn.Sequential(
+            torch.nn.Dropout(p=0.1),
+            LayerNorm(structure_module_config.c_s)
+        )
 
         self.cross = CrossStructureModule(**structure_module_config)
 
@@ -128,12 +134,15 @@ class Predictor(torch.nn.Module):
         """
 
         # [batch_size, loop_len, c_s]
-        loop_embd = batch["loop_sequence_onehot"]
+        loop_seq = batch["loop_sequence_onehot"]
         # initial_loop_seq = loop_seq.clone()
-        batch_size, loop_maxlen, loop_depth = loop_embd.shape
+        batch_size, loop_maxlen, loop_depth = loop_seq.shape
 
         # positional encoding
-        #loop_pos_enc = self.pos_enc(loop_seq)
+        loop_embd = self.posenc(loop_seq.clone(), batch["loop_self_residues_mask"])
+        #for encoder in self.encoders:
+        #    loop_upd, a = encoder(loop_embd, batch["loop_self_residues_mask"])
+        #    loop_embd += loop_upd
 
         # transition on the loop
         #loop_embd = self.loop_mlp(loop_seq.reshape(batch_size, -1)).reshape(batch_size, loop_maxlen, loop_depth)
@@ -149,14 +158,14 @@ class Predictor(torch.nn.Module):
 
         # [batch_size, protein_len, c_s]
         protein_embd = batch["protein_sequence_onehot"]
-        #protein_norm_prox = self.protein_dist_norm(batch["protein_proximities"])
+        protein_prox = batch["protein_proximities"]
 
-        #for _ in range(self.n_ipa_repeat):
-        #    protein_embd, protein_a, protein_a_sd, protein_a_b = self.protein_ipa(protein_embd,
-        #                                                                          protein_norm_prox,
-        #                                                                          protein_T,
-        #                                                                          batch["protein_self_residues_mask"].float())
-        #protein_embd = self.protein_norm(protein_embd)
+        for _ in range(self.n_ipa_repeat):
+            protein_embd, protein_a, protein_a_sd, protein_a_b = self.protein_ipa(protein_embd,
+                                                                                  protein_prox,
+                                                                                  protein_T,
+                                                                                  batch["protein_self_residues_mask"].float())
+        protein_embd = self.protein_norm(protein_embd)
 
         # cross attention and loop structure prediction
         output = self.cross(batch["loop_aatype"],
@@ -183,7 +192,7 @@ class Predictor(torch.nn.Module):
         updated_loop = output["single"]
 
         # [batch_size, output_size]
-        seq_output = self.sequence_mlp(loop_embd)
+        seq_output = self.sequence_mlp(loop_seq)
         # [batch_size, 1]
         struct_output = self.structure_mlp(updated_loop)
 
