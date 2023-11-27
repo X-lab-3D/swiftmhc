@@ -2,6 +2,7 @@ from typing import Dict, Union
 from copy import deepcopy as copy
 import logging
 import sys
+from math import sqrt
 
 from torch.nn import Embedding
 from torch.nn.modules.transformer import TransformerEncoder
@@ -104,18 +105,19 @@ class Predictor(torch.nn.Module):
             torch.nn.Linear(c_affinity, output_size),
         )
 
-        self.structure_mlp = torch.nn.Sequential(
-            torch.nn.Flatten(1, -1),
-            torch.nn.Linear(loop_input_size, c_affinity),
-            torch.nn.GELU(),
-            torch.nn.Linear(c_affinity, c_affinity),
-            torch.nn.GELU(),
-            torch.nn.Linear(c_affinity, 1),
-        )
+        #self.structure_mlp = torch.nn.Sequential(
+        #    torch.nn.Flatten(1, -1),
+        #    torch.nn.Linear(loop_input_size, c_affinity),
+        #    torch.nn.GELU(),
+        #    torch.nn.Linear(c_affinity, c_affinity),
+        #    torch.nn.GELU(),
+        #    torch.nn.Linear(c_affinity, 1),
+        #)
 
-        with torch.no_grad():
-            for p in self.structure_mlp.parameters():
-                p.data.fill_(0.0)
+        #v = 0.000001
+        #with torch.no_grad():
+        #    for p in self.structure_mlp.parameters():
+        #        p.data.uniform_(-v, v)
 
 
     def forward(self, batch: TensorDict) -> TensorDict:
@@ -194,18 +196,19 @@ class Predictor(torch.nn.Module):
         # [batch_size, output_size]
         seq_output = self.sequence_mlp(loop_seq)
         # [batch_size, 1]
-        struct_output = self.structure_mlp(updated_loop)
+        #struct_output = self.structure_mlp(updated_loop)
 
         if self.model_type == ModelType.REGRESSION:
         
             # [batch_size]
-            output["affinity"] = (seq_output + struct_output).reshape(batch_size)
+            #output["affinity"] = (seq_output + struct_output).reshape(batch_size)
+            output["affinity"] = seq_output.reshape(batch_size)
 
         elif self.model_type == ModelType.CLASSIFICATION:
 
             # [batch_size, 2]
             z = seq_output
-            z[:, 1] += struct_output[:, 0]
+            #z[:, 1] += struct_output[:, 0]
 
             # [batch_size, 2]
             output["classification"] = torch.nn.functional.softmax(z, dim=1)
