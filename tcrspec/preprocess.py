@@ -53,6 +53,10 @@ def _write_preprocessed_data(hdf5_path: str, storage_id: str,
         if isinstance(target, float):
             storage_group.create_dataset(PREPROCESS_KD_NAME, data=target)
 
+        elif isinstance(target, str):
+            cls = ComplexClass.from_string(target)
+            storage_group.create_dataset(PREPROCESS_CLASS_NAME, data=int(cls))
+
         elif isinstance(target, ComplexClass):
             storage_group.create_dataset(PREPROCESS_CLASS_NAME, data=int(target))
         else:
