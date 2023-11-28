@@ -228,7 +228,7 @@ def recreate_structure(structure_id: str,
             residue_name = amino_acid.three_letter_code
             residue_number = residue_numbers[residue_index]
 
-            residue = Residue((chain_id, residue_number, " "),
+            residue = Residue((" ", residue_number, " "),
                               residue_name, chain_id)
 
             for atom_index, atom_name in enumerate(openfold_residue_atom14_names[residue_name]):
