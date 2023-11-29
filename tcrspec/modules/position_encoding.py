@@ -94,3 +94,89 @@ class PositionalEncoding(torch.nn.Module):
 
         return seqs
 
+
+class RelativePositionEncoding(torch.nn.Module):
+
+    def __init__(self, c_z: int, relpos_k: int,):
+
+        super(RelativePositionEncoding, self).__init__()
+
+        self.relpos_k = relpos_k
+        self.no_bins = 2 * relpos_k + 1
+        self.linear_relpos = torch.nn.Linear(self.no_bins, c_z)
+
+    def forward(self, ri: torch.Tensor) -> torch.Tensor:
+        """
+        Computes relative positional encodings
+
+        Implements Algorithm 4.
+
+        Args:
+            ri:
+                "residue_index" features of shape [*, N]
+        """
+        d = ri[..., None] - ri[..., None, :]
+        boundaries = torch.arange(
+            start=-self.relpos_k, end=self.relpos_k + 1, device=d.device
+        )
+        reshaped_bins = boundaries.view(((1,) * len(d.shape)) + (len(boundaries),))
+        d = d[..., None] - reshaped_bins
+        d = torch.abs(d)
+        d = torch.argmin(d, dim=-1)
+        d = torch.nn.functional.one_hot(d, num_classes=len(boundaries)).float()
+        d = d.to(ri.dtype)
+
+        return self.linear_relpos(d)
+
+
+class RelativePositionEncodingWithOuterSum(torch.nn.Module):
+
+    def __init__(self, c_z: int, relpos_k: int, tf_dim: int):
+
+        super(RelativePositionEncodingWithOuterSum, self).__init__()
+
+        self.linear_tf_z_i = torch.nn.Linear(tf_dim, c_z)
+        self.linear_tf_z_j = torch.nn.Linear(tf_dim, c_z)
+
+        self.relpos_k = relpos_k
+        self.no_bins = 2 * relpos_k + 1
+        self.linear_relpos = torch.nn.Linear(self.no_bins, c_z)
+
+    def relpos(self, ri: torch.Tensor):
+
+        d = ri[..., None] - ri[..., None, :]
+        boundaries = torch.arange(
+            start=-self.relpos_k, end=self.relpos_k + 1, device=d.device
+        )
+        reshaped_bins = boundaries.view(((1,) * len(d.shape)) + (len(boundaries),))
+        d = d[..., None] - reshaped_bins
+        d = torch.abs(d)
+        d = torch.argmin(d, dim=-1)
+        d = torch.nn.functional.one_hot(d, num_classes=len(boundaries)).float()
+        d = d.to(ri.dtype)
+
+        return self.linear_relpos(d)
+
+    def forward(self, tf: torch.Tensor) -> torch.Tensor:
+        """
+        Args:
+            tf:
+                "target_feat" features of shape [*, N_res, tf_dim]
+        Returns:
+            pair_emb:
+                [*, N_res, N_res, C_z] pair embedding
+        """
+
+        ri = torch.arange(0, tf.shape[1], 1, dtype=torch.float, device=tf.device).unsqueeze(0).repeat(tf.shape[0], 1)
+
+        relpos = self.relpos(ri)
+
+        # [*, N_res, c_z]
+        tf_emb_i = self.linear_tf_z_i(tf)
+        tf_emb_j = self.linear_tf_z_j(tf)
+
+        # [*, N_res, N_res, c_z]
+        pair_emb = relpos + tf_emb_i[:, :, None, :] + tf_emb_j[:, None, :, :]
+
+        return pair_emb
+
