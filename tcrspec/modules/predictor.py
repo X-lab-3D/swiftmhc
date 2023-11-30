@@ -41,8 +41,8 @@ class Predictor(torch.nn.Module):
         structure_module_config = copy(config.structure_module)
         structure_module_config.c_s = 32
         structure_module_config.c_z = 1
-        structure_module_config.no_blocks = 2
-        structure_module_config.no_heads_ipa = 2
+        structure_module_config.no_blocks = 4
+        structure_module_config.no_heads_ipa = 4
 
         self.loop_maxlen = loop_maxlen
         self.protein_maxlen = protein_maxlen
@@ -52,11 +52,11 @@ class Predictor(torch.nn.Module):
         loop_input_size = self.loop_maxlen * structure_module_config.c_s
         #c_loop = 512
 
-        self.posenc = PositionalEncoding(12, loop_maxlen) 
-        #self.encoders = torch.nn.ModuleList([
-        #    DebuggableTransformerEncoderLayer(structure_module_config.c_s, self.n_head)
-        #    for _ in range(structure_module_config.no_blocks)
-        #])
+        self.posenc = PositionalEncoding(12, loop_maxlen)
+        self.encoders = torch.nn.ModuleList([
+            DebuggableTransformerEncoderLayer(structure_module_config.c_s, self.n_head)
+            for _ in range(structure_module_config.no_blocks)
+        ])
 
         #self.loop_mlp = torch.nn.Sequential(
         #    torch.nn.Linear(loop_input_size, c_loop),
@@ -87,22 +87,25 @@ class Predictor(torch.nn.Module):
         #self.dropout = torch.nn.Dropout(0.1)
         #self.norm = LayerNorm(structure_module_config.c_s)
 
-        c_affinity = 512
+        c_affinity = 128
 
         self.model_type = model_type
         if self.model_type == ModelType.REGRESSION:
             output_size = 1
-        
+
         elif self.model_type == ModelType.CLASSIFICATION:
             output_size = 2
 
         self.sequence_mlp = torch.nn.Sequential(
-            torch.nn.Flatten(1, -1),
-            torch.nn.Linear(loop_input_size, c_affinity),
+            torch.nn.Linear(structure_module_config.c_s * 2, c_affinity),
             torch.nn.GELU(),
             torch.nn.Linear(c_affinity, c_affinity),
             torch.nn.GELU(),
-            torch.nn.Linear(c_affinity, output_size),
+            torch.nn.Linear(c_affinity, 1),
+
+            torch.nn.Flatten(1, -1),
+
+            torch.nn.Linear(self.loop_maxlen, output_size)
         )
 
         #self.structure_mlp = torch.nn.Sequential(
@@ -142,9 +145,9 @@ class Predictor(torch.nn.Module):
 
         # positional encoding
         loop_embd = self.posenc(loop_seq.clone(), batch["loop_self_residues_mask"])
-        #for encoder in self.encoders:
-        #    loop_upd, a = encoder(loop_embd, batch["loop_self_residues_mask"])
-        #    loop_embd += loop_upd
+        for encoder in self.encoders:
+            loop_upd, a = encoder(loop_embd, batch["loop_self_residues_mask"])
+            loop_embd += loop_upd
 
         # transition on the loop
         #loop_embd = self.loop_mlp(loop_seq.reshape(batch_size, -1)).reshape(batch_size, loop_maxlen, loop_depth)
@@ -194,12 +197,12 @@ class Predictor(torch.nn.Module):
         updated_loop = output["single"]
 
         # [batch_size, output_size]
-        seq_output = self.sequence_mlp(loop_seq)
+        seq_output = self.sequence_mlp(torch.cat((loop_seq, updated_loop), dim=2))
         # [batch_size, 1]
         #struct_output = self.structure_mlp(updated_loop)
 
         if self.model_type == ModelType.REGRESSION:
-        
+
             # [batch_size]
             #output["affinity"] = (seq_output + struct_output).reshape(batch_size)
             output["affinity"] = seq_output.reshape(batch_size)

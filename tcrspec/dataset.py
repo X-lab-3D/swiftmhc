@@ -103,9 +103,9 @@ class ProteinLoopDataset(Dataset):
                 index = torch.zeros(max_length, device=self._device, dtype=torch.bool)
                 index[:length] = True
 
-                if prefix == PREPROCESS_LOOP_NAME:
-                    # For the loop, put residues partly leftmost, partly centered, partly rightmost
-                    index = mask_loop_left_center_right(length, max_length)
+                #if prefix == PREPROCESS_LOOP_NAME:
+                #    # For the loop, put residues partly leftmost, partly centered, partly rightmost
+                #    index = mask_loop_left_center_right(length, max_length)
 
                 result[f"{prefix}_aatype"] = torch.zeros(max_length, device=self._device, dtype=torch.long)
                 result[f"{prefix}_aatype"][index] = torch.tensor(aatype_data, device=self._device, dtype=torch.long)
