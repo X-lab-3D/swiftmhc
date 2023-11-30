@@ -41,8 +41,8 @@ class Predictor(torch.nn.Module):
         structure_module_config = copy(config.structure_module)
         structure_module_config.c_s = 32
         structure_module_config.c_z = 1
-        structure_module_config.no_blocks = 4
-        structure_module_config.no_heads_ipa = 4
+        structure_module_config.no_blocks = 2
+        structure_module_config.no_heads_ipa = 2
 
         self.loop_maxlen = loop_maxlen
         self.protein_maxlen = protein_maxlen
