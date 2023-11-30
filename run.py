@@ -367,7 +367,10 @@ class Trainer:
         if output_directory is not None:
             record.save(epoch_index, data_loader.dataset.name, output_directory)
 
-        return (sum_of_losses / datapoint_count)
+        if datapoint_count > 0:
+            return (sum_of_losses / datapoint_count)
+        else:
+            return 0.0
 
     def test(self,
              test_loaders: [DataLoader],
