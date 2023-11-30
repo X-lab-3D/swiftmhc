@@ -27,18 +27,32 @@ from .modules.sequence_encoding import mask_loop_left_center_right
 _log = logging.getLogger(__name__)
 
 
-def get_entry_names(hdf5_path: str) -> List[str]:
+def get_entry_names(
+        hdf5_path: str,
+        loop_length_filter: Optional[int] = None
+) -> List[str]:
+
     with h5py.File(hdf5_path, 'r') as hdf5_file:
-        return list(hdf5_file.keys())
+
+        if loop_length_filter is not None:
+            ids = []
+            for key in hdf5_file:
+                aatype = hdf5_file[key][PREPROCESS_LOOP_NAME]["aatype"][:]
+                if aatype.shape[0] == loop_length_filter:
+                    ids.append(key)
+            return ids
+        else:
+            return list(hdf5_file.keys())
 
 
 class ProteinLoopDataset(Dataset):
-    def __init__(self,
-                 hdf5_path: str,
-                 device: torch.device,
-                 loop_maxlen: int,
-                 protein_maxlen: int,
-                 entry_names: Optional[List[str]] = None,
+    def __init__(
+        self,
+        hdf5_path: str,
+        device: torch.device,
+        loop_maxlen: int,
+        protein_maxlen: int,
+        entry_names: Optional[List[str]] = None,
     ):
         self.name = os.path.splitext(os.path.basename(hdf5_path))[0]
 
