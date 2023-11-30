@@ -117,10 +117,14 @@ class MetricsRecord:
         # store to this file
         rmsds_path = os.path.join(directory_path, f"{pass_name}-rmsds.csv")
 
+        sequence_order = []
+        rmsd = []
+        for id_ in self._id_order:
+            sequence_order.append(self._loop_sequences[id_])
+            rmsd.append(self._rmsds[id_])
+
         # create a table
-        ids = list(self._rmsds.keys())
-        rmsd = [self._rmsds[id_] for id_ in ids]
-        table_dict = {"ID": ids, "RMSD(Å)": rmsd}
+        table_dict = {"ID": self._id_order, "loop": sequence_order, "RMSD(Å)": rmsd}
         table = pandas.DataFrame(table_dict)
 
         # save to file
