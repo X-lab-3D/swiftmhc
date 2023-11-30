@@ -29,7 +29,8 @@ _log = logging.getLogger(__name__)
 
 def get_entry_names(
         hdf5_path: str,
-        loop_length_filter: Optional[int] = None
+        loop_length_filter: Optional[int] = None,
+        allele_name_filter: Optional[str] = None,
 ) -> List[str]:
 
     with h5py.File(hdf5_path, 'r') as hdf5_file:
@@ -39,6 +40,14 @@ def get_entry_names(
             for key in hdf5_file:
                 aatype = hdf5_file[key][PREPROCESS_LOOP_NAME]["aatype"][:]
                 if aatype.shape[0] == loop_length_filter:
+                    ids.append(key)
+            return ids
+
+        elif allele_name_filter is not None:
+            ids = []
+            for key in hdf5_file:
+                allele_name = hdf5_file[key][PREPROCESS_PROTEIN_NAME]["allele_name"][()].decode("utf_8")
+                if allele_name == allele_name_filter:
                     ids.append(key)
             return ids
         else:
