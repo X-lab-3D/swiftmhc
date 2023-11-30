@@ -380,6 +380,7 @@ def preprocess(table_path: str,
             continue
 
         target = row["measurement_value"]
+        allele = row["allele"]
 
         # parse the pdb file
         try:
@@ -436,6 +437,7 @@ def preprocess(table_path: str,
             # proximities within protein
             protein_proximities = _create_proximities(protein_residues, protein_residues)
             protein_data["proximities"] = protein_proximities
+            protein_data["allele_name"] = torch.tensor(list(allele.encode("utf_8")))
 
             _write_preprocessed_data(output_path, id_,
                                      protein_data,
