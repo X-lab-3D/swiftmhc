@@ -216,6 +216,10 @@ class Trainer:
                     if not key in animation_file:
                         animation_file.create_dataset(key, data=data[key][index].cpu())
 
+                # save the attention weights:
+                for key in ["cross_ipa_att"]:
+                    frame_group.create_dataset(key, data=output[key][index].cpu())
+
     def _batch(self,
                optimizer: Optimizer,
                model: Predictor,

@@ -203,7 +203,7 @@ class CrossStructureModule(torch.nn.Module):
 
         r = {}
         r["single"] = outputs["states"][-1]
-
+        r["cross_ipa_att"] = outputs["cross_ipa_att"]
         r["final_frames"] = outputs["frames"][-1]
         r["final_sidechain_frames"] = outputs["sidechain_frames"][-1]
         r["final_angles"] = outputs["angles"][-1]
@@ -268,6 +268,7 @@ class CrossStructureModule(torch.nn.Module):
         scaled_T_loop = T_loop.scale_translation(self.trans_scale_factor)
 
         preds = {
+            "cross_ipa_att": ipa_att,
             "unscaled_frames": T_loop.to_tensor_7(),
             "frames": scaled_T_loop.to_tensor_7(),
             "sidechain_frames": all_frames_to_global.to_tensor_4x4(),
