@@ -1,4 +1,4 @@
-from typing import Optional, TUple
+from typing import Optional, Tuple
 import logging
 from math import sqrt
 
@@ -21,8 +21,6 @@ class DebuggableCrossAttention(torch.nn.Module):
         self.n_head = n_head
         self.inf = 1e9
 
-        self.dropout = torch.nn.Dropout(dropout)
-
         self.linear_q = torch.nn.Linear(depth, depth * self.n_head, bias=False)
         self.linear_k = torch.nn.Linear(depth, depth * self.n_head, bias=False)
         self.linear_v = torch.nn.Linear(depth, depth * self.n_head, bias=False)
@@ -32,9 +30,9 @@ class DebuggableCrossAttention(torch.nn.Module):
     def forward(
         self,
         seq1: torch.Tensor,
-        seq1_mask: torch.Tensor
+        seq1_mask: torch.Tensor,
         seq2: torch.Tensor,
-        seq2_mask: torch.Tensor
+        seq2_mask: torch.Tensor,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
 
         batch_size, seq1_len, d = seq1.shape
