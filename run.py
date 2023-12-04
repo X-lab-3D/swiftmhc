@@ -12,6 +12,7 @@ import h5py
 import numpy
 import shutil
 from io import StringIO
+from multiprocessing.pool import Pool
 
 from sklearn.metrics import roc_auc_score, matthews_corrcoef
 from scipy.stats import pearsonr
@@ -72,7 +73,8 @@ arg_parser.add_argument("--run-id", "-r", help="name of the run and the director
 arg_parser.add_argument("--debug", "-d", help="generate debug files", action='store_const', const=True, default=False)
 arg_parser.add_argument("--log-stdout", "-l", help="log to stdout", action='store_const', const=True, default=False)
 arg_parser.add_argument("--pretrained-model", "-m", help="use a given pretrained model state")
-arg_parser.add_argument("--workers", "-w", help="number of workers to load batches", type=int, default=5)
+arg_parser.add_argument("--workers", "-w", help="number of worker processes to load batches", type=int, default=5)
+arg_parser.add_argument("--builders", "-B", help="number of simultaneous structure builder processes, setting this higher than the batch size has no use", type=int, default=0)
 arg_parser.add_argument("--batch-size", "-b", help="batch size to use during training/validation/testing", type=int, default=8)
 arg_parser.add_argument("--epoch-count", "-e", help="how many epochs to run during structure training", type=int, default=5)
 arg_parser.add_argument("--fine-tune-count", "-u", help="how many epochs to run during fine-tuning, at the end", type=int, default=5)
@@ -87,6 +89,88 @@ arg_parser.add_argument("data_path", help="path to a hdf5 file", nargs="+")
 
 
 _log = logging.getLogger(__name__)
+
+def save_structure_to_hdf5(
+    structure: Structure,
+    group: h5py.Group
+):
+    """
+    Save a biopython structure object as PDB in an HDF5 file.
+
+    Args:
+        structure: data to store
+        group: HDF5 group to store the data to
+    """
+
+    pdbio = PDBIO()
+    pdbio.set_structure(structure)
+    with StringIO() as sio:
+
+        pdbio.save(sio)
+
+        structure_data = numpy.array([bytes(line + "\n", encoding="utf-8")
+                                      for line in sio.getvalue().split('\n')
+                                      if len(line.strip()) > 0],
+                                     dtype=numpy.dtype("bytes"))
+
+        group.create_dataset("structure",
+                             data=structure_data,
+                             compression="lzf")
+
+
+def recreate_structure_to_hdf5(hdf5_path: str, name: str, data: List[Tuple[str, torch.Tensor, torch.Tensor, torch.Tensor]]):
+
+    structure = recreate_structure(name, data)
+
+    with h5py.File(hdf5_path, 'a') as hdf5_file:
+        name_group = hdf5_file.require_group(name)
+
+        save_structure_to_hdf5(structure, name_group)
+
+
+def output_structures_to_directory(
+    process_count: int,
+    output_directory: str,
+    data: Dict[str, torch.Tensor],
+    output: Dict[str, torch.Tensor]
+):
+    """
+    Used to save all models (truth) and (prediction) to two hdf5 files
+
+    Args:
+        output_directory: where to store the hdf5 files under
+        data: truth data
+        output: model output
+    """
+
+    truth_path = os.path.join(output_directory, 'true-structures.hdf5')
+    pred_path = os.path.join(output_directory, 'predicted-structures.hdf5')
+
+    if process_count > len(data["ids"]):
+        process_count = len(data["ids"])
+
+    # use a pool here, because the conversion from tensor to pdb format can be time consuming.
+    with Pool(process_count) as pool:
+        for index, id_ in enumerate(data["ids"]):
+            pool.apply_async(
+                recreate_structure_to_hdf5,
+                (
+                    truth_path, id_,
+                    [("P", data["loop_residue_numbers"][index], data["loop_sequence_onehot"][index], data["loop_atom14_gt_positions"][index]),
+                     ("M", data["protein_residue_numbers"][index], data["protein_sequence_onehot"][index], data["protein_atom14_gt_positions"][index])]
+                )
+            )
+
+            pool.apply_async(
+                recreate_structure_to_hdf5,
+                (
+                    pred_path, id_,
+                    [("P", data["loop_residue_numbers"][index], data["loop_sequence_onehot"][index], output["final_positions"][index]),
+                     ("M", data["protein_residue_numbers"][index], data["protein_sequence_onehot"][index], data["protein_atom14_gt_positions"][index])]
+                )
+            )
+        pool.close()
+        pool.join()
 
 
 class Trainer:
@@ -109,62 +193,6 @@ class Trainer:
         self.protein_maxlen = 200
 
         self.workers_count = workers_count
-
-    @staticmethod
-    def _save_structure_to_hdf5(structure: Structure,
-                                group: h5py.Group):
-        """
-        Save a biopython structure object as PDB in an HDF5 file.
-
-        Args:
-            structure: data to store
-            group: HDF5 group to store the data to
-        """
-
-        pdbio = PDBIO()
-        pdbio.set_structure(structure)
-        with StringIO() as sio:
-
-            pdbio.save(sio)
-
-            structure_data = numpy.array([bytes(line + "\n", encoding="utf-8")
-                                          for line in sio.getvalue().split('\n')
-                                          if len(line.strip()) > 0],
-                                         dtype=numpy.dtype("bytes"))
-
-            group.create_dataset("structure",
-                                 data=structure_data,
-                                 compression="lzf")
-
-    def _save_structures(self, output_directory: str, data: Dict[str, torch.Tensor], output: Dict[str, torch.Tensor]):
-        """
-        Used to save all models (truth) and (prediction) to two hdf5 files
-
-        Args:
-            output_directory: where to store the hdf5 files under
-            data: truth data
-            output: model output
-        """
-
-        truth_path = os.path.join(output_directory, 'true-structures.hdf5')
-        pred_path = os.path.join(output_directory, 'predicted-structures.hdf5')
-
-        for index, id_ in enumerate(data["ids"]):
-            true_structure = recreate_structure(id_,
-                                                [("P", data["loop_residue_numbers"][index], data["loop_sequence_onehot"][index], data["loop_atom14_gt_positions"][index]),
-                                                 ("M", data["protein_residue_numbers"][index], data["protein_sequence_onehot"][index], data["protein_atom14_gt_positions"][index])])
-
-            with h5py.File(truth_path, 'a') as truth_file:
-                id_group = truth_file.require_group(id_)
-                self._save_structure_to_hdf5(true_structure, id_group)
-
-            pred_structure = recreate_structure(id_,
-                                                [("P", data["loop_residue_numbers"][index], data["loop_sequence_onehot"][index], output["final_positions"][index]),
-                                                 ("M", data["protein_residue_numbers"][index], data["protein_sequence_onehot"][index], data["protein_atom14_gt_positions"][index])])
-
-            with h5py.File(pred_path, 'a') as pred_file:
-                id_group = pred_file.require_group(id_)
-                self._save_structure_to_hdf5(pred_structure, id_group)
 
 
     def _snapshot(self,
@@ -323,7 +351,7 @@ class Trainer:
                   model: Predictor,
                   data_loader: DataLoader,
                   output_directory: Optional[str] = None,
-                  save_structures: Optional[bool] = False,
+                  structure_builders_count: Optional[int] = 0,
     ) -> float:
         """
         Run an evaluation of the model, thus no backward propagation.
@@ -361,8 +389,8 @@ class Trainer:
                 datapoint_count += batch_data['loop_aatype'].shape[0]
                 sum_of_losses += batch_loss['total'].item() * batch_data['loop_aatype'].shape[0]
 
-                if save_structures and output_directory is not None:
-                    self._save_structures(output_directory, batch_data, batch_output)
+                if structure_builders_count > 0 and output_directory is not None:
+                    output_structures_to_directory(structure_builders_count, output_directory, batch_data, batch_output)
 
                 # Save to metrics
                 record.add_batch(batch_loss, batch_output, batch_data)
@@ -376,11 +404,13 @@ class Trainer:
         else:
             return 0.0
 
-    def test(self,
-             test_loaders: [DataLoader],
-             run_id: str,
-             animated_complex_ids: List[str],
-             model_path: str,
+    def test(
+        self,
+        test_loaders: [DataLoader],
+        run_id: str,
+        animated_complex_ids: List[str],
+        model_path: str,
+        structure_builders_count: Optional[int] = 0,
     ):
         """
         Call this function instead of train, when you just want to test the model.
@@ -408,7 +438,7 @@ class Trainer:
         for test_loader in test_loaders:
 
             # run the model to output results
-            self._validate(-1, model, test_loader, run_id, save_structures=True)
+            self._validate(-1, model, test_loader, run_id, structure_builders_count)
 
     @staticmethod
     def _get_selection_data_batch(datasets: List[ProteinLoopDataset], names: List[str]) -> Dict[str, torch.Tensor]:
@@ -677,7 +707,7 @@ if __name__ == "__main__":
         # We do a test, no training
         test_loaders = [trainer.get_data_loader(test_path, args.batch_size, device)
                         for test_path in args.data_path]
-        trainer.test(test_loaders, run_id, args.animate, args.pretrained_model)
+        trainer.test(test_loaders, run_id, args.animate, args.pretrained_model, args.builders)
 
     else:  # train, validate, test
         if len(args.data_path) >= 3:
