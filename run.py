@@ -30,6 +30,8 @@ from torch.nn import DataParallel
 from Bio.PDB.PDBIO import PDBIO
 from Bio.PDB.Structure import Structure
 
+from filelock import FileLock
+
 from openfold.np.residue_constants import (restype_atom14_ambiguous_atoms as openfold_restype_atom14_ambiguous_atoms,
                                            atom_types as openfold_atom_types,
                                            van_der_waals_radius as openfold_van_der_waals_radius,
@@ -90,6 +92,7 @@ arg_parser.add_argument("data_path", help="path to a hdf5 file", nargs="+")
 
 _log = logging.getLogger(__name__)
 
+
 def save_structure_to_hdf5(
     structure: Structure,
     group: h5py.Group
@@ -120,12 +123,21 @@ def save_structure_to_hdf5(
 
 def recreate_structure_to_hdf5(hdf5_path: str, name: str, data: List[Tuple[str, torch.Tensor, torch.Tensor, torch.Tensor]]):
 
-    structure = recreate_structure(name, data)
+    _log.debug(f"recreating {name}")
 
-    with h5py.File(hdf5_path, 'a') as hdf5_file:
-        name_group = hdf5_file.require_group(name)
+    try:
+        structure = recreate_structure(name, data)
 
-        save_structure_to_hdf5(structure, name_group)
+        with FileLock(f"{hdf5_path}.lock"):
+            with h5py.File(hdf5_path, 'a') as hdf5_file:
+                name_group = hdf5_file.require_group(name)
+                save_structure_to_hdf5(structure, name_group)
+    except:
+        _log.exception("on recreating structure")
+
+
+def on_error(e):
+    _log.error(str(e))
 
 
 def output_structures_to_directory(
@@ -149,25 +161,40 @@ def output_structures_to_directory(
     if process_count > len(data["ids"]):
         process_count = len(data["ids"])
 
+    _log.debug(f"output structures to {output_directory}")
+
     # use a pool here, because the conversion from tensor to pdb format can be time consuming.
     with Pool(process_count) as pool:
+
+        # get the data from gpu to cpu, if not already
+        loop_residue_numbers = data["loop_residue_numbers"].cpu()
+        loop_sequence_onehot = data["loop_sequence_onehot"].cpu()
+        loop_atom14_gt_positions = data["loop_atom14_gt_positions"].cpu()
+        loop_atom14_positions = output["final_positions"].cpu()
+
+        protein_residue_numbers = data["protein_residue_numbers"].cpu()
+        protein_sequence_onehot = data["protein_sequence_onehot"].cpu()
+        protein_atom14_gt_positions = data["protein_atom14_gt_positions"].cpu()
+
         for index, id_ in enumerate(data["ids"]):
             pool.apply_async(
                 recreate_structure_to_hdf5,
                 (
                     truth_path, id_,
-                    [("P", data["loop_residue_numbers"][index], data["loop_sequence_onehot"][index], data["loop_atom14_gt_positions"][index]),
-                     ("M", data["protein_residue_numbers"][index], data["protein_sequence_onehot"][index], data["protein_atom14_gt_positions"][index])]
-                )
+                    [("P", loop_residue_numbers[index], loop_sequence_onehot[index], loop_atom14_gt_positions[index]),
+                     ("M", protein_residue_numbers[index], protein_sequence_onehot[index], protein_atom14_gt_positions[index])]
+                ),
+                error_callback=on_error,
             )
 
             pool.apply_async(
                 recreate_structure_to_hdf5,
                 (
                     pred_path, id_,
-                    [("P", data["loop_residue_numbers"][index], data["loop_sequence_onehot"][index], output["final_positions"][index]),
-                     ("M", data["protein_residue_numbers"][index], data["protein_sequence_onehot"][index], data["protein_atom14_gt_positions"][index])]
-                )
+                    [("P", loop_residue_numbers[index], loop_sequence_onehot[index], loop_atom14_positions[index]),
+                     ("M", protein_residue_numbers[index], protein_sequence_onehot[index], protein_atom14_gt_positions[index])]
+                ),
+                error_callback=on_error,
             )
         pool.close()
         pool.join()
@@ -410,7 +437,7 @@ class Trainer:
         run_id: str,
         animated_complex_ids: List[str],
         model_path: str,
-        structure_builders_count: Optional[int] = 0,
+        structure_builders_count: int,
     ):
         """
         Call this function instead of train, when you just want to test the model.
@@ -421,7 +448,10 @@ class Trainer:
             run_id: run directory, where the model file is stored
             animated_complex_ids: list of complex names, of which the structures should be saved
             model_path: pretrained model to use
+            structure_builders_count: number of simultaneous structure builder processes
         """
+
+        _log.info(f"testing {model_path} on {structure_builders_count} structure builders")
 
         # init model
         model = Predictor(self.loop_maxlen,
