@@ -53,6 +53,10 @@ def _write_preprocessed_data(hdf5_path: str, storage_id: str,
         if isinstance(target, float):
             storage_group.create_dataset(PREPROCESS_KD_NAME, data=target)
 
+        elif isinstance(target, str):
+            cls = ComplexClass.from_string(target)
+            storage_group.create_dataset(PREPROCESS_CLASS_NAME, data=int(cls))
+
         elif isinstance(target, ComplexClass):
             storage_group.create_dataset(PREPROCESS_CLASS_NAME, data=int(target))
         else:
@@ -60,11 +64,17 @@ def _write_preprocessed_data(hdf5_path: str, storage_id: str,
 
         protein_group = storage_group.require_group(PREPROCESS_PROTEIN_NAME)
         for field_name, field_data in protein_data.items():
-            protein_group.create_dataset(field_name, data=field_data.cpu(), compression="lzf")
+            if isinstance(field_data, torch.Tensor):
+                field_data = field_data.cpu()
+
+            protein_group.create_dataset(field_name, data=field_data, compression="lzf")
 
         loop_group = storage_group.require_group(PREPROCESS_LOOP_NAME)
         for field_name, field_data in loop_data.items():
-            loop_group.create_dataset(field_name, data=field_data.cpu(), compression="lzf")
+            if isinstance(field_data, torch.Tensor):
+                field_data = field_data.cpu()
+
+            loop_group.create_dataset(field_name, data=field_data, compression="lzf")
 
 
 def _read_targets_by_id(table_path: str) -> List[Tuple[str, Union[float, ComplexClass]]]:
@@ -376,6 +386,7 @@ def preprocess(table_path: str,
             continue
 
         target = row["measurement_value"]
+        allele = row["allele"]
 
         # parse the pdb file
         try:
@@ -432,6 +443,7 @@ def preprocess(table_path: str,
             # proximities within protein
             protein_proximities = _create_proximities(protein_residues, protein_residues)
             protein_data["proximities"] = protein_proximities
+            protein_data["allele_name"] = numpy.array(allele.encode("utf_8"))
 
             _write_preprocessed_data(output_path, id_,
                                      protein_data,

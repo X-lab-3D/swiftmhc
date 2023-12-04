@@ -27,18 +27,41 @@ from .modules.sequence_encoding import mask_loop_left_center_right
 _log = logging.getLogger(__name__)
 
 
-def get_entry_names(hdf5_path: str) -> List[str]:
+def get_entry_names(
+        hdf5_path: str,
+        loop_length_filter: Optional[int] = None,
+        allele_name_filter: Optional[str] = None,
+) -> List[str]:
+
     with h5py.File(hdf5_path, 'r') as hdf5_file:
-        return list(hdf5_file.keys())
+
+        if loop_length_filter is not None:
+            ids = []
+            for key in hdf5_file:
+                aatype = hdf5_file[key][PREPROCESS_LOOP_NAME]["aatype"][:]
+                if aatype.shape[0] == loop_length_filter:
+                    ids.append(key)
+            return ids
+
+        elif allele_name_filter is not None:
+            ids = []
+            for key in hdf5_file:
+                allele_name = hdf5_file[key][PREPROCESS_PROTEIN_NAME]["allele_name"][()].decode("utf_8")
+                if allele_name == allele_name_filter:
+                    ids.append(key)
+            return ids
+        else:
+            return list(hdf5_file.keys())
 
 
 class ProteinLoopDataset(Dataset):
-    def __init__(self,
-                 hdf5_path: str,
-                 device: torch.device,
-                 loop_maxlen: int,
-                 protein_maxlen: int,
-                 entry_names: Optional[List[str]] = None,
+    def __init__(
+        self,
+        hdf5_path: str,
+        device: torch.device,
+        loop_maxlen: int,
+        protein_maxlen: int,
+        entry_names: Optional[List[str]] = None,
     ):
         self.name = os.path.splitext(os.path.basename(hdf5_path))[0]
 
@@ -103,9 +126,9 @@ class ProteinLoopDataset(Dataset):
                 index = torch.zeros(max_length, device=self._device, dtype=torch.bool)
                 index[:length] = True
 
-                if prefix == PREPROCESS_LOOP_NAME:
-                    # For the loop, put residues partly leftmost, partly centered, partly rightmost
-                    index = mask_loop_left_center_right(length, max_length)
+                #if prefix == PREPROCESS_LOOP_NAME:
+                #    # For the loop, put residues partly leftmost, partly centered, partly rightmost
+                #    index = mask_loop_left_center_right(length, max_length)
 
                 result[f"{prefix}_aatype"] = torch.zeros(max_length, device=self._device, dtype=torch.long)
                 result[f"{prefix}_aatype"][index] = torch.tensor(aatype_data, device=self._device, dtype=torch.long)
