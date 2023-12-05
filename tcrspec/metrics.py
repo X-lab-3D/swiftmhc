@@ -104,6 +104,14 @@ class MetricsRecord:
             loop_sequence = get_sequence(loop_aatype[i], loop_mask[i])
             self._loop_sequences[id_] = loop_sequence
 
+        # store the loop sequences
+        loop_aatype = truth["loop_aatype"].cpu().tolist()
+        loop_mask = truth["loop_self_residues_mask"].cpu().tolist()
+        for i in range(batch_size):
+            id_ = truth["ids"][i]
+            loop_sequence = get_sequence(loop_aatype[i], loop_mask[i])
+            self._loop_sequences[id_] = loop_sequence
+
     def save(self, epoch_number: int, pass_name: str, directory_path: str):
         """
         Call this when all batches have passed, to save the resulting metrics.
@@ -123,10 +131,16 @@ class MetricsRecord:
         # store to this file
         rmsds_path = os.path.join(directory_path, f"{pass_name}-rmsds.csv")
 
+        sequence_order = []
+        rmsds = []
+        ids = []
+        for id_, rmsd in self._rmsds.items():
+            sequence_order.append(self._loop_sequences[id_])
+            rmsds.append(rmsd)
+            ids.append(id_)
+
         # create a table
-        ids = list(self._rmsds.keys())
-        rmsd = [self._rmsds[id_] for id_ in ids]
-        table_dict = {"ID": ids, "RMSD(Å)": rmsd}
+        table_dict = {"ID": ids, "loop": sequence_order, "RMSD(Å)": rmsds}
         table = pandas.DataFrame(table_dict)
 
         # save to file
@@ -153,7 +167,6 @@ class MetricsRecord:
 
         # save to file
         table.to_csv(affinities_path, sep=',', encoding='utf-8', index=False, quoting=csv.QUOTE_NONNUMERIC)
-
 
     def _store_metrics_table(self, epoch_number: int, pass_name: str, directory_path: str):
 

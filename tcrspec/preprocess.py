@@ -1,13 +1,15 @@
 from typing import List, Tuple, Union, Optional, Dict
 import os
 import logging
-from math import isinf
+from math import isinf, floor, ceil
+import tarfile
 
 import h5py
 import pandas
 import numpy
 import torch
 from Bio.PDB.PDBParser import PDBParser
+from Bio.PDB.Structure import Structure
 from Bio.PDB.Chain import Chain
 from Bio.PDB.Residue import Residue
 from Bio.Align import PairwiseAligner
@@ -51,6 +53,10 @@ def _write_preprocessed_data(hdf5_path: str, storage_id: str,
         if isinstance(target, float):
             storage_group.create_dataset(PREPROCESS_KD_NAME, data=target)
 
+        elif isinstance(target, str):
+            cls = ComplexClass.from_string(target)
+            storage_group.create_dataset(PREPROCESS_CLASS_NAME, data=int(cls))
+
         elif isinstance(target, ComplexClass):
             storage_group.create_dataset(PREPROCESS_CLASS_NAME, data=int(target))
         else:
@@ -58,11 +64,17 @@ def _write_preprocessed_data(hdf5_path: str, storage_id: str,
 
         protein_group = storage_group.require_group(PREPROCESS_PROTEIN_NAME)
         for field_name, field_data in protein_data.items():
-            protein_group.create_dataset(field_name, data=field_data.cpu(), compression="lzf")
+            if isinstance(field_data, torch.Tensor):
+                field_data = field_data.cpu()
+
+            protein_group.create_dataset(field_name, data=field_data, compression="lzf")
 
         loop_group = storage_group.require_group(PREPROCESS_LOOP_NAME)
         for field_name, field_data in loop_data.items():
-            loop_group.create_dataset(field_name, data=field_data.cpu(), compression="lzf")
+            if isinstance(field_data, torch.Tensor):
+                field_data = field_data.cpu()
+
+            loop_group.create_dataset(field_name, data=field_data, compression="lzf")
 
 
 def _read_targets_by_id(table_path: str) -> List[Tuple[str, Union[float, ComplexClass]]]:
@@ -316,6 +328,36 @@ def _create_proximities(residues1: List[Residue], residues2: List[Residue]) -> t
     return 1.0 / (1.0 + residue_distances)
 
 
+def get_structure(models_path: str, model_id: str) -> Structure:
+
+    pdb_parser = PDBParser()
+
+    model_name = f"{model_id}.pdb"
+    if os.path.isdir(models_path):
+        model_path = os.path.join(models_path, model_name)
+        if os.path.isfile(model_path):
+            return pdb_parser.get_structure(model_id, model_path)
+
+        elif model_id.startswith("BA-"):
+            number = int(model_id[3:])
+
+            subset_start = 1000 * floor(number / 1000) + 1
+            subset_end = 1000 * ceil(number / 1000)
+
+            subdir_name = f"{subset_start}_{subset_end}"
+            model_path = os.path.join(models_path, subdir_name, model_id, "pdb", f"{model_id}.pdb")
+            if os.path.isfile(model_path):
+                return pdb_parser.get_structure(model_id, model_path)
+
+    elif models_path.endswith("tar.xz"):
+        model_path = os.path.join(models_path, model_name)
+        with tarfile.open(models_path, 'r:xz') as tf:
+            with tf.extractfile(model_path) as f:
+                return pdb_parser.get_structure(model_id, f)
+
+    raise FileNotFoundError(f"Cannot find {model_id} under {models_path}")
+
+
 def preprocess(table_path: str,
                models_path: str,
                protein_self_mask_path: str,
@@ -344,23 +386,21 @@ def preprocess(table_path: str,
             continue
 
         target = row["measurement_value"]
+        allele = row["allele"]
 
         # parse the pdb file
-        model_path = os.path.join(models_path, f"{id_}.pdb")
-        if not os.path.isfile(model_path):
-            _log.warning(f"file not found: {model_path}")
+        try:
+            structure = get_structure(models_path, id_)
+        except (KeyError, FileNotFoundError):
+            _log.exception(f"on {id_}")
             continue
-
-        pdb_parser = PDBParser()
-
-        structure = pdb_parser.get_structure(id_, model_path)
 
         # locate protein and loop
         chains_by_id = {c.id: c for c in structure.get_chains()}
         if "M" not in chains_by_id:
-            raise ValueError(f"missing protein chain M in {model_path}")
+            raise ValueError(f"missing protein chain M in {id_}")
         if "P" not in chains_by_id:
-            raise ValueError(f"missing loop chain P in {model_path}")
+            raise ValueError(f"missing loop chain P in {id_}")
 
         # get residues from the protein (chain M)
         protein_chain = chains_by_id["M"]
@@ -403,11 +443,12 @@ def preprocess(table_path: str,
             # proximities within protein
             protein_proximities = _create_proximities(protein_residues, protein_residues)
             protein_data["proximities"] = protein_proximities
+            protein_data["allele_name"] = numpy.array(allele.encode("utf_8"))
 
             _write_preprocessed_data(output_path, id_,
                                      protein_data,
                                      loop_data,
                                      target)
         except:
-            _log.exception(f"on {model_path}")
+            _log.exception(f"on {id_}")
             continue

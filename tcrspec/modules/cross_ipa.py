@@ -23,7 +23,7 @@ class CrossInvariantPointAttention(torch.nn.Module):
         no_qk_points: int,
         no_v_points: int,
         eps: float = 1e-8,
-        inf: float = 1e5
+        inf: float = 1e5,
     ):
         """
         Args:
