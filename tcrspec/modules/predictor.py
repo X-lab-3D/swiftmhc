@@ -115,7 +115,7 @@ class Predictor(torch.nn.Module):
         batch_size, loop_maxlen, loop_depth = loop_seq.shape
 
         # positional encoding
-        loop_embd = self.pos_enc(loop_seq)
+        loop_embd = self.pos_enc(loop_seq.clone(), batch["loop_self_residues_mask"])
 
         # transform the loop
         for encoder in self.transform:
