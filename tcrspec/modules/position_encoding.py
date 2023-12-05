@@ -88,7 +88,7 @@ class PositionalEncoding(torch.nn.Module):
             length = masks[i].sum().item()
             seq = seqs[i]
             p = torch.zeros(length, seq.shape[-1], device=seq.device)
-            p[:, -self.d:] = self.pe[:length, :]
+            p[:, :] = self.pe[:length, :]
             seq[masks[i]] += p
             seqs[i] = seq
 
