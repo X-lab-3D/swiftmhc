@@ -254,7 +254,7 @@ class Trainer:
                     structure = recreate_structure(id_,
                                                    [("P", data["loop_residue_numbers"][index], data["loop_sequence_onehot"][index], data["loop_atom14_gt_positions"][index]),
                                                     ("M", data["protein_residue_numbers"][index], data["protein_sequence_onehot"][index], data["protein_atom14_gt_positions"][index])])
-                    self._save_structure_to_hdf5(structure, true_group)
+                    save_structure_to_hdf5(structure, true_group)
 
                 frame_group = animation_file.require_group(frame_id)
 
@@ -262,7 +262,7 @@ class Trainer:
                 structure = recreate_structure(id_,
                                                [("P", data["loop_residue_numbers"][index], data["loop_sequence_onehot"][index], output["final_positions"][index]),
                                                 ("M", data["protein_residue_numbers"][index], data["protein_sequence_onehot"][index], data["protein_atom14_gt_positions"][index])])
-                self._save_structure_to_hdf5(structure, frame_group)
+                save_structure_to_hdf5(structure, frame_group)
 
                 # save the residue numbering, for later lookup
                 for key in ("protein_cross_residues_mask", "loop_cross_residues_mask",
