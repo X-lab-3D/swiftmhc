@@ -74,7 +74,7 @@ if __name__ == "__main__":
             plot = figure.add_subplot()
             vmin=data.min().min()
             vmax=data.max().max()
-            heatmap = plot.imshow(data, cmap="Greys", aspect="auto", vmin=vmin, vmax=vmax)
+            heatmap = plot.imshow(data, cmap="Greys", aspect="auto", vmin=vmin, vmax=vmax, interpolation="none")
             figure.colorbar(heatmap)
             pyplot.title(f"{output_name}, epoch:{epoch_number:.3f}")
 
