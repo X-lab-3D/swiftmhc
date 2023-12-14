@@ -167,6 +167,8 @@ def output_structures_to_directory(
     with Pool(process_count) as pool:
 
         # get the data from gpu to cpu, if not already
+        classes = data["class"].cpu()
+
         loop_residue_numbers = data["loop_residue_numbers"].cpu()
         loop_sequence_onehot = data["loop_sequence_onehot"].cpu()
         loop_atom14_gt_positions = data["loop_atom14_gt_positions"].cpu()
@@ -177,6 +179,11 @@ def output_structures_to_directory(
         protein_atom14_gt_positions = data["protein_atom14_gt_positions"].cpu()
 
         for index, id_ in enumerate(data["ids"]):
+
+            # binders only
+            if classes[index].item() == 0:
+                continue
+
             pool.apply_async(
                 recreate_structure_to_hdf5,
                 (
