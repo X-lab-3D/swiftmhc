@@ -642,6 +642,7 @@ class Trainer:
         loader = DataLoader(dataset,
                             collate_fn=ProteinLoopDataset.collate,
                             batch_size=batch_size,
+                            shuffle=True,
                             num_workers=self.workers_count)
 
         return loader
