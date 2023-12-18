@@ -71,7 +71,7 @@ class MetricsRecord:
             if key not in self._losses_sum:
                 self._losses_sum[key] = 0.0
 
-            self._losses_sum[key] += value * batch_size
+            self._losses_sum[key] += value.detach().item() * batch_size
 
         # store the rmsd per data point
         self._rmsds.update(get_calpha_rmsd(output, truth))
@@ -191,7 +191,7 @@ class MetricsRecord:
 
         # write losses to the table
         for loss_name, loss_value in self._losses_sum.items():
-            normalized = round((loss_value / self._data_len).item(), 3)
+            normalized = round((loss_value / self._data_len), 3)
 
             table.loc[row_index, f"{pass_name} {loss_name} loss"] = normalized
 
