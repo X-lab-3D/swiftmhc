@@ -120,7 +120,7 @@ class Predictor(torch.nn.Module):
         # transform the loop
         for encoder in self.transform:
             loop_upd, loop_att = encoder(loop_embd, batch["loop_self_residues_mask"])
-            loop_embd += loop_upd
+            loop_embd = loop_embd + loop_upd
 
         # structure-based self-attention on the protein
         protein_T = Rigid.from_tensor_4x4(batch["protein_backbone_rigid_tensor"])
