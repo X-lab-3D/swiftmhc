@@ -16,7 +16,7 @@ from openfold.utils.loss import find_structural_violations
 from openfold.utils.feats import atom14_to_atom37
 from openfold.model.primitives import LayerNorm
 
-from .position_encoding import PositionalEncoding
+from .position_encoding import RelativePositionEncoder
 from .cross_structure_module import CrossStructureModule
 from ..domain.amino_acid import AMINO_ACID_DIMENSION
 from ..models.data import TensorDict
@@ -48,10 +48,8 @@ class Predictor(torch.nn.Module):
 
         self.n_head = structure_module_config.no_heads_ipa
 
-        self.pos_enc = PositionalEncoding(structure_module_config.c_s, self.loop_maxlen)
-
         self.transform = torch.nn.ModuleList([
-            DebuggableTransformerEncoderLayer(structure_module_config.c_s, self.n_head)
+            RelativePositionEncoder(self.n_head, self.loop_maxlen, structure_module_config.c_s)
             for _ in range(structure_module_config.no_blocks)
         ])
 
@@ -122,10 +120,8 @@ class Predictor(torch.nn.Module):
         # initial_loop_seq = loop_seq.clone()
         batch_size, loop_maxlen, loop_depth = loop_seq.shape
 
-        # positional encoding
-        loop_embd = self.pos_enc(loop_seq.clone(), batch["loop_self_residues_mask"])
-
         # transform the loop
+        loop_embd = loop_seq.clone()
         for encoder in self.transform:
             loop_upd, loop_att = encoder(loop_embd, batch["loop_self_residues_mask"])
             loop_embd = self.loop_norm(loop_embd + loop_upd)
