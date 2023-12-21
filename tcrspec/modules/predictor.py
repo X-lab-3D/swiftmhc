@@ -208,7 +208,7 @@ class Predictor(torch.nn.Module):
         elif self.model_type == ModelType.CLASSIFICATION:
 
             # [batch_size, 2]
-            output["classification"] = self.output_linear(p)
+            output["classification"] = p
 
             # [batch_size]
             output["class"] = torch.argmax(output["classification"], dim=1)
