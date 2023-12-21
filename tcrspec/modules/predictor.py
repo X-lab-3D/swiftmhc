@@ -55,6 +55,11 @@ class Predictor(torch.nn.Module):
             for _ in range(structure_module_config.no_blocks)
         ])
 
+        self.loop_norm = torch.nn.Sequential(
+            torch.nn.Dropout(p=structure_module_config.dropout_rate),
+            LayerNorm(structure_module_config.c_s)
+        )
+
         self.n_ipa_repeat = structure_module_config.no_blocks
 
         self.protein_dist_norm = torch.nn.LayerNorm((self.protein_maxlen, self.protein_maxlen, 1))
@@ -69,19 +74,18 @@ class Predictor(torch.nn.Module):
         self.protein_ipa.inf = structure_module_config.inf
 
         self.protein_norm = torch.nn.Sequential(
-            torch.nn.Dropout(p=0.1),
+            torch.nn.Dropout(p=structure_module_config.dropout_rate),
             LayerNorm(structure_module_config.c_s)
         )
 
         self.cross = CrossStructureModule(**structure_module_config)
 
-        c_affinity = 128
-
-        self.affinity_reswise_mlp = torch.nn.Sequential(
-            torch.nn.Linear(structure_module_config.c_s, c_affinity),
-            torch.nn.GELU(),
-            torch.nn.Linear(c_affinity, 1),
+        self.affinity_norm = torch.nn.Sequential(
+            torch.nn.Dropout(p=structure_module_config.dropout_rate),
+            LayerNorm(structure_module_config.c_s)
         )
+
+        c_affinity = 128
 
         self.model_type = model_type
 
@@ -92,7 +96,11 @@ class Predictor(torch.nn.Module):
         else:
             raise TypeError(str(model_type))
 
-        self.output_linear = torch.nn.Linear(self.loop_maxlen, output_size)
+        self.affinity_reswise_mlp = torch.nn.Sequential(
+            torch.nn.Linear(structure_module_config.c_s, c_affinity),
+            torch.nn.GELU(),
+            torch.nn.Linear(c_affinity, output_size),
+        )
 
     def forward(self, batch: TensorDict) -> TensorDict:
         """
@@ -120,7 +128,7 @@ class Predictor(torch.nn.Module):
         # transform the loop
         for encoder in self.transform:
             loop_upd, loop_att = encoder(loop_embd, batch["loop_self_residues_mask"])
-            loop_embd = loop_embd + loop_upd
+            loop_embd = self.loop_norm(loop_embd + loop_upd)
 
         # structure-based self-attention on the protein
         protein_T = Rigid.from_tensor_4x4(batch["protein_backbone_rigid_tensor"])
@@ -145,19 +153,13 @@ class Predictor(torch.nn.Module):
             protein_as.append(protein_a.clone().detach())
             protein_as_sd.append(protein_a_sd.detach())
             protein_as_b.append(protein_a_b.detach())
-            protein_embd = protein_embd + protein_upd
+            protein_embd =  self.protein_norm(protein_embd + protein_upd)
 
         # store the attention weights, for debugging
         # [batch_size, n_block, n_head, protein_len, protein_len]
         protein_as = torch.stack(protein_as).transpose(0, 1)
         protein_as_sd = torch.stack(protein_as_sd).transpose(0, 1)
         protein_as_b = torch.stack(protein_as_b).transpose(0, 1)
-
-        _log.debug(f"predictor: after ipa, protein_embd ranges {protein_embd.min()} - {protein_embd.max()}")
-
-        protein_embd = self.protein_norm(protein_embd)
-
-        _log.debug(f"predictor: after norm, protein_embd ranges {protein_embd.min()} - {protein_embd.max()}")
 
         # cross attention and loop structure prediction
         output = self.cross(batch["loop_aatype"],
@@ -191,20 +193,22 @@ class Predictor(torch.nn.Module):
 
         # [batch_size, loop_maxlen, c_s]
         updated_s_loop = output["single"]
-        loop_embd = loop_embd + updated_s_loop
+        loop_embd = self.affinity_norm(loop_embd + updated_s_loop)
 
-        # [batch_size, loop_len]
-        p = self.affinity_reswise_mlp(loop_embd).reshape(batch_size, loop_maxlen)
+        # [batch_size, output_size]
+        p = self.affinity_reswise_mlp(
+            loop_embd * batch["loop_cross_residues_mask"].unsqueeze(-1)
+        ).sum(dim=-2)
 
         # affinity prediction
         if self.model_type == ModelType.REGRESSION:
             # [batch_size]
-            output["affinity"] = self.output_linear(p).reshape(batch_size)
+            output["affinity"] = p.reshape(batch_size)
 
         elif self.model_type == ModelType.CLASSIFICATION:
             # softmax is required here, so that we can calculate ROC AUC
             # [batch_size, 2]
-            output["classification"] = torch.nn.functional.softmax(self.output_linear(p), dim=1)
+            output["classification"] = torch.nn.functional.softmax(p, dim=1)
             # [batch_size]
             output["class"] = torch.argmax(output["classification"], dim=1)
 
