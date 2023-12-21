@@ -351,7 +351,7 @@ class Trainer:
         """
 
         # start with an empty metrics record
-        record = MetricsRecord()
+        record = MetricsRecord(epoch_index, data_loader.dataset.name, output_directory)
 
         # put model in train mode
         model.train()
@@ -378,7 +378,7 @@ class Trainer:
 
         # Create the metrics row for this epoch
         if output_directory is not None:
-            record.save(epoch_index, data_loader.dataset.name, output_directory)
+            record.save()
 
     def _validate(self,
                   epoch_index: int,
@@ -401,7 +401,7 @@ class Trainer:
         """
 
         # start with an empty metrics record
-        record = MetricsRecord()
+        record = MetricsRecord(epoch_index, data_loader.dataset.name, output_directory)
 
         # put model in evaluation mode
         model.eval()
@@ -431,7 +431,7 @@ class Trainer:
 
         # Create the metrics row for this epoch
         if output_directory is not None:
-            record.save(epoch_index, data_loader.dataset.name, output_directory)
+            record.save()
 
         if datapoint_count > 0:
             return (sum_of_losses / datapoint_count)

@@ -204,7 +204,7 @@ class Predictor(torch.nn.Module):
         elif self.model_type == ModelType.CLASSIFICATION:
             # softmax is required here, so that we can calculate ROC AUC
             # [batch_size, 2]
-            output["classification"] = torch.nn.functional.softmax(self.output_linear(p), dim=1)
+            output["classification"] = self.output_linear(p)
             # [batch_size]
             output["class"] = torch.argmax(output["classification"], dim=1)
 

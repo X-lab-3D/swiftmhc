@@ -41,7 +41,17 @@ def get_accuracy(truth: List[int], pred: List[int]) -> float:
 
 
 class MetricsRecord:
-    def __init__(self):
+
+    batch_write_interval = 25
+
+    def __init__(self, epoch_number: int, pass_name: str, directory_path: str):
+        """
+        Args:
+            epoch_number: to indicate at which epoch row it should be stored
+            pass_name: can be train/valid/test or other
+            directory_path: a directory where to store the files
+        """
+
         self._data_len = 0
         self._losses_sum = {}
         self._rmsds = {}
@@ -50,6 +60,12 @@ class MetricsRecord:
         self._id_order = []
         self._truth_data = {}
         self._output_data = {}
+
+        self._epoch_number = epoch_number
+        self._pass_name = pass_name
+        self._directory_path = directory_path
+
+        self._batches_passed = 0
 
     def add_batch(self,
                   losses: Dict[str, torch.Tensor],
@@ -112,19 +128,20 @@ class MetricsRecord:
             loop_sequence = get_sequence(loop_aatype[i], loop_mask[i])
             self._loop_sequences[id_] = loop_sequence
 
-    def save(self, epoch_number: int, pass_name: str, directory_path: str):
+        self._batches_passed += 1
+        if self._batches_passed % self.batch_write_interval == 0:
+
+            self._store_individual_rmsds(self._pass_name, self._directory_path)
+            self._store_inidividual_affinities(self._pass_name, self._directory_path)
+
+    def save(self):
         """
         Call this when all batches have passed, to save the resulting metrics.
-
-        Args:
-            epoch_number: to indicate at which epoch row it should be stored
-            pass_name: can be train/valid/test or other
-            directory_path: a directory where to store the files
         """
 
-        self._store_individual_rmsds(pass_name, directory_path)
-        self._store_inidividual_affinities(pass_name, directory_path)
-        self._store_metrics_table(epoch_number, pass_name, directory_path)
+        self._store_individual_rmsds(self._pass_name, self._directory_path)
+        self._store_inidividual_affinities(self._pass_name, self._directory_path)
+        self._store_metrics_table(self._epoch_number, self._pass_name, self._directory_path)
 
     def _store_individual_rmsds(self, pass_name: str, directory_path: str):
 
@@ -201,7 +218,10 @@ class MetricsRecord:
 
         # write affinity-related metrics
         if "classification" in self._output_data and "class" in self._truth_data and len(set(self._truth_data["class"])) > 1:
-            auc = roc_auc_score(self._truth_data["class"], [row[1] for row in self._output_data["classification"]])
+
+            p = torch.nn.functional.softmax(torch.tensor(self._output_data["classification"]), dim=-1)[1]
+
+            auc = roc_auc_score(self._truth_data["class"], p)            
             table.loc[row_index, f"{pass_name} ROC AUC"] = round(auc, 3)
 
         if "class" in self._output_data and "class" in self._truth_data:
