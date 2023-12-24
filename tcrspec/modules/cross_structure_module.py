@@ -300,6 +300,7 @@ class CrossStructureModule(torch.nn.Module):
                 torch.tensor(
                     restype_atom14_to_rigid_group,
                     device=device,
+                    dtype=torch.long,
                     requires_grad=False,
                 ),
                 persistent=False,
