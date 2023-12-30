@@ -78,12 +78,21 @@ class Predictor(torch.nn.Module):
 
         self.cross = CrossStructureModule(**structure_module_config)
 
-        self.affinity_norm = torch.nn.Sequential(
-            torch.nn.Dropout(p=structure_module_config.dropout_rate),
-            LayerNorm(structure_module_config.c_s)
+        c_transition = 128
+
+        self.protein_transition = torch.nn.Sequential(
+            torch.nn.Linear(structure_module_config.c_s, c_transition),
+            torch.nn.ReLU(),
+            torch.nn.Linear(c_transition, structure_module_config.c_s),
         )
 
-        c_affinity = 128
+        self.loop_transition = torch.nn.Sequential(
+            torch.nn.Linear(structure_module_config.c_s, c_transition),
+            torch.nn.ReLU(),
+            torch.nn.Linear(c_transition, structure_module_config.c_s),
+        )
+
+        self.interaction_head_linear = torch.nn.Linear(self.n_ipa_repeat * self.n_head, 1)
 
         self.model_type = model_type
 
@@ -94,11 +103,44 @@ class Predictor(torch.nn.Module):
         else:
             raise TypeError(str(model_type))
 
-        self.affinity_reswise_mlp = torch.nn.Sequential(
-            torch.nn.Linear(structure_module_config.c_s, c_affinity),
-            torch.nn.GELU(),
-            torch.nn.Linear(c_affinity, output_size),
-        )
+        self.affinity_linear = torch.nn.Linear(structure_module_config.c_s, output_size)
+
+    def find_interactions(
+        self,
+        a: torch.Tensor,
+        s_loop: torch.Tensor,
+        s_protein: torch.Tensor,
+        mask_loop: torch.Tensor,
+        mask_protein: torch.Tensor,
+    ) -> torch.Tensor:
+
+        batch_size, loop_len, depth = s_loop.shape
+        protein_len = s_protein.shape[1]
+
+        # [*, loop_len, c_s]
+        s_loop = self.loop_transition(s_loop) * mask_loop.unsqueeze(-1)
+
+        # [*, protein_len, c_s]
+        s_protein = self.protein_transition(s_protein) * mask_protein.unsqueeze(-1)
+
+        # [*, loop_len, protein_len, c_s]
+        unweighted_interactions = (s_loop.unsqueeze(-2) * s_protein.unsqueeze(-3))
+
+        # [*, n_block * n_head, loop_len, protein_len, 1]
+        weights = a.reshape(batch_size, -1, loop_len, protein_len, 1)
+
+        # [*, n_block * n_head, loop_len, protein_len, c_s]
+        weighted_interactions = weights * unweighted_interactions.unsqueeze(-4)
+
+        # [*, loop_len, protein_len, c_s, n_block * n_head]
+        weighted_interactions = weighted_interactions.transpose(-4, -3).transpose(-3, -2).transpose(-2, -1)
+
+        # [*, loop_len, protein_len, c_s]
+        interactions = self.interaction_head_linear(weighted_interactions)
+
+        # [*, loop_len * protein_len, c_s]
+        return interactions.reshape(batch_size, -1, depth)
+
 
     def forward(self, batch: TensorDict) -> TensorDict:
         """
@@ -165,8 +207,6 @@ class Predictor(torch.nn.Module):
                             batch["protein_cross_residues_mask"],
                             protein_T)
 
-        output["loop_embd"] = loop_embd
-        output["loop_init"] = loop_seq
         output["protein_self_attention"] = protein_as
         output["protein_self_attention_sd"] = protein_as_sd
         output["protein_self_attention_b"] = protein_as_b
@@ -184,17 +224,17 @@ class Predictor(torch.nn.Module):
         # [batch_size, loop_len, 37, 3]
         output["final_atom_positions"] = atom14_to_atom37(output["final_positions"], output)
 
-        # [batch_size, n_heads, loop_len, protein_len]
-        #cross_att = output["cross_attention"]
-
-        # [batch_size, loop_maxlen, c_s]
-        updated_s_loop = output["single"]
-        loop_embd = self.affinity_norm(loop_embd + updated_s_loop)
+        # [*, n_interactions, c_s]
+        p = self.find_interactions(
+            output["cross_ipa_att"],
+            batch["loop_sequence_onehot"],
+            batch["protein_sequence_onehot"],
+            batch["loop_cross_residues_mask"],
+            batch["protein_cross_residues_mask"],
+        )
 
         # [batch_size, output_size]
-        p = self.affinity_reswise_mlp(
-            loop_embd * batch["loop_cross_residues_mask"].unsqueeze(-1)
-        ).sum(dim=-2)
+        p = self.affinity_linear(p.sum(dim=-2))
 
         # affinity prediction
         if self.model_type == ModelType.REGRESSION:
