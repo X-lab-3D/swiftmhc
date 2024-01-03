@@ -2,6 +2,7 @@ from typing import Dict, Union
 from copy import deepcopy as copy
 import logging
 import sys
+from math import sqrt
 
 from torch.nn import Embedding
 from torch.nn.modules.transformer import TransformerEncoder
@@ -79,20 +80,22 @@ class Predictor(torch.nn.Module):
         self.cross = CrossStructureModule(**structure_module_config)
 
         c_transition = 128
+        c_interaction = 64
 
         self.protein_transition = torch.nn.Sequential(
-            torch.nn.Linear(structure_module_config.c_s, c_transition),
-            torch.nn.ReLU(),
-            torch.nn.Linear(c_transition, structure_module_config.c_s),
+            torch.nn.Linear(structure_module_config.c_s, c_interaction, bias=False),
+            torch.nn.Tanh(),
         )
 
         self.loop_transition = torch.nn.Sequential(
-            torch.nn.Linear(structure_module_config.c_s, c_transition),
-            torch.nn.ReLU(),
-            torch.nn.Linear(c_transition, structure_module_config.c_s),
+            torch.nn.Linear(structure_module_config.c_s, c_interaction, bias=False),
+            torch.nn.Tanh(),
         )
 
-        self.interaction_head_linear = torch.nn.Linear(self.n_ipa_repeat * self.n_head, 1)
+        self.interaction_head_linear = torch.nn.Sequential(
+            torch.nn.Linear(self.n_ipa_repeat * self.n_head, 1),
+            torch.nn.Softmax(-1),
+        )
 
         self.model_type = model_type
 
@@ -103,9 +106,9 @@ class Predictor(torch.nn.Module):
         else:
             raise TypeError(str(model_type))
 
-        self.affinity_linear = torch.nn.Linear(structure_module_config.c_s, output_size)
+        self.affinity_linear = torch.nn.Linear(c_interaction, output_size, bias=False)
 
-    def find_interactions(
+    def score_interactions(
         self,
         a: torch.Tensor,
         s_loop: torch.Tensor,
@@ -114,32 +117,36 @@ class Predictor(torch.nn.Module):
         mask_protein: torch.Tensor,
     ) -> torch.Tensor:
 
-        batch_size, loop_len, depth = s_loop.shape
+        batch_size, loop_len, _ = s_loop.shape
         protein_len = s_protein.shape[1]
 
-        # [*, loop_len, c_s]
-        s_loop = self.loop_transition(s_loop) * mask_loop.unsqueeze(-1)
+        # [*, loop_len, c] (-1 - 1)
+        loop_partner = self.loop_transition(s_loop) * mask_loop.unsqueeze(-1)
 
-        # [*, protein_len, c_s]
-        s_protein = self.protein_transition(s_protein) * mask_protein.unsqueeze(-1)
+        # [*, protein_len, c] (-1 - 1)
+        protein_partner = self.protein_transition(s_protein) * mask_protein.unsqueeze(-1)
 
-        # [*, loop_len, protein_len, c_s]
-        unweighted_interactions = (s_loop.unsqueeze(-2) * s_protein.unsqueeze(-3))
+        c = loop_partner.shape[-1]
 
-        # [*, n_block * n_head, loop_len, protein_len, 1]
-        weights = a.reshape(batch_size, -1, loop_len, protein_len, 1)
+        # [*, loop_len, protein_len, c]
+        unweighted_interactions = loop_partner.unsqueeze(-2) * protein_partner.unsqueeze(-3)
 
-        # [*, n_block * n_head, loop_len, protein_len, c_s]
-        weighted_interactions = weights * unweighted_interactions.unsqueeze(-4)
+        # [*, n_block * n_head, loop_len, protein_len]
+        weights = a.reshape(batch_size, -1, loop_len, protein_len)
 
-        # [*, loop_len, protein_len, c_s, n_block * n_head]
-        weighted_interactions = weighted_interactions.transpose(-4, -3).transpose(-3, -2).transpose(-2, -1)
+        # [*, loop_len, protein_len, n_block * n_head]
+        weights = weights.transpose(-3, -2).transpose(-2, -1)
 
-        # [*, loop_len, protein_len, c_s]
-        interactions = self.interaction_head_linear(weighted_interactions)
+        # [*, loop_len, protein_len, 1]
+        weights = self.interaction_head_linear(weights)
 
-        # [*, loop_len * protein_len, c_s]
-        return interactions.reshape(batch_size, -1, depth)
+        # [*, loop_len, protein_len, c]
+        interactions = weights * unweighted_interactions / sqrt(c)
+
+        # [*, output_size]
+        score = self.affinity_linear(interactions.reshape(batch_size, -1, c)).sum(dim=-2)
+
+        return score
 
 
     def forward(self, batch: TensorDict) -> TensorDict:
@@ -225,16 +232,13 @@ class Predictor(torch.nn.Module):
         output["final_atom_positions"] = atom14_to_atom37(output["final_positions"], output)
 
         # [*, n_interactions, c_s]
-        p = self.find_interactions(
+        p = self.score_interactions(
             output["cross_ipa_att"],
             batch["loop_sequence_onehot"],
             batch["protein_sequence_onehot"],
             batch["loop_cross_residues_mask"],
             batch["protein_cross_residues_mask"],
         )
-
-        # [batch_size, output_size]
-        p = self.affinity_linear(p.sum(dim=-2))
 
         # affinity prediction
         if self.model_type == ModelType.REGRESSION:
