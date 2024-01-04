@@ -132,7 +132,7 @@ class Predictor(torch.nn.Module):
         ff = f_loop.unsqueeze(-2) * f_protein.unsqueeze(-3)
 
         # [*, n_block * n_head, loop_maxlen, protein_maxlen]
-        w = a.reshape(batch_size, -1, loop_len, protein_len)
+        w = a.reshape(batch_size, -1, loop_maxlen, protein_maxlen)
 
         # [*, loop_maxlen, protein_maxlen, n_block * n_head]
         w = w.transpose(-3, -2).transpose(-2, -1)
@@ -140,8 +140,8 @@ class Predictor(torch.nn.Module):
         # [*, loop_maxlen, protein_maxlen, 1]
         w = self.head_weight(w)
 
-        # [*, loop_len, protein_len, c]
-        wff = weights * ff / sqrt(c)
+        # [*, loop_maxlen, protein_maxlen, c]
+        wff = w * ff / sqrt(c)
 
         # [*, output_size]
         p = self.affinity_linear(wff).sum(dim=(-3, -2))
