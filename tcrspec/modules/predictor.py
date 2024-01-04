@@ -82,6 +82,11 @@ class Predictor(torch.nn.Module):
         c_transition = 128
         c_interaction = 64
 
+        #self.affinity_norm = torch.nn.Sequential(
+        #    torch.nn.Dropout(p=structure_module_config.dropout_rate),
+        #    LayerNorm(structure_module_config.c_s)
+        #)
+
         self.protein_feature = torch.nn.Sequential(
             torch.nn.Linear(structure_module_config.c_s, c_interaction, bias=False),
             torch.nn.Tanh(),
@@ -231,11 +236,14 @@ class Predictor(torch.nn.Module):
         # [batch_size, loop_len, 37, 3]
         output["final_atom_positions"] = atom14_to_atom37(output["final_positions"], output)
 
+        #loop_embd = self.affinity_norm(loop_embd + output["single"])
+        loop_embd = output["single"]
+
         # [*, n_interactions, c_s]
         p = self.score_interactions(
             output["cross_ipa_att"],
-            batch["loop_sequence_onehot"],
-            batch["protein_sequence_onehot"],
+            loop_embd,
+            protein_embd,
             batch["loop_cross_residues_mask"],
             batch["protein_cross_residues_mask"],
         )
