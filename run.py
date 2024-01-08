@@ -472,6 +472,11 @@ class Trainer:
         # load the pretrained model
         model.load_state_dict(torch.load(model_path,  map_location=self._device))
 
+        # make the snapshots
+        datasets = [loader.dataset for loader in test_loaders]
+        animated_data = self._get_selection_data_batch(datasets, animated_complex_ids)
+        self._snapshot("test", model, run_id, animated_data)
+
         for test_loader in test_loaders:
 
             # run the model to output results
