@@ -80,7 +80,6 @@ arg_parser.add_argument("--builders", "-B", help="number of simultaneous structu
 arg_parser.add_argument("--batch-size", "-b", help="batch size to use during training/validation/testing", type=int, default=8)
 arg_parser.add_argument("--epoch-count", "-e", help="how many epochs to run during structure training", type=int, default=5)
 arg_parser.add_argument("--fine-tune-count", "-u", help="how many epochs to run during fine-tuning, at the end", type=int, default=5)
-arg_parser.add_argument("--affinity-tune-count", "-j", help="how many epochs to run during affinity-tuning", type=int, default=5)
 arg_parser.add_argument("--animate", "-a", help="id of a data point to generate intermediary pdb for", nargs="+")
 arg_parser.add_argument("--lr", help="learning rate setting", type=float, default=0.001)
 arg_parser.add_argument("--classification", "-c", help="do classification instead of regression", action="store_const", const=True, default=False)
@@ -523,7 +522,7 @@ class Trainer:
               train_loader: DataLoader,
               valid_loader: DataLoader,
               test_loaders: List[DataLoader],
-              epoch_count: int, affinity_tune_count: int, fine_tune_count: int,
+              epoch_count: int, fine_tune_count: int,
               run_id: Optional[str] = None,
               pretrained_model_path: Optional[str] = None,
               animated_complex_ids: Optional[List[str]] = None,
@@ -555,20 +554,7 @@ class Trainer:
             model.load_state_dict(torch.load(pretrained_model_path,
                                              map_location=self._device))
 
-        # set the trajectory for optimization.
-        # LR is reduced after a given number of epochs
-        def lr_lambda(epoch_index: int):
-            lr = self._lr
-            if epoch_index >= epoch_count:
-                lr *= 0.1
-
-            if epoch_index >= (epoch_count + affinity_tune_count):
-                lr *= 0.1
-
-            return lr
-
         optimizer = Adam(model.parameters(), lr=self._lr)
-        #scheduler = LambdaLR(optimizer, lr_lambda=lr_lambda)
 
         # define model paths
         model_path = f"{run_id}/best-predictor.pth"
@@ -587,17 +573,16 @@ class Trainer:
                            model,
                            run_id, animated_data)
 
+        fape_tune = True
+        chi_tune = True
+        affinity_tune = True
+
         # do the actual learning iteration
-        total_epochs = epoch_count + fine_tune_count + affinity_tune_count
+        total_epochs = epoch_count + fine_tune_count
         for epoch_index in range(total_epochs):
 
-            fape_tune = True
-            chi_tune = True
-
-            affinity_tune = epoch_index >= epoch_count
-
             # flip this setting after the given number of epochs
-            fine_tune = (epoch_index >= (epoch_count + affinity_tune_count))
+            fine_tune = (epoch_index >= epoch_count)
 
             # train during epoch
             with Timer(f"train epoch {epoch_index}") as t:
@@ -618,18 +603,19 @@ class Trainer:
                     t.add_to_title(f"on {len(test_loader.dataset)} data points")
 
             # early stopping, if no more improvement
-            #if abs(valid_loss - lowest_loss) < self._early_stop_epsilon:
-            #    break
+            if abs(valid_loss - lowest_loss) < self._early_stop_epsilon:
+                if fine_tune:
+                    # end training
+                    break
+                else:
+                    # make fine tune start here
+                    epoch_count = epoch_index
 
-            # If the loss improves, save the model.
+            # If the validation loss improves, save the model.
             if valid_loss < lowest_loss:
                 lowest_loss = valid_loss
 
                 torch.save(model.state_dict(), model_path)
-            # else:
-            #    model.load_state_dict(torch.load(model_path))
-
-            #scheduler.step(epoch=epoch_index)
 
     def get_data_loader(self,
                         data_path: str,
@@ -809,6 +795,6 @@ if __name__ == "__main__":
 
         # train with the composed datasets and user-provided settings
         trainer.train(train_loader, valid_loader, test_loaders,
-                      args.epoch_count, args.affinity_tune_count, args.fine_tune_count,
+                      args.epoch_count, args.fine_tune_count,
                       run_id, args.pretrained_model,
                       args.animate)
