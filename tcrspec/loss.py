@@ -396,6 +396,8 @@ _regression_loss_function = torch.nn.MSELoss(reduction="none")
 
 def get_loss(output: TensorDict, batch: Dict[str, torch.Tensor],
              affinity_tune: bool,
+             fape_tune: bool,
+             chi_tune: bool,
              fine_tune: bool) -> TensorDict:
 
     # compute our own affinity-based loss
@@ -425,13 +427,22 @@ def get_loss(output: TensorDict, batch: Dict[str, torch.Tensor],
     # compute violations loss, using an adjusted function
     violation_losses = _compute_cross_violation_loss(output, batch, openfold_config.loss.violation)
 
-    # combine the loss terms
-    total_loss = 1.0 * chi_loss + 1.0 * fape_losses["total"]
+    # init total loss at zero
+    total_loss = torch.zeros(batch["loop_aatype"].shape[0], dtype=torch.float, device=batch["loop_aatype"].device)
+
+    # add fape loss (backbone, sidechain)
+    if fape_tune:
+        total_loss += 1.0 * fape_losses["total"]
+
+    # add chi loss
+    if chi_tune:
+        total_loss += 1.0 * chi_loss
 
     # incorporate affinity loss
     if affinity_tune:
         total_loss += 1.0 * affinity_loss
 
+    # add all fine tune losses (bond lengths, angles, torsions, clashes)
     if fine_tune:
         total_loss += 1.0 * violation_losses["total"]
 

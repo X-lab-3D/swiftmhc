@@ -287,6 +287,8 @@ class Trainer:
                model: Predictor,
                data: TensorDict,
                affinity_tune: bool,
+               fape_tune: bool,
+               chi_tune: bool,
                fine_tune: bool,
     ) -> Tuple[TensorDict, Dict[str, torch.Tensor]]:
         """
@@ -311,7 +313,7 @@ class Trainer:
         output = model(data)
 
         # calculate losses
-        losses = get_loss(output, data, affinity_tune, fine_tune)
+        losses = get_loss(output, data, affinity_tune, fape_tune, chi_tune, fine_tune)
 
         # backward propagation
         loss = losses["total"]
@@ -331,6 +333,8 @@ class Trainer:
                model: Predictor,
                data_loader: DataLoader,
                affinity_tune: bool,
+               fape_tune: bool,
+               chi_tune: bool,
                fine_tune: bool,
                output_directory: Optional[str] = None,
                animated_data: Optional[Dict[str, torch.Tensor]] = None,
@@ -362,8 +366,9 @@ class Trainer:
             batch_loss, batch_output = self._batch(optimizer, model,
                                                    batch_data,
                                                    affinity_tune,
+                                                   fape_tune,
+                                                   chi_tune,
                                                    fine_tune)
-
             if output_directory is not None:
 
                 # make the snapshot, if requested
@@ -417,7 +422,7 @@ class Trainer:
                 batch_output = model(batch_data)
 
                 # calculate the losses, for monitoring only
-                batch_loss = get_loss(batch_output, batch_data, True, True)
+                batch_loss = get_loss(batch_output, batch_data, True, True, True, True)
 
                 # count the number of loss values
                 datapoint_count += batch_data['loop_aatype'].shape[0]
@@ -586,6 +591,9 @@ class Trainer:
         total_epochs = epoch_count + fine_tune_count + affinity_tune_count
         for epoch_index in range(total_epochs):
 
+            fape_tune = True
+            chi_tune = True
+
             affinity_tune = epoch_index >= epoch_count
 
             # flip this setting after the given number of epochs
@@ -594,7 +602,7 @@ class Trainer:
             # train during epoch
             with Timer(f"train epoch {epoch_index}") as t:
                 self._epoch(epoch_index, optimizer, model, train_loader,
-                            affinity_tune, fine_tune,
+                            affinity_tune, fape_tune, chi_tune, fine_tune,
                             run_id, animated_data)
                 t.add_to_title(f"on {len(train_loader.dataset)} data points")
 
