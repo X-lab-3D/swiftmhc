@@ -53,6 +53,10 @@ def _write_preprocessed_data(hdf5_path: str, storage_id: str,
         if isinstance(target, float):
             storage_group.create_dataset(PREPROCESS_KD_NAME, data=target)
 
+        elif isinstance(target, str):
+            cls = ComplexClass.from_string(target)
+            storage_group.create_dataset(PREPROCESS_CLASS_NAME, data=int(cls))
+
         elif isinstance(target, ComplexClass):
             storage_group.create_dataset(PREPROCESS_CLASS_NAME, data=int(target))
         else:
@@ -382,6 +386,7 @@ def preprocess(table_path: str,
             continue
 
         target = row["measurement_value"]
+        allele = row["allele"]
 
         # parse the pdb file
         try:
@@ -438,6 +443,7 @@ def preprocess(table_path: str,
             # proximities within protein
             protein_proximities = _create_proximities(protein_residues, protein_residues)
             protein_data["proximities"] = protein_proximities
+            protein_data["allele_name"] = numpy.array(allele.encode("utf_8"))
 
             _write_preprocessed_data(output_path, id_,
                                      protein_data,

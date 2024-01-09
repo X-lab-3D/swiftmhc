@@ -37,7 +37,7 @@ def get_epoch_number(frame_id: str) -> float:
     epoch_number = int(numbers[0])
     batch_number = int(numbers[1])
 
-    return float(epoch_number) + 0.001 * batch_number
+    return float(epoch_number) + 0.000001 * batch_number
 
 
 if __name__ == "__main__":
@@ -74,9 +74,9 @@ if __name__ == "__main__":
             plot = figure.add_subplot()
             vmin=data.min().min()
             vmax=data.max().max()
-            heatmap = plot.imshow(data, cmap="Greys", aspect="auto", vmin=vmin, vmax=vmax)
+            heatmap = plot.imshow(data, cmap="Greys", aspect="auto", vmin=vmin, vmax=vmax, interpolation="none")
             figure.colorbar(heatmap)
-            pyplot.title(f"{output_name}, epoch:{epoch_number:.3f}")
+            pyplot.title(f"{output_name}, epoch:{epoch_number:.6f}")
 
             png_path = os.path.join(dirname, f"{output_name}-{frame_id}.png")
 

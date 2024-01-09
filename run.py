@@ -12,6 +12,7 @@ import h5py
 import numpy
 import shutil
 from io import StringIO
+from multiprocessing.pool import Pool
 
 from sklearn.metrics import roc_auc_score, matthews_corrcoef
 from scipy.stats import pearsonr
@@ -28,6 +29,8 @@ from torch.nn import DataParallel
 
 from Bio.PDB.PDBIO import PDBIO
 from Bio.PDB.Structure import Structure
+
+from filelock import FileLock
 
 from openfold.np.residue_constants import (restype_atom14_ambiguous_atoms as openfold_restype_atom14_ambiguous_atoms,
                                            atom_types as openfold_atom_types,
@@ -72,11 +75,12 @@ arg_parser.add_argument("--run-id", "-r", help="name of the run and the director
 arg_parser.add_argument("--debug", "-d", help="generate debug files", action='store_const', const=True, default=False)
 arg_parser.add_argument("--log-stdout", "-l", help="log to stdout", action='store_const', const=True, default=False)
 arg_parser.add_argument("--pretrained-model", "-m", help="use a given pretrained model state")
-arg_parser.add_argument("--workers", "-w", help="number of workers to load batches", type=int, default=5)
+arg_parser.add_argument("--workers", "-w", help="number of worker processes to load batches", type=int, default=5)
+arg_parser.add_argument("--builders", "-B", help="number of simultaneous structure builder processes, setting this higher than the batch size has no use", type=int, default=0)
 arg_parser.add_argument("--batch-size", "-b", help="batch size to use during training/validation/testing", type=int, default=8)
-arg_parser.add_argument("--epoch-count", "-e", help="how many epochs to run during training", type=int, default=30)
-arg_parser.add_argument("--affinity-tune-count", "-j", help="how many epochs to run during affinity-tune, thus with affinity prediction", type=int, default=30)
-arg_parser.add_argument("--fine-tune-count", "-u", help="how many epochs to run during fine-tuning, at the end", type=int, default=30)
+arg_parser.add_argument("--epoch-count", "-e", help="how many epochs to run during structure training", type=int, default=5)
+arg_parser.add_argument("--fine-tune-count", "-u", help="how many epochs to run during fine-tuning, at the end", type=int, default=5)
+arg_parser.add_argument("--affinity-tune-count", "-j", help="how many epochs to run during affinity-tuning", type=int, default=5)
 arg_parser.add_argument("--animate", "-a", help="id of a data point to generate intermediary pdb for", nargs="+")
 arg_parser.add_argument("--lr", help="learning rate setting", type=float, default=0.001)
 arg_parser.add_argument("--classification", "-c", help="do classification instead of regression", action="store_const", const=True, default=False)
@@ -87,6 +91,120 @@ arg_parser.add_argument("data_path", help="path to a hdf5 file", nargs="+")
 
 
 _log = logging.getLogger(__name__)
+
+
+def save_structure_to_hdf5(
+    structure: Structure,
+    group: h5py.Group
+):
+    """
+    Save a biopython structure object as PDB in an HDF5 file.
+
+    Args:
+        structure: data to store
+        group: HDF5 group to store the data to
+    """
+
+    pdbio = PDBIO()
+    pdbio.set_structure(structure)
+    with StringIO() as sio:
+
+        pdbio.save(sio)
+
+        structure_data = numpy.array([bytes(line + "\n", encoding="utf-8")
+                                      for line in sio.getvalue().split('\n')
+                                      if len(line.strip()) > 0],
+                                     dtype=numpy.dtype("bytes"))
+
+        group.create_dataset("structure",
+                             data=structure_data,
+                             compression="lzf")
+
+
+def recreate_structure_to_hdf5(hdf5_path: str, name: str, data: List[Tuple[str, torch.Tensor, torch.Tensor, torch.Tensor]]):
+
+    _log.debug(f"recreating {name}")
+
+    try:
+        structure = recreate_structure(name, data)
+
+        with FileLock(f"{hdf5_path}.lock"):
+            with h5py.File(hdf5_path, 'a') as hdf5_file:
+                name_group = hdf5_file.require_group(name)
+                save_structure_to_hdf5(structure, name_group)
+    except:
+        _log.exception("on recreating structure")
+
+
+def on_error(e):
+    _log.error(str(e))
+
+
+def output_structures_to_directory(
+    process_count: int,
+    output_directory: str,
+    data: Dict[str, torch.Tensor],
+    output: Dict[str, torch.Tensor]
+):
+    """
+    Used to save all models (truth) and (prediction) to two hdf5 files
+
+    Args:
+        output_directory: where to store the hdf5 files under
+        data: truth data
+        output: model output
+    """
+
+    truth_path = os.path.join(output_directory, 'true-structures.hdf5')
+    pred_path = os.path.join(output_directory, 'predicted-structures.hdf5')
+
+    if process_count > len(data["ids"]):
+        process_count = len(data["ids"])
+
+    _log.debug(f"output structures to {output_directory}")
+
+    # use a pool here, because the conversion from tensor to pdb format can be time consuming.
+    with Pool(process_count) as pool:
+
+        # get the data from gpu to cpu, if not already
+        classes = data["class"].cpu()
+
+        loop_residue_numbers = data["loop_residue_numbers"].cpu()
+        loop_sequence_onehot = data["loop_sequence_onehot"].cpu()
+        loop_atom14_gt_positions = data["loop_atom14_gt_positions"].cpu()
+        loop_atom14_positions = output["final_positions"].cpu()
+
+        protein_residue_numbers = data["protein_residue_numbers"].cpu()
+        protein_sequence_onehot = data["protein_sequence_onehot"].cpu()
+        protein_atom14_gt_positions = data["protein_atom14_gt_positions"].cpu()
+
+        for index, id_ in enumerate(data["ids"]):
+
+            # binders only
+            if classes[index].item() == 0:
+                continue
+
+            pool.apply_async(
+                recreate_structure_to_hdf5,
+                (
+                    truth_path, id_,
+                    [("P", loop_residue_numbers[index], loop_sequence_onehot[index], loop_atom14_gt_positions[index]),
+                     ("M", protein_residue_numbers[index], protein_sequence_onehot[index], protein_atom14_gt_positions[index])]
+                ),
+                error_callback=on_error,
+            )
+
+            pool.apply_async(
+                recreate_structure_to_hdf5,
+                (
+                    pred_path, id_,
+                    [("P", loop_residue_numbers[index], loop_sequence_onehot[index], loop_atom14_positions[index]),
+                     ("M", protein_residue_numbers[index], protein_sequence_onehot[index], protein_atom14_gt_positions[index])]
+                ),
+                error_callback=on_error,
+            )
+        pool.close()
+        pool.join()
 
 
 class Trainer:
@@ -109,62 +227,6 @@ class Trainer:
         self.protein_maxlen = 200
 
         self.workers_count = workers_count
-
-    @staticmethod
-    def _save_structure_to_hdf5(structure: Structure,
-                                group: h5py.Group):
-        """
-        Save a biopython structure object as PDB in an HDF5 file.
-
-        Args:
-            structure: data to store
-            group: HDF5 group to store the data to
-        """
-
-        pdbio = PDBIO()
-        pdbio.set_structure(structure)
-        with StringIO() as sio:
-
-            pdbio.save(sio)
-
-            structure_data = numpy.array([bytes(line + "\n", encoding="utf-8")
-                                          for line in sio.getvalue().split('\n')
-                                          if len(line.strip()) > 0],
-                                         dtype=numpy.dtype("bytes"))
-
-            group.create_dataset("structure",
-                                 data=structure_data,
-                                 compression="lzf")
-
-    def _save_structures(self, output_directory: str, data: Dict[str, torch.Tensor], output: Dict[str, torch.Tensor]):
-        """
-        Used to save all models (truth) and (prediction) to two hdf5 files
-
-        Args:
-            output_directory: where to store the hdf5 files under
-            data: truth data
-            output: model output
-        """
-
-        truth_path = os.path.join(output_directory, 'true-structures.hdf5')
-        pred_path = os.path.join(output_directory, 'predicted-structures.hdf5')
-
-        for index, id_ in enumerate(data["ids"]):
-            true_structure = recreate_structure(id_,
-                                                [("P", data["loop_residue_numbers"][index], data["loop_sequence_onehot"][index], data["loop_atom14_gt_positions"][index]),
-                                                 ("M", data["protein_residue_numbers"][index], data["protein_sequence_onehot"][index], data["protein_atom14_gt_positions"][index])])
-
-            with h5py.File(truth_path, 'a') as truth_file:
-                id_group = truth_file.require_group(id_)
-                self._save_structure_to_hdf5(true_structure, id_group)
-
-            pred_structure = recreate_structure(id_,
-                                                [("P", data["loop_residue_numbers"][index], data["loop_sequence_onehot"][index], output["final_positions"][index]),
-                                                 ("M", data["protein_residue_numbers"][index], data["protein_sequence_onehot"][index], data["protein_atom14_gt_positions"][index])])
-
-            with h5py.File(pred_path, 'a') as pred_file:
-                id_group = pred_file.require_group(id_)
-                self._save_structure_to_hdf5(pred_structure, id_group)
 
 
     def _snapshot(self,
@@ -199,7 +261,7 @@ class Trainer:
                     structure = recreate_structure(id_,
                                                    [("P", data["loop_residue_numbers"][index], data["loop_sequence_onehot"][index], data["loop_atom14_gt_positions"][index]),
                                                     ("M", data["protein_residue_numbers"][index], data["protein_sequence_onehot"][index], data["protein_atom14_gt_positions"][index])])
-                    self._save_structure_to_hdf5(structure, true_group)
+                    save_structure_to_hdf5(structure, true_group)
 
                 frame_group = animation_file.require_group(frame_id)
 
@@ -207,7 +269,7 @@ class Trainer:
                 structure = recreate_structure(id_,
                                                [("P", data["loop_residue_numbers"][index], data["loop_sequence_onehot"][index], output["final_positions"][index]),
                                                 ("M", data["protein_residue_numbers"][index], data["protein_sequence_onehot"][index], data["protein_atom14_gt_positions"][index])])
-                self._save_structure_to_hdf5(structure, frame_group)
+                save_structure_to_hdf5(structure, frame_group)
 
                 # save the residue numbering, for later lookup
                 for key in ("protein_cross_residues_mask", "loop_cross_residues_mask",
@@ -215,6 +277,10 @@ class Trainer:
 
                     if not key in animation_file:
                         animation_file.create_dataset(key, data=data[key][index].cpu())
+
+                # save the attention weights:
+                for key in ["cross_ipa_att"]:
+                    frame_group.create_dataset(key, data=output[key][index].cpu())
 
     def _batch(self,
                optimizer: Optimizer,
@@ -285,7 +351,7 @@ class Trainer:
         """
 
         # start with an empty metrics record
-        record = MetricsRecord()
+        record = MetricsRecord(epoch_index, data_loader.dataset.name, output_directory)
 
         # put model in train mode
         model.train()
@@ -295,7 +361,8 @@ class Trainer:
             # Do the training step.
             batch_loss, batch_output = self._batch(optimizer, model,
                                                    batch_data,
-                                                   affinity_tune, fine_tune)
+                                                   affinity_tune,
+                                                   fine_tune)
 
             if output_directory is not None:
 
@@ -311,14 +378,14 @@ class Trainer:
 
         # Create the metrics row for this epoch
         if output_directory is not None:
-            record.save(epoch_index, data_loader.dataset.name, output_directory)
+            record.save()
 
     def _validate(self,
                   epoch_index: int,
                   model: Predictor,
                   data_loader: DataLoader,
                   output_directory: Optional[str] = None,
-                  save_structures: Optional[bool] = False,
+                  structure_builders_count: Optional[int] = 0,
     ) -> float:
         """
         Run an evaluation of the model, thus no backward propagation.
@@ -334,7 +401,7 @@ class Trainer:
         """
 
         # start with an empty metrics record
-        record = MetricsRecord()
+        record = MetricsRecord(epoch_index, data_loader.dataset.name, output_directory)
 
         # put model in evaluation mode
         model.eval()
@@ -356,23 +423,28 @@ class Trainer:
                 datapoint_count += batch_data['loop_aatype'].shape[0]
                 sum_of_losses += batch_loss['total'].item() * batch_data['loop_aatype'].shape[0]
 
-                if save_structures and output_directory is not None:
-                    self._save_structures(output_directory, batch_data, batch_output)
+                if structure_builders_count > 0 and output_directory is not None:
+                    output_structures_to_directory(structure_builders_count, output_directory, batch_data, batch_output)
 
                 # Save to metrics
                 record.add_batch(batch_loss, batch_output, batch_data)
 
         # Create the metrics row for this epoch
         if output_directory is not None:
-            record.save(epoch_index, data_loader.dataset.name, output_directory)
+            record.save()
 
-        return (sum_of_losses / datapoint_count)
+        if datapoint_count > 0:
+            return (sum_of_losses / datapoint_count)
+        else:
+            return 0.0
 
-    def test(self,
-             test_loaders: [DataLoader],
-             run_id: str,
-             animated_complex_ids: List[str],
-             model_path: str,
+    def test(
+        self,
+        test_loaders: [DataLoader],
+        run_id: str,
+        animated_complex_ids: List[str],
+        model_path: str,
+        structure_builders_count: int,
     ):
         """
         Call this function instead of train, when you just want to test the model.
@@ -383,7 +455,10 @@ class Trainer:
             run_id: run directory, where the model file is stored
             animated_complex_ids: list of complex names, of which the structures should be saved
             model_path: pretrained model to use
+            structure_builders_count: number of simultaneous structure builder processes
         """
+
+        _log.info(f"testing {model_path} on {structure_builders_count} structure builders")
 
         # init model
         model = Predictor(self.loop_maxlen,
@@ -400,7 +475,7 @@ class Trainer:
         for test_loader in test_loaders:
 
             # run the model to output results
-            self._validate(-1, model, test_loader, run_id, save_structures=True)
+            self._validate(-1, model, test_loader, run_id, structure_builders_count)
 
     @staticmethod
     def _get_selection_data_batch(datasets: List[ProteinLoopDataset], names: List[str]) -> Dict[str, torch.Tensor]:
@@ -451,7 +526,6 @@ class Trainer:
             valid_loader: dataset for validation, selecting the best model and deciding on early stopping
             test_loaders: datasets for testing on
             epoch_count: number of epochs to run optimizing just fape and chi for binding peptides
-            affinity_tune_count: number of epochs to run optimizing fape and chi for binding peptides and affinity prediction
             fine_tune_count: number of epochs to run optimizing everything
             run_id: directory to store the resulting files
             pretrained_model_path: an optional pretrained model file to start from
@@ -504,16 +578,18 @@ class Trainer:
                            run_id, animated_data)
 
         # do the actual learning iteration
-        total_epochs = epoch_count + affinity_tune_count + fine_tune_count
+        total_epochs = epoch_count + fine_tune_count + affinity_tune_count
         for epoch_index in range(total_epochs):
 
+            affinity_tune = epoch_index >= epoch_count
+
             # flip this setting after the given number of epochs
-            affinity_tune = (epoch_index >= epoch_count)
             fine_tune = (epoch_index >= (epoch_count + affinity_tune_count))
 
             # train during epoch
             with Timer(f"train epoch {epoch_index}") as t:
-                self._epoch(epoch_index, optimizer, model, train_loader, affinity_tune, fine_tune,
+                self._epoch(epoch_index, optimizer, model, train_loader,
+                            affinity_tune, fine_tune,
                             run_id, animated_data)
                 t.add_to_title(f"on {len(train_loader.dataset)} data points")
 
@@ -529,8 +605,8 @@ class Trainer:
                     t.add_to_title(f"on {len(test_loader.dataset)} data points")
 
             # early stopping, if no more improvement
-            if abs(valid_loss - lowest_loss) < self._early_stop_epsilon:
-                break
+            #if abs(valid_loss - lowest_loss) < self._early_stop_epsilon:
+            #    break
 
             # If the loss improves, save the model.
             if valid_loss < lowest_loss:
@@ -566,6 +642,7 @@ class Trainer:
         loader = DataLoader(dataset,
                             collate_fn=ProteinLoopDataset.collate,
                             batch_size=batch_size,
+                            shuffle=True,
                             num_workers=self.workers_count)
 
         return loader
@@ -668,7 +745,7 @@ if __name__ == "__main__":
         # We do a test, no training
         test_loaders = [trainer.get_data_loader(test_path, args.batch_size, device)
                         for test_path in args.data_path]
-        trainer.test(test_loaders, run_id, args.animate, args.pretrained_model)
+        trainer.test(test_loaders, run_id, args.animate, args.pretrained_model, args.builders)
 
     else:  # train, validate, test
         if len(args.data_path) >= 3:

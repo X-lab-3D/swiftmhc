@@ -394,7 +394,7 @@ _classification_loss_function = torch.nn.CrossEntropyLoss(reduction="none")
 _regression_loss_function = torch.nn.MSELoss(reduction="none")
 
 
-def get_loss(output: TensorDict, batch: TensorDict,
+def get_loss(output: TensorDict, batch: Dict[str, torch.Tensor],
              affinity_tune: bool,
              fine_tune: bool) -> TensorDict:
 
@@ -420,7 +420,7 @@ def get_loss(output: TensorDict, batch: TensorDict,
 
     # compute fape loss, as in openfold
     fape_losses = _compute_fape_loss(output, batch,
-                                   openfold_config.loss.fape)
+                                     openfold_config.loss.fape)
 
     # compute violations loss, using an adjusted function
     violation_losses = _compute_cross_violation_loss(output, batch, openfold_config.loss.violation)
@@ -428,6 +428,7 @@ def get_loss(output: TensorDict, batch: TensorDict,
     # combine the loss terms
     total_loss = 1.0 * chi_loss + 1.0 * fape_losses["total"]
 
+    # incorporate affinity loss
     if affinity_tune:
         total_loss += 1.0 * affinity_loss
 
@@ -439,9 +440,6 @@ def get_loss(output: TensorDict, batch: TensorDict,
         total_loss[non_binders_index] = 1.0 * affinity_loss[non_binders_index]
     else:
         total_loss[non_binders_index] = 0.0
-
-    if torch.any(torch.isnan(total_loss)):
-        raise ValueError("NaN detected")
 
     # average losses over batch dimension
     result = TensorDict({
@@ -458,6 +456,7 @@ def get_loss(output: TensorDict, batch: TensorDict,
         result[f"{component_id} violation"] = loss_tensor.mean(dim=0)
 
     return result
+
 
 def get_calpha_rmsd(output_data: Dict[str, torch.Tensor],
                     batch_data: Dict[str, torch.Tensor]) -> Dict[str, float]:

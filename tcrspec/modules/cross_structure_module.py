@@ -183,12 +183,9 @@ class CrossStructureModule(torch.nn.Module):
         )
 
         outputs = []
-        atts = []
-        atts_sd = []
-        atts_pts = []
         for i in range(self.n_blocks):
 
-            preds, att, att_sd, att_pts = self._block(
+            preds = self._block(
                 s_loop_initial,
                 loop_aatype,
                 s_loop, s_protein,
@@ -202,20 +199,11 @@ class CrossStructureModule(torch.nn.Module):
 
             outputs.append(preds)
 
-            atts.append(att.clone().detach())
-            atts_sd.append(att_sd.detach())
-            atts_pts.append(att_pts.detach())
-
         outputs = dict_multimap(torch.stack, outputs)
 
         r = {}
         r["single"] = outputs["states"][-1]
-
-        # [batch_size, n_block, n_head, dst_len, src_len]
-        r["cross_attention"] = torch.stack(atts).transpose(0, 1)
-        r["cross_attention_sd"] = torch.stack(atts_sd).transpose(0, 1)
-        r["cross_attention_pts"] = torch.stack(atts_pts).transpose(0, 1)
-
+        r["cross_ipa_att"] = outputs["cross_ipa_att"].transpose(0, 1)  # flip blocks and batch
         r["final_frames"] = outputs["frames"][-1]
         r["final_sidechain_frames"] = outputs["sidechain_frames"][-1]
         r["final_angles"] = outputs["angles"][-1]
@@ -280,6 +268,7 @@ class CrossStructureModule(torch.nn.Module):
         scaled_T_loop = T_loop.scale_translation(self.trans_scale_factor)
 
         preds = {
+            "cross_ipa_att": ipa_att,
             "unscaled_frames": T_loop.to_tensor_7(),
             "frames": scaled_T_loop.to_tensor_7(),
             "sidechain_frames": all_frames_to_global.to_tensor_4x4(),
@@ -291,7 +280,7 @@ class CrossStructureModule(torch.nn.Module):
 
         T_loop = T_loop.stop_rot_gradient()
 
-        return preds, ipa_att, ipa_att_sd, ipa_att_pts
+        return preds
 
     def _init_residue_constants(self, float_dtype, device):
         if not hasattr(self, "default_frames"):
