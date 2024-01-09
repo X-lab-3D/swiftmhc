@@ -218,7 +218,7 @@ class Trainer:
 
         self._device = device
 
-        self._early_stop_epsilon = 1e-6
+        self._early_stop_epsilon = 1e-3
 
         self._snap_period = 20
 
