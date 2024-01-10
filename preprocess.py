@@ -20,6 +20,7 @@ _log = logging.getLogger(__name__)
 
 arg_parser = ArgumentParser(description="preprocess data for tcrspec to operate on")
 arg_parser.add_argument("table_path", help="table with input data")
+arg_parser.add_argument("reference_structure", help="reference structure, to which the masks apply")
 arg_parser.add_argument("models_dir", help="where the models are stored")
 arg_parser.add_argument("protein_self_mask", help="file with mask data, to indicate which protein residues to use for self attention")
 arg_parser.add_argument("protein_cross_mask", help="file with mask data, to indicate which protein residues to use for cross attention")
@@ -58,7 +59,7 @@ if __name__ == "__main__":
 
     logging.basicConfig(filename="preprocess.log", filemode="a", level=logging.DEBUG if args.debug else logging.INFO)
 
-    tmp_dir = os.path.join(os.path.dirname(args.output_path), str(uuid4()))
+    tmp_dir = os.path.join(os.path.dirname(args.output_path), uuid4().hex)
     os.mkdir(tmp_dir)
 
     try:
@@ -70,7 +71,7 @@ if __name__ == "__main__":
 
             output_path = f"{table_path}.hdf5"
 
-            p = Process(target=preprocess, args=(table_path, args.models_dir, args.protein_self_mask, args.protein_cross_mask, output_path))
+            p = Process(target=preprocess, args=(table_path, args.models_dir, args.protein_self_mask, args.protein_cross_mask, output_path, args.reference_structure))
             ps.append(p)
 
             tmp_output_paths.append(output_path)
