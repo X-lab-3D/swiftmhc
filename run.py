@@ -622,6 +622,7 @@ class Trainer:
                         data_path: str,
                         batch_size: int,
                         device: torch.device,
+                        shuffle: Optional[bool] = True,
                         entry_ids: Optional[List[str]] = None) -> DataLoader:
         """
         Builds a data loader from a hdf5 dataset path.
@@ -642,7 +643,7 @@ class Trainer:
         loader = DataLoader(dataset,
                             collate_fn=ProteinLoopDataset.collate,
                             batch_size=batch_size,
-                            shuffle=True,
+                            shuffle=shuffle,
                             num_workers=self.workers_count)
 
         return loader
@@ -743,7 +744,7 @@ if __name__ == "__main__":
 
     if args.test_only:
         # We do a test, no training
-        test_loaders = [trainer.get_data_loader(test_path, args.batch_size, device)
+        test_loaders = [trainer.get_data_loader(test_path, args.batch_size, device, shuffle=False)
                         for test_path in args.data_path]
         trainer.test(test_loaders, run_id, args.animate, args.pretrained_model, args.builders)
 
@@ -756,9 +757,9 @@ if __name__ == "__main__":
             _log.debug(f"validating on {valid_path}")
             _log.debug(f"testing on {args.data_path[2:]}")
 
-            train_loader = trainer.get_data_loader(train_path, args.batch_size, device)
-            valid_loader = trainer.get_data_loader(valid_path, args.batch_size, device)
-            test_loaders = [trainer.get_data_loader(test_path, args.batch_size, device)
+            train_loader = trainer.get_data_loader(train_path, args.batch_size, device, shuffle=True)
+            valid_loader = trainer.get_data_loader(valid_path, args.batch_size, device, shuffle=False)
+            test_loaders = [trainer.get_data_loader(test_path, args.batch_size, device, shuffle=False)
                             for test_path in args.data_path[2:]]
 
         elif len(args.data_path) == 2:
@@ -766,9 +767,9 @@ if __name__ == "__main__":
             # assume that the train and validation sets are one HDF5 file, the other is the test set
 
             train_entry_names, valid_entry_names = random_subdivision(get_entry_names(args.data_path[0]), 0.1)
-            train_loader = trainer.get_data_loader(args.data_path[0], args.batch_size, device, train_entry_names)
-            valid_loader = trainer.get_data_loader(args.data_path[0], args.batch_size, device, valid_entry_names)
-            test_loaders = [trainer.get_data_loader(args.data_path[1], args.batch_size, device)]
+            train_loader = trainer.get_data_loader(args.data_path[0], args.batch_size, device, train_entry_names, shuffle=True)
+            valid_loader = trainer.get_data_loader(args.data_path[0], args.batch_size, device, valid_entry_names, shuffle=False)
+            test_loaders = [trainer.get_data_loader(args.data_path[1], args.batch_size, device, shuffle=False)]
 
             _log.debug(f"training on {args.data_path[0]} subset")
             _log.debug(f"validating on {args.data_path[0]} subset")
@@ -790,9 +791,9 @@ if __name__ == "__main__":
 
             _log.debug(f"training, validating & testing on {args.data_path[0]} subsets")
 
-            train_loader = trainer.get_data_loader(args.data_path[0], args.batch_size, device, train_entry_names)
-            valid_loader = trainer.get_data_loader(args.data_path[0], args.batch_size, device, valid_entry_names)
-            test_loaders = [trainer.get_data_loader(args.data_path[0], args.batch_size, device, test_entry_names)]
+            train_loader = trainer.get_data_loader(args.data_path[0], args.batch_size, device, train_entry_names, shuffle=True)
+            valid_loader = trainer.get_data_loader(args.data_path[0], args.batch_size, device, valid_entry_names, shuffle=False)
+            test_loaders = [trainer.get_data_loader(args.data_path[0], args.batch_size, device, test_entry_names, shuffle=False)]
 
         # train with the composed datasets and user-provided settings
         trainer.train(train_loader, valid_loader, test_loaders,
