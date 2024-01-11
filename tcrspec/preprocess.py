@@ -3,6 +3,7 @@ import os
 import logging
 from math import isinf, floor, ceil
 import tarfile
+from uuid import uuid4
 
 import h5py
 import pandas
@@ -13,7 +14,11 @@ from Bio.PDB.Structure import Structure
 from Bio.PDB.Chain import Chain
 from Bio.PDB.Residue import Residue
 from Bio.Align import PairwiseAligner
+from Bio import SeqIO
+from Bio.PDB.Polypeptide import three_to_one, is_aa, one_to_three
 from blosum import BLOSUM
+
+from pymol import cmd as pymol_cmd
 
 from openfold.np.residue_constants import restype_atom37_mask
 from openfold.data.data_transforms import (atom37_to_frames,
@@ -146,9 +151,12 @@ def _get_blosum_encoding(amino_acid_indexes: List[int], blosum_index: int) -> Li
     return torch.tensor(encoding)
 
 
-def _make_alignment_map(sorted_residues: List[Residue], mask_ids: List[Tuple[str, int, AminoAcid]]) -> Dict[int, int]:
+ResidueMaskType = Tuple[str, int, AminoAcid]
+
+
+def _make_alignment_map(sorted_residues: List[Residue], mask_ids: List[ResidueMaskType]) -> Dict[int, int]:
     """
-    Returns:  a dictionary, mapping mask residue numbers to the sorted residue numbers
+    Returns: a dictionary, mapping mask residue numbers to the sorted residue numbers
     """
 
     # do not allow gaps
@@ -196,8 +204,54 @@ def _make_alignment_map(sorted_residues: List[Residue], mask_ids: List[Tuple[str
     return map_
 
 
+def _map_structure_alignment(
+    aln_path: str,
+    aligned_structures: Tuple[Structure, Structure],
+
+) -> List[Tuple[Union[Residue, None], Union[Residue, None]]]:
+
+    alignment = {}
+    with open(aln_path) as handle:
+        for record in SeqIO.parse(handle, "clustal"):
+            alignment[record.id] = str(record.seq)
+
+    maps = []
+    for structure in aligned_structures:
+        key = structure.get_id()
+        if key not in alignment:
+            continue
+
+        sequence = alignment[key]
+        residues = [r for r in structure.get_residues() if is_aa(r.get_resname())]
+
+        _log.debug(f"mapping to {len(residues)} {key} residues:\n{sequence}")
+
+        map_ = []
+        offset = 0
+        for i in range(len(sequence)):
+            if sequence[i].isalpha():
+
+                letter = sequence[i]
+
+                if offset >= len(residues):
+                    raise ValueError(f"{key} alignment has over {offset} residues, but the structure only has {len(residues)}")
+
+                if one_to_three(letter) != residues[offset].get_resname():
+                    _log.warning(f"encountered {residues[offset].get_resname()} at {offset}, {one_to_three(letter)} expected")
+
+                map_.append(residues[offset])
+                offset += 1
+            else:
+                map_.append(None)
+        maps.append(map_)
+
+    results = [(maps[0][i], maps[1][i]) for i in range(len(maps[0]))]
+
+    return results
+
+
 def _mask_residues(residues: List[Residue],
-                   mask_ids: List[Tuple[str, int, AminoAcid]],
+                   mask_ids: List[ResidueMaskType],
                    alignment_map: Dict[int, int]) -> torch.Tensor:
 
     if torch.cuda.is_available():
@@ -222,7 +276,7 @@ def _mask_residues(residues: List[Residue],
     mask = torch.tensor(mask, dtype=torch.bool, device=device)
 
     if not torch.any(mask):
-        raise ValueError(f"none found of {mask_ids}")
+        raise ValueError(f"none found of {mask_ids} in {len(residues)} residues")
 
     return mask
 
@@ -241,9 +295,6 @@ def _read_residue_data(residues: List[Residue]) -> Dict[str, torch.Tensor]:
         atom14_alt_gt_positions: [len, 14, 3]
         residx_atom14_to_atom37: [len, 14]
     """
-
-    if len(residues) < 3:
-        raise ValueError(f"Only {len(residues)} residues")
 
     if torch.cuda.is_available():
         device = torch.device("cuda")
@@ -328,15 +379,43 @@ def _create_proximities(residues1: List[Residue], residues2: List[Residue]) -> t
     return 1.0 / (1.0 + residue_distances)
 
 
-def get_structure(models_path: str, model_id: str) -> Structure:
+def _pymol_superpose(mobile_path: str, target_path: str) -> Tuple[str, str]:
 
-    pdb_parser = PDBParser()
+    name = os.path.basename(mobile_path)
+    pdb_output_path = f"superposed-{name}"
+    alignment_output_path = f"{pdb_output_path}.aln"
+
+    pymol_cmd.reinitialize()
+
+    pymol_cmd.load(mobile_path, 'mobile')
+    pymol_cmd.load(target_path, 'target')
+
+    r = pymol_cmd.align("mobile", "target", object="alignment")
+    if r[1] == 0:
+        raise ValueError("No residues aligned")
+
+    pymol_cmd.save(pdb_output_path, selection="mobile", format="pdb")
+    pymol_cmd.save(alignment_output_path, selection="alignment", format="aln")
+
+    pymol_cmd.remove("all")
+
+    return pdb_output_path, alignment_output_path
+
+
+def _find_model_as_bytes(
+    models_path: str,
+    model_id: str,
+) -> bytes:
 
     model_name = f"{model_id}.pdb"
     if os.path.isdir(models_path):
         model_path = os.path.join(models_path, model_name)
         if os.path.isfile(model_path):
-            return pdb_parser.get_structure(model_id, model_path)
+            with open(model_path, 'rb') as f:
+                bs = f.read()
+                if len(bs) < 10:
+                    raise ValueError(f"{len(bs)} bytes in {model_path}")
+                return bs
 
         elif model_id.startswith("BA-"):
             number = int(model_id[3:])
@@ -347,23 +426,102 @@ def get_structure(models_path: str, model_id: str) -> Structure:
             subdir_name = f"{subset_start}_{subset_end}"
             model_path = os.path.join(models_path, subdir_name, model_id, "pdb", f"{model_id}.pdb")
             if os.path.isfile(model_path):
-                return pdb_parser.get_structure(model_id, model_path)
+                with open(model_path, 'rb') as f:
+                    bs = f.read()
+                    if len(bs) < 10:
+                        raise ValueError(f"{len(bs)} bytes in {model_path}")
+                    return bs
 
     elif models_path.endswith("tar.xz"):
         model_path = os.path.join(models_path, model_name)
         with tarfile.open(models_path, 'r:xz') as tf:
             with tf.extractfile(model_path) as f:
-                return pdb_parser.get_structure(model_id, f)
+                bs = f.read()
+                if len(bs) < 10:
+                    raise ValueError(f"{len(bs)} bytes in {model_path}")
+                return bs
 
     raise FileNotFoundError(f"Cannot find {model_id} under {models_path}")
 
 
-def preprocess(table_path: str,
-               models_path: str,
-               protein_self_mask_path: str,
-               protein_cross_mask_path: str,
-               output_path: str):
+def _get_masked_structure(
+    model_bytes: bytes,
+    reference_structure_path: str,
+    reference_masks: Dict[str, List[ResidueMaskType]],
+) -> Tuple[Structure, Dict[str, List[Tuple[Residue, bool]]]]:
 
+    pdb_parser = PDBParser()
+
+    # write model to disk
+    model_path = f"{uuid4().hex}.pdb"
+    with open(model_path, 'wb') as f:
+        f.write(model_bytes)
+
+    if len(list(pdb_parser.get_structure("model",model_path).get_residues())) == 0:
+        raise ValueError(f"no residues in {model_path}")
+
+    # superpose with pymol
+    try:
+        superposed_model_path, alignment_path = _pymol_superpose(model_path, reference_structure_path)
+    finally:
+        os.remove(model_path)
+
+    # parse structures and map, according to the pymol alignment
+    try:
+        superposed_structure = pdb_parser.get_structure("mobile", superposed_model_path)
+        reference_structure = pdb_parser.get_structure("target", reference_structure_path)
+
+        if len(list(superposed_structure.get_residues())) == 0:
+            raise ValueError(f"no residues in {superposed_model_path}")
+
+        if len(list(reference_structure.get_residues())) == 0:
+            raise ValueError(f"no residues in {reference_structure_path}")
+
+        alignment = _map_structure_alignment(alignment_path, (superposed_structure, reference_structure))
+    finally:
+        os.remove(superposed_model_path)
+        os.remove(alignment_path)
+
+    # use the reference structure to map the masks to the model
+    mask_result = {}
+    for mask_name, reference_mask in reference_masks.items():
+
+        masked_residues = [[residue, False] for residue in superposed_structure.get_residues()]
+
+        for chain_id, residue_number, amino_acid in reference_mask:
+            reference_residue = [residue for residue in reference_structure.get_residues()
+                                 if residue.get_parent().get_id() == chain_id and
+                                    residue.get_id() == (' ', residue_number, ' ')][0]
+
+            if reference_residue.get_resname() != amino_acid.three_letter_code.upper():
+                raise ValueError(
+                    f"reference structure contains amino acid {reference_residue.get_resname()} at chain {chain_id} position {residue_number},"
+                    f"but the mask has {amino_acid.three_letter_code} there."
+                )
+
+            superposed_residue = [rsup for rsup, rref in alignment if rref == reference_residue][0]
+            if superposed_residue is not None:
+
+                masked_residue_index = [i for i in range(len(masked_residues))
+                                        if masked_residues[i][0] == superposed_residue][0]
+
+                _log.debug(f"true masking {masked_residue_index}th residue {superposed_residue.get_full_id()} {superposed_residue.get_resname()} in superposed as {chain_id} {residue_number} {amino_acid.three_letter_code}")
+
+                masked_residues[masked_residue_index][1] = True
+
+        mask_result[mask_name] = masked_residues
+
+    return superposed_structure, mask_result
+
+
+def preprocess(
+    table_path: str,
+    models_path: str,
+    protein_self_mask_path: str,
+    protein_cross_mask_path: str,
+    output_path: str,
+    reference_structure_path: str,
+):
     # in case we're writing to an existing file:
     entries_present = set([])
     if os.path.isfile(output_path):
@@ -371,8 +529,6 @@ def preprocess(table_path: str,
             entries_present = set(output_file.keys())
 
     _log.debug(f"{len(entries_present)} entries already present in {output_path}")
-
-    #targets_by_id = _read_targets_by_id(table_path)
 
     protein_residues_self_mask = _read_mask_data(protein_self_mask_path)
     protein_residues_cross_mask = _read_mask_data(protein_cross_mask_path)
@@ -385,50 +541,54 @@ def preprocess(table_path: str,
         if id_ in entries_present:
             continue
 
+        _log.debug(f"preprocessing {id_}")
+
         target = row["measurement_value"]
         allele = row["allele"]
 
-        # parse the pdb file
+        # find the pdb file
         try:
-            structure = get_structure(models_path, id_)
+            model_bytes = _find_model_as_bytes(models_path, id_)
         except (KeyError, FileNotFoundError):
-            _log.exception(f"on {id_}")
+            _log.exception(f"cannot get structure for {id_}")
             continue
 
-        # locate protein and loop
-        chains_by_id = {c.id: c for c in structure.get_chains()}
-        if "M" not in chains_by_id:
-            raise ValueError(f"missing protein chain M in {id_}")
-        if "P" not in chains_by_id:
-            raise ValueError(f"missing loop chain P in {id_}")
-
-        # get residues from the protein (chain M)
-        protein_chain = chains_by_id["M"]
-        # order by residue number
-        protein_residues = list(sorted(protein_chain.get_residues(), key=lambda r: r.get_full_id()[-1][1]))
-
         try:
-            # align to structure
-            mask_map = _make_alignment_map(protein_residues, protein_residues_self_mask)
+            structure, masked_residues_dict = _get_masked_structure(
+                model_bytes,
+                reference_structure_path,
+                {"self": protein_residues_self_mask, "cross": protein_residues_cross_mask},
+            )
+            self_masked_protein_residues = [(r, m) for r, m in masked_residues_dict["self"] if r.get_parent().get_id() == "M"]
+            cross_masked_protein_residues = [(r, m) for r, m in masked_residues_dict["cross"] if r.get_parent().get_id() == "M"]
 
-            # determine which proteinresidues match with the mask
-            self_residues_mask = _mask_residues(protein_residues, protein_residues_self_mask, mask_map)
-            cross_residues_mask = _mask_residues(protein_residues, protein_residues_cross_mask, mask_map)
+            # locate protein and loop
+            chains_by_id = {c.id: c for c in structure.get_chains()}
+            if "M" not in chains_by_id:
+                raise ValueError(f"missing protein chain M in {id_}, present are {chains_by_id.keys()}")
+            if "P" not in chains_by_id:
+                raise ValueError(f"missing loop chain P in {id_}, present are {chains_by_id.keys()}")
+
+            # order by residue number
+            protein_residues = [r for r, m in self_masked_protein_residues]
 
             # remove the residues that are completely outside of mask range
-            combo_mask = torch.logical_or(self_residues_mask, cross_residues_mask)
-            combo_mask_nonzero = combo_mask.nonzero()
+            combo_mask = numpy.logical_or([m for r, m in self_masked_protein_residues ],
+                                          [m for r, m in cross_masked_protein_residues])
+            combo_mask_nonzero = combo_mask.nonzero()[0]
+            _log.debug(f"nonzero: {combo_mask_nonzero}")
+
             mask_start = combo_mask_nonzero.min()
             mask_end = combo_mask_nonzero.max() + 1
 
-            _log.debug(f"protein is masked {combo_mask.tolist()}")
-
-            _log.info(f"{id_}: taking protein residues {mask_start} - {mask_end}")
+            _log.debug(f"{id_}: taking protein residues {mask_start} - {mask_end}")
 
             # apply the limiting protein range, reducing the size of the data that needs to be generated.
-            self_residues_mask = self_residues_mask[mask_start: mask_end]
-            cross_residues_mask = cross_residues_mask[mask_start: mask_end]
+            self_residues_mask = [m for r, m in self_masked_protein_residues[mask_start: mask_end]]
+            cross_residues_mask = [m for r, m in cross_masked_protein_residues[mask_start: mask_end]]
             protein_residues = protein_residues[mask_start: mask_end]
+            if len(protein_residues) < 80:
+                raise ValueError(f"{id_}: got only {len(protein_residues)} protein residues")
 
             # derive data from protein residues
             protein_data = _read_residue_data(protein_residues)
@@ -438,6 +598,9 @@ def preprocess(table_path: str,
             # get residues from the loop (chain P)
             loop_chain = chains_by_id["P"]
             loop_residues = list(loop_chain.get_residues())
+            if len(loop_residues) < 3:
+                raise ValueError(f"{id_}: got only {len(loop_residues)} loop residues")
+
             loop_data = _read_residue_data(loop_residues)
 
             # proximities within protein
