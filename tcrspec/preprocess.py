@@ -480,6 +480,7 @@ def _get_masked_structure(
         alignment = _map_structure_alignment(alignment_path, (superposed_structure, reference_structure))
     finally:
         os.remove(superposed_model_path)
+        os.remove(alignment_path)
 
     # use the reference structure to map the masks to the model
     mask_result = {}
