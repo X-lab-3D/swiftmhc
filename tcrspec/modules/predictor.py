@@ -48,14 +48,12 @@ class Predictor(torch.nn.Module):
 
         self.n_head = structure_module_config.no_heads_ipa
 
-        loop_input_size = self.loop_maxlen * structure_module_config.c_s
-        c_loop = 512
+        self.pos_enc = PositionalEncoding(structure_module_config.c_s, self.loop_maxlen)
 
-        self.loop_mlp = torch.nn.Sequential(
-            torch.nn.Linear(loop_input_size, c_loop),
-            torch.nn.GELU(),
-            torch.nn.Linear(c_loop, loop_input_size),
-        )
+        self.transform = torch.nn.ModuleList([
+            DebuggableTransformerEncoderLayer(structure_module_config.c_s, self.n_head)
+            for _ in range(structure_module_config.no_blocks)
+        ])
 
         self.n_ipa_repeat = structure_module_config.no_blocks
 
@@ -68,6 +66,7 @@ class Predictor(torch.nn.Module):
                                structure_module_config.no_qk_points,
                                structure_module_config.no_v_points,
                                self.protein_maxlen)
+        self.protein_ipa.inf = structure_module_config.inf
 
         self.protein_norm = torch.nn.Sequential(
             torch.nn.Dropout(p=0.1),
@@ -76,22 +75,24 @@ class Predictor(torch.nn.Module):
 
         self.cross = CrossStructureModule(**structure_module_config)
 
-        c_affinity = 512
+        c_affinity = 128
+
+        self.affinity_reswise_mlp = torch.nn.Sequential(
+            torch.nn.Linear(structure_module_config.c_s, c_affinity),
+            torch.nn.GELU(),
+            torch.nn.Linear(c_affinity, 1),
+        )
 
         self.model_type = model_type
-        if self.model_type == ModelType.REGRESSION:
+
+        if model_type == ModelType.REGRESSION:
             output_size = 1
-
-        elif self.model_type == ModelType.CLASSIFICATION:
+        elif model_type == ModelType.CLASSIFICATION:
             output_size = 2
+        else:
+            raise TypeError(str(model_type))
 
-        self.aff_mlp = torch.nn.Sequential(
-            torch.nn.Linear(loop_input_size, c_affinity),
-            torch.nn.GELU(),
-            torch.nn.Linear(c_affinity, c_affinity),
-            torch.nn.GELU(),
-            torch.nn.Linear(c_affinity, output_size),
-        )
+        self.output_linear = torch.nn.Linear(self.loop_maxlen, output_size)
 
     def forward(self, batch: TensorDict) -> TensorDict:
         """
@@ -114,16 +115,12 @@ class Predictor(torch.nn.Module):
         batch_size, loop_maxlen, loop_depth = loop_seq.shape
 
         # positional encoding
-        #loop_pos_enc = self.pos_enc(loop_seq)
+        loop_embd = self.pos_enc(loop_seq.clone(), batch["loop_self_residues_mask"])
 
-        # transition on the loop
-        loop_embd = self.loop_mlp(loop_seq.reshape(batch_size, -1)).reshape(batch_size, loop_maxlen, loop_depth)
-
-        # mask out residues that don't exist
-        loop_embd = loop_embd * batch["loop_self_residues_mask"][..., None]
-
-        # skip connection
-        loop_embd = loop_seq + loop_embd
+        # transform the loop
+        for encoder in self.transform:
+            loop_upd, loop_att = encoder(loop_embd, batch["loop_self_residues_mask"])
+            loop_embd = loop_embd + loop_upd
 
         # structure-based self-attention on the protein
         protein_T = Rigid.from_tensor_4x4(batch["protein_backbone_rigid_tensor"])
@@ -132,22 +129,18 @@ class Predictor(torch.nn.Module):
         protein_embd = batch["protein_sequence_onehot"]
         protein_norm_prox = self.protein_dist_norm(batch["protein_proximities"])
 
-        _log.debug(f"protein_norm_prox has values ranging from {protein_norm_prox.min()} - {protein_norm_prox.max()}")
-        _log.debug(f"protein_norm_prox has distribution {protein_norm_prox.mean()} +/- {protein_norm_prox.std()}")
-
-        _log.debug(f"predictor: before ipa, protein_embd ranges {protein_embd.min()} - {protein_embd.max()}")
-
         protein_as = []
         protein_as_sd = []
         protein_as_b = []
         for _ in range(self.n_ipa_repeat):
-            protein_embd, protein_a, protein_a_sd, protein_a_b = self.protein_ipa(protein_embd,
+            protein_upd, protein_a, protein_a_sd, protein_a_b = self.protein_ipa(protein_embd,
                                                                                   protein_norm_prox,
                                                                                   protein_T,
                                                                                   batch["protein_self_residues_mask"].float())
             protein_as.append(protein_a.clone().detach())
             protein_as_sd.append(protein_a_sd.detach())
             protein_as_b.append(protein_a_b.detach())
+            protein_embd = protein_embd + protein_upd
 
         # store the attention weights, for debugging
         # [batch_size, n_block, n_head, protein_len, protein_len]
@@ -195,14 +188,18 @@ class Predictor(torch.nn.Module):
         updated_s_loop = output["single"]
         loop_embd = loop_embd + updated_s_loop
 
+        # [batch_size, loop_len]
+        p = self.affinity_reswise_mlp(loop_embd).reshape(batch_size, loop_maxlen)
+
+        # affinity prediction
         if self.model_type == ModelType.REGRESSION:
             # [batch_size]
             output["affinity"] = self.aff_mlp(loop_embd.reshape(batch_size, -1)).reshape(batch_size)
 
         elif self.model_type == ModelType.CLASSIFICATION:
+            # softmax is required here, so that we can calculate ROC AUC
             # [batch_size, 2]
-            output["classification"] = torch.nn.functional.softmax(self.aff_mlp(loop_embd.reshape(batch_size, -1)), dim=1)
-
+            output["classification"] = self.output_linear(p)
             # [batch_size]
             output["class"] = torch.argmax(output["classification"], dim=1)
 

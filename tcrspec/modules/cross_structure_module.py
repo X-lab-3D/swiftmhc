@@ -203,7 +203,7 @@ class CrossStructureModule(torch.nn.Module):
 
         r = {}
         r["single"] = outputs["states"][-1]
-        r["cross_ipa_att"] = outputs["cross_ipa_att"]
+        r["cross_ipa_att"] = outputs["cross_ipa_att"].transpose(0, 1)  # flip blocks and batch
         r["final_frames"] = outputs["frames"][-1]
         r["final_sidechain_frames"] = outputs["sidechain_frames"][-1]
         r["final_angles"] = outputs["angles"][-1]

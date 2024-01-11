@@ -167,6 +167,8 @@ def output_structures_to_directory(
     with Pool(process_count) as pool:
 
         # get the data from gpu to cpu, if not already
+        classes = data["class"].cpu()
+
         loop_residue_numbers = data["loop_residue_numbers"].cpu()
         loop_sequence_onehot = data["loop_sequence_onehot"].cpu()
         loop_atom14_gt_positions = data["loop_atom14_gt_positions"].cpu()
@@ -177,6 +179,11 @@ def output_structures_to_directory(
         protein_atom14_gt_positions = data["protein_atom14_gt_positions"].cpu()
 
         for index, id_ in enumerate(data["ids"]):
+
+            # binders only
+            if classes[index].item() == 0:
+                continue
+
             pool.apply_async(
                 recreate_structure_to_hdf5,
                 (
@@ -254,7 +261,7 @@ class Trainer:
                     structure = recreate_structure(id_,
                                                    [("P", data["loop_residue_numbers"][index], data["loop_sequence_onehot"][index], data["loop_atom14_gt_positions"][index]),
                                                     ("M", data["protein_residue_numbers"][index], data["protein_sequence_onehot"][index], data["protein_atom14_gt_positions"][index])])
-                    self._save_structure_to_hdf5(structure, true_group)
+                    save_structure_to_hdf5(structure, true_group)
 
                 frame_group = animation_file.require_group(frame_id)
 
@@ -262,7 +269,7 @@ class Trainer:
                 structure = recreate_structure(id_,
                                                [("P", data["loop_residue_numbers"][index], data["loop_sequence_onehot"][index], output["final_positions"][index]),
                                                 ("M", data["protein_residue_numbers"][index], data["protein_sequence_onehot"][index], data["protein_atom14_gt_positions"][index])])
-                self._save_structure_to_hdf5(structure, frame_group)
+                save_structure_to_hdf5(structure, frame_group)
 
                 # save the residue numbering, for later lookup
                 for key in ("protein_cross_residues_mask", "loop_cross_residues_mask",
@@ -344,7 +351,7 @@ class Trainer:
         """
 
         # start with an empty metrics record
-        record = MetricsRecord()
+        record = MetricsRecord(epoch_index, data_loader.dataset.name, output_directory)
 
         # put model in train mode
         model.train()
@@ -371,7 +378,7 @@ class Trainer:
 
         # Create the metrics row for this epoch
         if output_directory is not None:
-            record.save(epoch_index, data_loader.dataset.name, output_directory)
+            record.save()
 
     def _validate(self,
                   epoch_index: int,
@@ -394,7 +401,7 @@ class Trainer:
         """
 
         # start with an empty metrics record
-        record = MetricsRecord()
+        record = MetricsRecord(epoch_index, data_loader.dataset.name, output_directory)
 
         # put model in evaluation mode
         model.eval()
@@ -424,7 +431,7 @@ class Trainer:
 
         # Create the metrics row for this epoch
         if output_directory is not None:
-            record.save(epoch_index, data_loader.dataset.name, output_directory)
+            record.save()
 
         if datapoint_count > 0:
             return (sum_of_losses / datapoint_count)
@@ -615,6 +622,7 @@ class Trainer:
                         data_path: str,
                         batch_size: int,
                         device: torch.device,
+                        shuffle: Optional[bool] = True,
                         entry_ids: Optional[List[str]] = None) -> DataLoader:
         """
         Builds a data loader from a hdf5 dataset path.
@@ -635,6 +643,7 @@ class Trainer:
         loader = DataLoader(dataset,
                             collate_fn=ProteinLoopDataset.collate,
                             batch_size=batch_size,
+                            shuffle=shuffle,
                             num_workers=self.workers_count)
 
         return loader
@@ -735,7 +744,7 @@ if __name__ == "__main__":
 
     if args.test_only:
         # We do a test, no training
-        test_loaders = [trainer.get_data_loader(test_path, args.batch_size, device)
+        test_loaders = [trainer.get_data_loader(test_path, args.batch_size, device, shuffle=False)
                         for test_path in args.data_path]
         trainer.test(test_loaders, run_id, args.animate, args.pretrained_model, args.builders)
 
@@ -748,9 +757,9 @@ if __name__ == "__main__":
             _log.debug(f"validating on {valid_path}")
             _log.debug(f"testing on {args.data_path[2:]}")
 
-            train_loader = trainer.get_data_loader(train_path, args.batch_size, device)
-            valid_loader = trainer.get_data_loader(valid_path, args.batch_size, device)
-            test_loaders = [trainer.get_data_loader(test_path, args.batch_size, device)
+            train_loader = trainer.get_data_loader(train_path, args.batch_size, device, shuffle=True)
+            valid_loader = trainer.get_data_loader(valid_path, args.batch_size, device, shuffle=False)
+            test_loaders = [trainer.get_data_loader(test_path, args.batch_size, device, shuffle=False)
                             for test_path in args.data_path[2:]]
 
         elif len(args.data_path) == 2:
@@ -758,9 +767,9 @@ if __name__ == "__main__":
             # assume that the train and validation sets are one HDF5 file, the other is the test set
 
             train_entry_names, valid_entry_names = random_subdivision(get_entry_names(args.data_path[0]), 0.1)
-            train_loader = trainer.get_data_loader(args.data_path[0], args.batch_size, device, train_entry_names)
-            valid_loader = trainer.get_data_loader(args.data_path[0], args.batch_size, device, valid_entry_names)
-            test_loaders = [trainer.get_data_loader(args.data_path[1], args.batch_size, device)]
+            train_loader = trainer.get_data_loader(args.data_path[0], args.batch_size, device, train_entry_names, shuffle=True)
+            valid_loader = trainer.get_data_loader(args.data_path[0], args.batch_size, device, valid_entry_names, shuffle=False)
+            test_loaders = [trainer.get_data_loader(args.data_path[1], args.batch_size, device, shuffle=False)]
 
             _log.debug(f"training on {args.data_path[0]} subset")
             _log.debug(f"validating on {args.data_path[0]} subset")
@@ -782,9 +791,9 @@ if __name__ == "__main__":
 
             _log.debug(f"training, validating & testing on {args.data_path[0]} subsets")
 
-            train_loader = trainer.get_data_loader(args.data_path[0], args.batch_size, device, train_entry_names)
-            valid_loader = trainer.get_data_loader(args.data_path[0], args.batch_size, device, valid_entry_names)
-            test_loaders = [trainer.get_data_loader(args.data_path[0], args.batch_size, device, test_entry_names)]
+            train_loader = trainer.get_data_loader(args.data_path[0], args.batch_size, device, train_entry_names, shuffle=True)
+            valid_loader = trainer.get_data_loader(args.data_path[0], args.batch_size, device, valid_entry_names, shuffle=False)
+            test_loaders = [trainer.get_data_loader(args.data_path[0], args.batch_size, device, test_entry_names, shuffle=False)]
 
         # train with the composed datasets and user-provided settings
         trainer.train(train_loader, valid_loader, test_loaders,
