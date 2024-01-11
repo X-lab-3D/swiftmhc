@@ -236,7 +236,7 @@ def _map_structure_alignment(
                 if offset >= len(residues):
                     raise ValueError(f"{key} alignment has over {offset} residues, but the structure only has {len(residues)}")
 
-                if one_to_three(letter) != residues[offset].get_resname():
+                if letter != 'X' and one_to_three(letter) != residues[offset].get_resname():
                     _log.warning(f"encountered {residues[offset].get_resname()} at {offset}, {one_to_three(letter)} expected")
 
                 map_.append(residues[offset])
