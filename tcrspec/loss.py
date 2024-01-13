@@ -553,8 +553,10 @@ def sum_within_loop_clashes(
     # [37]
     atomtype_radius = predicted_positions.new_tensor(atomtype_radius)
 
-    # [batch_size, loop_maxlen, 14]
-    residx_atom14_to_atom37 = batch_data["loop_residx_atom14_to_atom37"]
+    # [n_binders, loop_maxlen, 14]
+    residx_atom14_to_atom37 = batch_data["loop_residx_atom14_to_atom37"][binders_index]
+
+    # [n_binders, loop_maxlen, 14]
     atoms_radius = atoms_mask * atomtype_radius[residx_atom14_to_atom37]
 
     # Create the distance matrix.
