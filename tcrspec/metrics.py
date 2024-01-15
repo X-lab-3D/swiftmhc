@@ -10,7 +10,7 @@ from sklearn.metrics import roc_auc_score, matthews_corrcoef
 
 from .domain.amino_acid import amino_acids_by_one_hot_index
 from .models.data import TensorDict
-from .loss import get_calpha_rmsd
+from .loss import get_calpha_rmsd, sum_within_loop_clashes
 
 
 def get_sequence(aatype: List[int], mask: List[bool]) -> str:
@@ -55,6 +55,7 @@ class MetricsRecord:
         self._data_len = 0
         self._losses_sum = {}
         self._rmsds = {}
+        self._within_loop_clashes = {}
         self._loop_sequences = {}
 
         self._id_order = []
@@ -91,6 +92,9 @@ class MetricsRecord:
 
         # store the rmsd per data point
         self._rmsds.update(get_calpha_rmsd(output, truth))
+
+        # store the clashes per data point
+        self._within_loop_clashes.update(sum_within_loop_clashes(output, truth))
 
         # store the affinity predictions and truth values per data point
         for key in ["affinity", "class", "classification"]:
@@ -131,6 +135,7 @@ class MetricsRecord:
         self._batches_passed += 1
         if self._batches_passed % self.batch_write_interval == 0:
 
+            self._store_individual_clashes(self._pass_name, self._directory_path)
             self._store_individual_rmsds(self._pass_name, self._directory_path)
             self._store_inidividual_affinities(self._pass_name, self._directory_path)
 
@@ -139,9 +144,30 @@ class MetricsRecord:
         Call this when all batches have passed, to save the resulting metrics.
         """
 
+        self._store_individual_clashes(self._pass_name, self._directory_path)
         self._store_individual_rmsds(self._pass_name, self._directory_path)
         self._store_inidividual_affinities(self._pass_name, self._directory_path)
         self._store_metrics_table(self._epoch_number, self._pass_name, self._directory_path)
+
+    def _store_individual_clashes(self, pass_name: str, directory_path: str):
+
+        # store to this file
+        clashes_path = os.path.join(directory_path, f"{pass_name}-clashes.csv")
+
+        sequence_order = []
+        values = []
+        ids = []
+        for id_, value in self._within_loop_clashes.items():
+            sequence_order.append(self._loop_sequences[id_])
+            values.append(value)
+            ids.append(id_)
+
+        # create table
+        table_dict = {"ID": ids, "loop": sequence_order, "clashes within loop": values}
+        table = pandas.DataFrame(table_dict)
+
+        # save to file
+        table.to_csv(clashes_path, sep=',', encoding='utf-8', index=False, quoting=csv.QUOTE_NONNUMERIC)
 
     def _store_individual_rmsds(self, pass_name: str, directory_path: str):
 

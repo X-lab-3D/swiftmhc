@@ -16,6 +16,7 @@ from Bio.PDB.PDBIO import PDBIO
 from openfold.np.residue_constants import (restype_atom14_ambiguous_atoms as openfold_restype_atom14_ambiguous_atoms,
                                            atom_types as openfold_atom_types,
                                            van_der_waals_radius as openfold_van_der_waals_radius,
+                                           restype_name_to_atom14_names as openfold_restype_name_to_atom14_names,
                                            make_atom14_dists_bounds as openfold_make_atom14_dists_bounds,
                                            atom_order as openfold_atom_order,
                                            restype_num as openfold_restype_num,
@@ -512,3 +513,118 @@ def get_calpha_rmsd(output_data: Dict[str, torch.Tensor],
 
     return {ids[i]: rmsd[i].item() for i in range(len(ids))}
 
+
+def sum_within_loop_clashes(
+    output_data: Dict[str, torch.Tensor],
+    batch_data: Dict[str, torch.Tensor],
+) -> Dict[str, float]:
+
+    # take binders only
+    if "class" in batch_data:
+        binders_index = batch_data["class"] == 1
+
+    elif "affinity" in batch_data:
+        binders_index = batch_data["affinity"] > AFFINITY_BINDING_TRESHOLD
+
+    else:
+        raise ValueError("Cannot compute RMSD without class or affinity output")
+
+    # prevent NaN, in case of no binders
+    if not torch.any(binders_index):
+        return {}
+
+    # [n_binders, loop_maxlen, 14, 3]
+    predicted_positions = output_data["final_positions"][binders_index]
+    fp_type = predicted_positions.dtype
+
+    # [n_binders, loop_maxlen, 14]
+    atoms_mask = batch_data["loop_atom14_gt_exists"][binders_index]
+
+    # [n_binders, loop_maxlen]
+    residue_index = batch_data["loop_residue_index"][binders_index]
+
+    # Compute the Van der Waals radius for every atom
+    # (the first letter of the atom name is the element type).
+    # [37]
+    atomtype_radius = [
+        openfold_van_der_waals_radius[name[0]]
+        for name in openfold_atom_types
+    ]
+    # [37]
+    atomtype_radius = predicted_positions.new_tensor(atomtype_radius)
+
+    # [n_binders, loop_maxlen, 14]
+    residx_atom14_to_atom37 = batch_data["loop_residx_atom14_to_atom37"][binders_index]
+
+    # [n_binders, loop_maxlen, 14]
+    atoms_radius = atoms_mask * atomtype_radius[residx_atom14_to_atom37]
+
+    # Create the distance matrix.
+    # [n_binders, loop_maxlen, loop_maxlen, 14, 14]
+    eps = 1e-10
+    distances = torch.sqrt(eps +
+        torch.sum(
+            (predicted_positions[..., :, None, :, None, :] - predicted_positions[..., None, :, None, :, :]) ** 2,
+            dim=-1
+        )
+    )
+
+    # Create the mask for valid distances
+    # [n_binders, loop_maxlen, loop_maxlen, 14, 14]
+    distance_mask = atoms_mask[..., :, None, :, None] * atoms_mask[..., None, :, None, :].type(fp_type)
+
+    # Mask out all the duplicate entries in the lower triangular matrix.
+    # Also mask out the diagonal (atom-pairs from the same residue) -- these atoms
+    # are handled separately.
+    distance_mask = distance_mask * (residue_index[..., :, None, None, None] < residue_index[..., None, :, None, None])
+
+    # Backbone C--N bond between subsequent residues is no clash.
+    c_one_hot = torch.nn.functional.one_hot(
+        residue_index.new_tensor(2), num_classes=14
+    )
+    c_one_hot = c_one_hot.reshape(
+        *((1,) * len(residue_index.shape[:-1])), *c_one_hot.shape
+    )
+    c_one_hot = c_one_hot.type(fp_type)
+
+    n_one_hot = torch.nn.functional.one_hot(
+        residue_index.new_tensor(0), num_classes=14
+    )
+    n_one_hot = n_one_hot.reshape(
+        *((1,) * len(residue_index.shape[:-1])), *n_one_hot.shape
+    )
+    n_one_hot = n_one_hot.type(fp_type)
+
+    neighbour_mask = (
+        residue_index[..., :, None, None, None] + 1
+    ) == residue_index[..., None, :, None, None]
+
+    c_n_bonds = neighbour_mask * c_one_hot[..., None, None, :, None] * n_one_hot[..., None, None, None, :]
+
+    distance_mask = distance_mask * (1.0 - c_n_bonds)
+
+    # Disulfide bridge between two cysteines is no clash.
+    cys = openfold_restype_name_to_atom14_names["CYS"]
+    cys_sg_idx = cys.index("SG")
+    cys_sg_idx = residue_index.new_tensor(cys_sg_idx)
+    cys_sg_idx = cys_sg_idx.reshape(*((1,) * len(residue_index.shape[:-1])), 1).squeeze(-1)
+    cys_sg_one_hot = torch.nn.functional.one_hot(cys_sg_idx, num_classes=14)
+    disulfide_bonds = cys_sg_one_hot[..., None, None, :, None] * cys_sg_one_hot[..., None, None, None, :]
+    distance_mask = distance_mask * (1.0 - disulfide_bonds)
+
+    # Compute the lower bound for the allowed distances.
+    # [n_binders, loop_maxlen, loop_maxlen, 14, 14]
+    lower_bounds = distance_mask * (atoms_radius[..., :, None, :, None] + atoms_radius[..., None, :, None, :])
+
+    # [n_binders, loop_maxlen, loop_maxlen, 14, 14]
+    errors = distance_mask * torch.nn.functional.relu(lower_bounds - distances)
+
+    # [n_binders]
+    errors = errors.sum(dim=(-4, -3, -2, -1))
+
+    ids = [batch_data["ids"][i] for i in torch.nonzero(binders_index)]
+
+    return {
+        ids[i]: errors[i].item()
+        for i in range(len(ids))
+    }
