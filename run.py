@@ -743,6 +743,9 @@ if __name__ == "__main__":
     trainer = Trainer(device, args.workers, args.lr, model_type)
 
     if args.test_only:
+        if args.pretrained_model is None:
+            raise ValueError("testing requires a pretrained model")
+
         # We do a test, no training
         test_loaders = [trainer.get_data_loader(test_path, args.batch_size, device, shuffle=False)
                         for test_path in args.data_path]
