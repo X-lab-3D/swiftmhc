@@ -10,7 +10,7 @@ from sklearn.metrics import roc_auc_score, matthews_corrcoef
 
 from .domain.amino_acid import amino_acids_by_one_hot_index
 from .models.data import TensorDict
-from .loss import get_calpha_rmsd, sum_within_loop_clashes
+from .loss import get_calpha_rmsd, sum_within_loop_clashes_between_residues
 
 
 def get_sequence(aatype: List[int], mask: List[bool]) -> str:
@@ -94,7 +94,7 @@ class MetricsRecord:
         self._rmsds.update(get_calpha_rmsd(output, truth))
 
         # store the clashes per data point
-        self._within_loop_clashes.update(sum_within_loop_clashes(output, truth))
+        self._within_loop_clashes.update(sum_within_loop_clashes_between_residues(output, truth))
 
         # store the affinity predictions and truth values per data point
         for key in ["affinity", "class", "classification"]:

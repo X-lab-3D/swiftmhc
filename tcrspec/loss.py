@@ -514,7 +514,7 @@ def get_calpha_rmsd(output_data: Dict[str, torch.Tensor],
     return {ids[i]: rmsd[i].item() for i in range(len(ids))}
 
 
-def sum_within_loop_clashes(
+def sum_within_loop_clashes_between_residues(
     output_data: Dict[str, torch.Tensor],
     batch_data: Dict[str, torch.Tensor],
 ) -> Dict[str, float]:
