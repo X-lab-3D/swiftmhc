@@ -82,11 +82,6 @@ class Predictor(torch.nn.Module):
         c_transition = 128
         c_interaction = 64
 
-        #self.affinity_norm = torch.nn.Sequential(
-        #    torch.nn.Dropout(p=structure_module_config.dropout_rate),
-        #    LayerNorm(structure_module_config.c_s)
-        #)
-
         self.protein_feature = torch.nn.Sequential(
             torch.nn.Linear(structure_module_config.c_s, c_interaction, bias=False),
             torch.nn.Tanh(),
