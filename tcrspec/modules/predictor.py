@@ -187,11 +187,6 @@ class Predictor(torch.nn.Module):
         protein_embd = batch["protein_sequence_onehot"]
         protein_norm_prox = self.protein_dist_norm(batch["protein_proximities"])
 
-        _log.debug(f"protein_norm_prox has values ranging from {protein_norm_prox.min()} - {protein_norm_prox.max()}")
-        _log.debug(f"protein_norm_prox has distribution {protein_norm_prox.mean()} +/- {protein_norm_prox.std()}")
-
-        _log.debug(f"predictor: before ipa, protein_embd ranges {protein_embd.min()} - {protein_embd.max()}")
-
         protein_as = []
         protein_as_sd = []
         protein_as_b = []
