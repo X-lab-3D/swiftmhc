@@ -76,14 +76,13 @@ arg_parser.add_argument("--debug", "-d", help="generate debug files", action='st
 arg_parser.add_argument("--log-stdout", "-l", help="log to stdout", action='store_const', const=True, default=False)
 arg_parser.add_argument("--pretrained-model", "-m", help="use a given pretrained model state")
 arg_parser.add_argument("--workers", "-w", help="number of worker processes to load batches", type=int, default=5)
-arg_parser.add_argument("--builders", "-B", help="number of simultaneous structure builder processes, setting this higher than the batch size has no use", type=int, default=0)
+arg_parser.add_argument("--builders", "-B", help="number of simultaneous structure builder processes, it has no effect setting this higher than the number of models produced per batch", type=int, default=0)
 arg_parser.add_argument("--batch-size", "-b", help="batch size to use during training/validation/testing", type=int, default=8)
 arg_parser.add_argument("--epoch-count", "-e", help="how many epochs to run during structure training", type=int, default=5)
 arg_parser.add_argument("--fine-tune-count", "-u", help="how many epochs to run during fine-tuning, at the end", type=int, default=5)
 arg_parser.add_argument("--animate", "-a", help="id of a data point to generate intermediary pdb for", nargs="+")
 arg_parser.add_argument("--lr", help="learning rate setting", type=float, default=0.001)
 arg_parser.add_argument("--classification", "-c", help="do classification instead of regression", action="store_const", const=True, default=False)
-arg_parser.add_argument("--pdb-output", help="store resulting pdb files in an hdf5 file", action="store_const", const=True, default=False)
 arg_parser.add_argument("--test-only", "-t", help="do not train, only run tests", const=True, default=False, action='store_const')
 arg_parser.add_argument("--test-subset-path", help="path to list of entry ids that should be excluded for testing", nargs="+")
 arg_parser.add_argument("data_path", help="path to a hdf5 file", nargs="+")
@@ -142,6 +141,7 @@ def on_error(e):
 def output_structures_to_directory(
     process_count: int,
     output_directory: str,
+    filename_prefix: str,
     data: Dict[str, torch.Tensor],
     output: Dict[str, torch.Tensor]
 ):
@@ -154,8 +154,8 @@ def output_structures_to_directory(
         output: model output
     """
 
-    truth_path = os.path.join(output_directory, 'true-structures.hdf5')
-    pred_path = os.path.join(output_directory, 'predicted-structures.hdf5')
+    truth_path = os.path.join(output_directory, f"{filename_prefix}-true.hdf5")
+    pred_path = os.path.join(output_directory, f"{filename_prefix}-predicted.hdf5")
 
     if process_count > len(data["ids"]):
         process_count = len(data["ids"])
@@ -171,7 +171,10 @@ def output_structures_to_directory(
         loop_residue_numbers = data["loop_residue_numbers"].cpu()
         loop_sequence_onehot = data["loop_sequence_onehot"].cpu()
         loop_atom14_gt_positions = data["loop_atom14_gt_positions"].cpu()
-        loop_atom14_positions = output["final_positions"].cpu()
+
+        loop_atom14_positions = None
+        if "final_positions" in output:
+            loop_atom14_positions = output["final_positions"].cpu()
 
         protein_residue_numbers = data["protein_residue_numbers"].cpu()
         protein_sequence_onehot = data["protein_sequence_onehot"].cpu()
@@ -183,15 +186,16 @@ def output_structures_to_directory(
             if classes[index].item() == 0:
                 continue
 
-            pool.apply_async(
-                recreate_structure_to_hdf5,
-                (
-                    truth_path, id_,
-                    [("P", loop_residue_numbers[index], loop_sequence_onehot[index], loop_atom14_gt_positions[index]),
-                     ("M", protein_residue_numbers[index], protein_sequence_onehot[index], protein_atom14_gt_positions[index])]
-                ),
-                error_callback=on_error,
-            )
+            if loop_atom14_positions is not None:
+                pool.apply_async(
+                    recreate_structure_to_hdf5,
+                    (
+                        truth_path, id_,
+                        [("P", loop_residue_numbers[index], loop_sequence_onehot[index], loop_atom14_gt_positions[index]),
+                         ("M", protein_residue_numbers[index], protein_sequence_onehot[index], protein_atom14_gt_positions[index])]
+                    ),
+                    error_callback=on_error,
+                )
 
             pool.apply_async(
                 recreate_structure_to_hdf5,
@@ -428,7 +432,10 @@ class Trainer:
                 sum_of_losses += batch_loss['total'].item() * batch_data['loop_aatype'].shape[0]
 
                 if structure_builders_count > 0 and output_directory is not None:
-                    output_structures_to_directory(structure_builders_count, output_directory, batch_data, batch_output)
+                    output_structures_to_directory(structure_builders_count,
+                                                   output_directory,
+                                                   data_loader.dataset.name,
+                                                   batch_data, batch_output)
 
                 # Save to metrics
                 record.add_batch(batch_loss, batch_output, batch_data)
