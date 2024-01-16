@@ -85,6 +85,8 @@ arg_parser.add_argument("--lr", help="learning rate setting", type=float, defaul
 arg_parser.add_argument("--classification", "-c", help="do classification instead of regression", action="store_const", const=True, default=False)
 arg_parser.add_argument("--test-only", "-t", help="do not train, only run tests", const=True, default=False, action='store_const')
 arg_parser.add_argument("--test-subset-path", help="path to list of entry ids that should be excluded for testing", nargs="+")
+arg_parser.add_argument("--disable-ba-loss", help="whether or not to include the BA loss term with training", action="store_const", const=True, default=False)
+arg_parser.add_argument("--disable-struct-loss", help="whether or not to include the structural loss terms with training", action="store_const", const=True, default=False)
 arg_parser.add_argument("data_path", help="path to a hdf5 file", nargs="+")
 
 
@@ -531,9 +533,11 @@ class Trainer:
               valid_loader: DataLoader,
               test_loaders: List[DataLoader],
               epoch_count: int, fine_tune_count: int,
-              run_id: Optional[str] = None,
-              pretrained_model_path: Optional[str] = None,
-              animated_complex_ids: Optional[List[str]] = None,
+              run_id: str,
+              pretrained_model_path: str,
+              animated_complex_ids: List[str],
+              disable_struct_loss: bool,
+              disable_ba_loss: bool,
     ):
         """
         Call this method for training a model
@@ -581,16 +585,16 @@ class Trainer:
                            model,
                            run_id, animated_data)
 
-        fape_tune = True
-        chi_tune = True
-        affinity_tune = True
+        fape_tune = not disable_struct_loss
+        chi_tune = not disable_struct_loss
+        affinity_tune = not disable_ba_loss
 
         # do the actual learning iteration
         total_epochs = epoch_count + fine_tune_count
         for epoch_index in range(total_epochs):
 
             # flip this setting after the given number of epochs
-            fine_tune = (epoch_index >= epoch_count)
+            fine_tune = (epoch_index >= epoch_count) and not disable_struct_loss
 
             # train during epoch
             with Timer(f"train epoch {epoch_index}") as t:
@@ -809,4 +813,4 @@ if __name__ == "__main__":
         trainer.train(train_loader, valid_loader, test_loaders,
                       args.epoch_count, args.fine_tune_count,
                       run_id, args.pretrained_model,
-                      args.animate)
+                      args.animate, args.disable_struct_loss, args.disable_ba_loss)
