@@ -76,17 +76,17 @@ arg_parser.add_argument("--debug", "-d", help="generate debug files", action='st
 arg_parser.add_argument("--log-stdout", "-l", help="log to stdout", action='store_const', const=True, default=False)
 arg_parser.add_argument("--pretrained-model", "-m", help="use a given pretrained model state")
 arg_parser.add_argument("--workers", "-w", help="number of worker processes to load batches", type=int, default=5)
-arg_parser.add_argument("--builders", "-B", help="number of simultaneous structure builder processes, setting this higher than the batch size has no use", type=int, default=0)
+arg_parser.add_argument("--builders", "-B", help="number of simultaneous structure builder processes, it has no effect setting this higher than the number of models produced per batch", type=int, default=0)
 arg_parser.add_argument("--batch-size", "-b", help="batch size to use during training/validation/testing", type=int, default=8)
 arg_parser.add_argument("--epoch-count", "-e", help="how many epochs to run during structure training", type=int, default=5)
 arg_parser.add_argument("--fine-tune-count", "-u", help="how many epochs to run during fine-tuning, at the end", type=int, default=5)
-arg_parser.add_argument("--affinity-tune-count", "-j", help="how many epochs to run during affinity-tuning", type=int, default=5)
 arg_parser.add_argument("--animate", "-a", help="id of a data point to generate intermediary pdb for", nargs="+")
 arg_parser.add_argument("--lr", help="learning rate setting", type=float, default=0.001)
 arg_parser.add_argument("--classification", "-c", help="do classification instead of regression", action="store_const", const=True, default=False)
-arg_parser.add_argument("--pdb-output", help="store resulting pdb files in an hdf5 file", action="store_const", const=True, default=False)
 arg_parser.add_argument("--test-only", "-t", help="do not train, only run tests", const=True, default=False, action='store_const')
 arg_parser.add_argument("--test-subset-path", help="path to list of entry ids that should be excluded for testing", nargs="+")
+arg_parser.add_argument("--disable-ba-loss", help="whether or not to include the BA loss term with training", action="store_const", const=True, default=False)
+arg_parser.add_argument("--disable-struct-loss", help="whether or not to include the structural loss terms with training", action="store_const", const=True, default=False)
 arg_parser.add_argument("data_path", help="path to a hdf5 file", nargs="+")
 
 
@@ -143,6 +143,7 @@ def on_error(e):
 def output_structures_to_directory(
     process_count: int,
     output_directory: str,
+    filename_prefix: str,
     data: Dict[str, torch.Tensor],
     output: Dict[str, torch.Tensor]
 ):
@@ -155,8 +156,8 @@ def output_structures_to_directory(
         output: model output
     """
 
-    truth_path = os.path.join(output_directory, 'true-structures.hdf5')
-    pred_path = os.path.join(output_directory, 'predicted-structures.hdf5')
+    truth_path = os.path.join(output_directory, f"{filename_prefix}-true.hdf5")
+    pred_path = os.path.join(output_directory, f"{filename_prefix}-predicted.hdf5")
 
     if process_count > len(data["ids"]):
         process_count = len(data["ids"])
@@ -172,7 +173,10 @@ def output_structures_to_directory(
         loop_residue_numbers = data["loop_residue_numbers"].cpu()
         loop_sequence_onehot = data["loop_sequence_onehot"].cpu()
         loop_atom14_gt_positions = data["loop_atom14_gt_positions"].cpu()
-        loop_atom14_positions = output["final_positions"].cpu()
+
+        loop_atom14_positions = None
+        if "final_positions" in output:
+            loop_atom14_positions = output["final_positions"].cpu()
 
         protein_residue_numbers = data["protein_residue_numbers"].cpu()
         protein_sequence_onehot = data["protein_sequence_onehot"].cpu()
@@ -184,15 +188,16 @@ def output_structures_to_directory(
             if classes[index].item() == 0:
                 continue
 
-            pool.apply_async(
-                recreate_structure_to_hdf5,
-                (
-                    truth_path, id_,
-                    [("P", loop_residue_numbers[index], loop_sequence_onehot[index], loop_atom14_gt_positions[index]),
-                     ("M", protein_residue_numbers[index], protein_sequence_onehot[index], protein_atom14_gt_positions[index])]
-                ),
-                error_callback=on_error,
-            )
+            if loop_atom14_positions is not None:
+                pool.apply_async(
+                    recreate_structure_to_hdf5,
+                    (
+                        truth_path, id_,
+                        [("P", loop_residue_numbers[index], loop_sequence_onehot[index], loop_atom14_gt_positions[index]),
+                         ("M", protein_residue_numbers[index], protein_sequence_onehot[index], protein_atom14_gt_positions[index])]
+                    ),
+                    error_callback=on_error,
+                )
 
             pool.apply_async(
                 recreate_structure_to_hdf5,
@@ -219,7 +224,7 @@ class Trainer:
 
         self._device = device
 
-        self._early_stop_epsilon = 1e-6
+        self._early_stop_epsilon = 1e-3
 
         self._snap_period = 20
 
@@ -287,6 +292,8 @@ class Trainer:
                model: Predictor,
                data: TensorDict,
                affinity_tune: bool,
+               fape_tune: bool,
+               chi_tune: bool,
                fine_tune: bool,
     ) -> Tuple[TensorDict, Dict[str, torch.Tensor]]:
         """
@@ -311,7 +318,7 @@ class Trainer:
         output = model(data)
 
         # calculate losses
-        losses = get_loss(output, data, affinity_tune, fine_tune)
+        losses = get_loss(output, data, affinity_tune, fape_tune, chi_tune, fine_tune)
 
         # backward propagation
         loss = losses["total"]
@@ -331,6 +338,8 @@ class Trainer:
                model: Predictor,
                data_loader: DataLoader,
                affinity_tune: bool,
+               fape_tune: bool,
+               chi_tune: bool,
                fine_tune: bool,
                output_directory: Optional[str] = None,
                animated_data: Optional[Dict[str, torch.Tensor]] = None,
@@ -362,8 +371,9 @@ class Trainer:
             batch_loss, batch_output = self._batch(optimizer, model,
                                                    batch_data,
                                                    affinity_tune,
+                                                   fape_tune,
+                                                   chi_tune,
                                                    fine_tune)
-
             if output_directory is not None:
 
                 # make the snapshot, if requested
@@ -417,14 +427,17 @@ class Trainer:
                 batch_output = model(batch_data)
 
                 # calculate the losses, for monitoring only
-                batch_loss = get_loss(batch_output, batch_data, True, True)
+                batch_loss = get_loss(batch_output, batch_data, True, True, True, True)
 
                 # count the number of loss values
                 datapoint_count += batch_data['loop_aatype'].shape[0]
                 sum_of_losses += batch_loss['total'].item() * batch_data['loop_aatype'].shape[0]
 
                 if structure_builders_count > 0 and output_directory is not None:
-                    output_structures_to_directory(structure_builders_count, output_directory, batch_data, batch_output)
+                    output_structures_to_directory(structure_builders_count,
+                                                   output_directory,
+                                                   data_loader.dataset.name,
+                                                   batch_data, batch_output)
 
                 # Save to metrics
                 record.add_batch(batch_loss, batch_output, batch_data)
@@ -472,10 +485,17 @@ class Trainer:
         # load the pretrained model
         model.load_state_dict(torch.load(model_path,  map_location=self._device))
 
+        # make the snapshots
+        if animated_complex_ids is not None:
+            datasets = [loader.dataset for loader in test_loaders]
+            animated_data = self._get_selection_data_batch(datasets, animated_complex_ids)
+            self._snapshot("test", model, run_id, animated_data)
+
         for test_loader in test_loaders:
 
             # run the model to output results
-            self._validate(-1, model, test_loader, run_id, structure_builders_count)
+            with Timer(f"test on {test_loader.dataset.name}, {len(test_loader.dataset)} data points"):
+                self._validate(-1, model, test_loader, run_id, structure_builders_count)
 
     @staticmethod
     def _get_selection_data_batch(datasets: List[ProteinLoopDataset], names: List[str]) -> Dict[str, torch.Tensor]:
@@ -513,10 +533,12 @@ class Trainer:
               train_loader: DataLoader,
               valid_loader: DataLoader,
               test_loaders: List[DataLoader],
-              epoch_count: int, affinity_tune_count: int, fine_tune_count: int,
-              run_id: Optional[str] = None,
-              pretrained_model_path: Optional[str] = None,
-              animated_complex_ids: Optional[List[str]] = None,
+              epoch_count: int, fine_tune_count: int,
+              run_id: str,
+              pretrained_model_path: str,
+              animated_complex_ids: List[str],
+              disable_struct_loss: bool,
+              disable_ba_loss: bool,
     ):
         """
         Call this method for training a model
@@ -545,20 +567,7 @@ class Trainer:
             model.load_state_dict(torch.load(pretrained_model_path,
                                              map_location=self._device))
 
-        # set the trajectory for optimization.
-        # LR is reduced after a given number of epochs
-        def lr_lambda(epoch_index: int):
-            lr = self._lr
-            if epoch_index >= epoch_count:
-                lr *= 0.1
-
-            if epoch_index >= (epoch_count + affinity_tune_count):
-                lr *= 0.1
-
-            return lr
-
         optimizer = Adam(model.parameters(), lr=self._lr)
-        #scheduler = LambdaLR(optimizer, lr_lambda=lr_lambda)
 
         # define model paths
         model_path = f"{run_id}/best-predictor.pth"
@@ -577,19 +586,21 @@ class Trainer:
                            model,
                            run_id, animated_data)
 
+        fape_tune = not disable_struct_loss
+        chi_tune = not disable_struct_loss
+        affinity_tune = not disable_ba_loss
+
         # do the actual learning iteration
-        total_epochs = epoch_count + fine_tune_count + affinity_tune_count
+        total_epochs = epoch_count + fine_tune_count
         for epoch_index in range(total_epochs):
 
-            affinity_tune = epoch_index >= epoch_count
-
             # flip this setting after the given number of epochs
-            fine_tune = (epoch_index >= (epoch_count + affinity_tune_count))
+            fine_tune = (epoch_index >= epoch_count) and not disable_struct_loss
 
             # train during epoch
             with Timer(f"train epoch {epoch_index}") as t:
                 self._epoch(epoch_index, optimizer, model, train_loader,
-                            affinity_tune, fine_tune,
+                            affinity_tune, fape_tune, chi_tune, fine_tune,
                             run_id, animated_data)
                 t.add_to_title(f"on {len(train_loader.dataset)} data points")
 
@@ -605,23 +616,25 @@ class Trainer:
                     t.add_to_title(f"on {len(test_loader.dataset)} data points")
 
             # early stopping, if no more improvement
-            #if abs(valid_loss - lowest_loss) < self._early_stop_epsilon:
-            #    break
+            if abs(valid_loss - lowest_loss) < self._early_stop_epsilon:
+                if fine_tune:
+                    # end training
+                    break
+                else:
+                    # make fine tune start here
+                    epoch_count = epoch_index
 
-            # If the loss improves, save the model.
+            # If the validation loss improves, save the model.
             if valid_loss < lowest_loss:
                 lowest_loss = valid_loss
 
                 torch.save(model.state_dict(), model_path)
-            # else:
-            #    model.load_state_dict(torch.load(model_path))
-
-            #scheduler.step(epoch=epoch_index)
 
     def get_data_loader(self,
                         data_path: str,
                         batch_size: int,
                         device: torch.device,
+                        shuffle: Optional[bool] = True,
                         entry_ids: Optional[List[str]] = None) -> DataLoader:
         """
         Builds a data loader from a hdf5 dataset path.
@@ -642,7 +655,7 @@ class Trainer:
         loader = DataLoader(dataset,
                             collate_fn=ProteinLoopDataset.collate,
                             batch_size=batch_size,
-                            shuffle=True,
+                            shuffle=shuffle,
                             num_workers=self.workers_count)
 
         return loader
@@ -742,8 +755,11 @@ if __name__ == "__main__":
     trainer = Trainer(device, args.workers, args.lr, model_type)
 
     if args.test_only:
+        if args.pretrained_model is None:
+            raise ValueError("testing requires a pretrained model")
+
         # We do a test, no training
-        test_loaders = [trainer.get_data_loader(test_path, args.batch_size, device)
+        test_loaders = [trainer.get_data_loader(test_path, args.batch_size, device, shuffle=False)
                         for test_path in args.data_path]
         trainer.test(test_loaders, run_id, args.animate, args.pretrained_model, args.builders)
 
@@ -756,9 +772,9 @@ if __name__ == "__main__":
             _log.debug(f"validating on {valid_path}")
             _log.debug(f"testing on {args.data_path[2:]}")
 
-            train_loader = trainer.get_data_loader(train_path, args.batch_size, device)
-            valid_loader = trainer.get_data_loader(valid_path, args.batch_size, device)
-            test_loaders = [trainer.get_data_loader(test_path, args.batch_size, device)
+            train_loader = trainer.get_data_loader(train_path, args.batch_size, device, shuffle=True)
+            valid_loader = trainer.get_data_loader(valid_path, args.batch_size, device, shuffle=False)
+            test_loaders = [trainer.get_data_loader(test_path, args.batch_size, device, shuffle=False)
                             for test_path in args.data_path[2:]]
 
         elif len(args.data_path) == 2:
@@ -766,9 +782,9 @@ if __name__ == "__main__":
             # assume that the train and validation sets are one HDF5 file, the other is the test set
 
             train_entry_names, valid_entry_names = random_subdivision(get_entry_names(args.data_path[0]), 0.1)
-            train_loader = trainer.get_data_loader(args.data_path[0], args.batch_size, device, train_entry_names)
-            valid_loader = trainer.get_data_loader(args.data_path[0], args.batch_size, device, valid_entry_names)
-            test_loaders = [trainer.get_data_loader(args.data_path[1], args.batch_size, device)]
+            train_loader = trainer.get_data_loader(args.data_path[0], args.batch_size, device, train_entry_names, shuffle=True)
+            valid_loader = trainer.get_data_loader(args.data_path[0], args.batch_size, device, valid_entry_names, shuffle=False)
+            test_loaders = [trainer.get_data_loader(args.data_path[1], args.batch_size, device, shuffle=False)]
 
             _log.debug(f"training on {args.data_path[0]} subset")
             _log.debug(f"validating on {args.data_path[0]} subset")
@@ -790,12 +806,12 @@ if __name__ == "__main__":
 
             _log.debug(f"training, validating & testing on {args.data_path[0]} subsets")
 
-            train_loader = trainer.get_data_loader(args.data_path[0], args.batch_size, device, train_entry_names)
-            valid_loader = trainer.get_data_loader(args.data_path[0], args.batch_size, device, valid_entry_names)
-            test_loaders = [trainer.get_data_loader(args.data_path[0], args.batch_size, device, test_entry_names)]
+            train_loader = trainer.get_data_loader(args.data_path[0], args.batch_size, device, train_entry_names, shuffle=True)
+            valid_loader = trainer.get_data_loader(args.data_path[0], args.batch_size, device, valid_entry_names, shuffle=False)
+            test_loaders = [trainer.get_data_loader(args.data_path[0], args.batch_size, device, test_entry_names, shuffle=False)]
 
         # train with the composed datasets and user-provided settings
         trainer.train(train_loader, valid_loader, test_loaders,
-                      args.epoch_count, args.affinity_tune_count, args.fine_tune_count,
+                      args.epoch_count, args.fine_tune_count,
                       run_id, args.pretrained_model,
-                      args.animate)
+                      args.animate, args.disable_struct_loss, args.disable_ba_loss)
