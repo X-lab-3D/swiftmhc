@@ -14,9 +14,6 @@ _log = logging.getLogger(__name__)
 
 
 class DebuggableInvariantPointAttention(torch.nn.Module):
-    """
-    Implements Algorithm 22.
-    """
     def __init__(
         self,
         c_s: int,
@@ -25,7 +22,6 @@ class DebuggableInvariantPointAttention(torch.nn.Module):
         no_heads: int,
         no_qk_points: int,
         no_v_points: int,
-        protein_maxlen: int,
         inf: float = 1e5,
         eps: float = 1e-8,
     ):
@@ -52,7 +48,6 @@ class DebuggableInvariantPointAttention(torch.nn.Module):
         self.no_heads = no_heads
         self.no_qk_points = no_qk_points
         self.no_v_points = no_v_points
-        self.protein_maxlen = protein_maxlen
         self.inf = inf 
         self.eps = eps 
 
@@ -85,18 +80,16 @@ class DebuggableInvariantPointAttention(torch.nn.Module):
         _z_reference_list: Optional[Sequence[torch.Tensor]] = None,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
+        Performs Invariant Point attention on the residues within one sequence.
+
         Args:
-            s:
-                [*, N_res, C_s] single representation
-            z:
-                [*, N_res, N_res, C_z] pair representation
-            r:
-                [*, N_res] transformation object
-            mask:
-                [*, N_res] mask
+            s:      [*, N_res, C_s] single representation
+            z:      [*, N_res, N_res, C_z] pair representation
+            r:      [*, N_res] transformation object
+            mask:   [*, N_res] mask
         Returns:
-            [*, N_res, C_s] single representation update
-            [*, N_head, N_res, N_res] attention weights
+            [*, N_res, C_s] updated single representation
+            [*, H, N_res, N_res] attention weights
         """
         if(_offload_inference and inplace_safe):
             z = _z_reference_list
@@ -125,9 +118,6 @@ class DebuggableInvariantPointAttention(torch.nn.Module):
         # [*, N_res, N_res, H]
         b = self.linear_b(z[0])
 
-        _log.debug(f"mhc self attention: b_ij has values ranging from {b.min()} - {b.max()}")
-        _log.debug(f"mhc self attention: b_ij has distribution {b.mean()} +/- {b.std()}")
-
         if(_offload_inference):
             assert(sys.getrefcount(z[0]) == 2)
             z[0] = z[0].cpu()
@@ -152,13 +142,7 @@ class DebuggableInvariantPointAttention(torch.nn.Module):
 
         a *= math.sqrt(1.0 / (2 * self.c_hidden))
 
-        # animation
-        a_sd = a.clone() * general_att_mask
-
         a += (math.sqrt(1.0 / 2) * permute_final_dims(b, (2, 0, 1)))
-
-        # animation
-        a_b = math.sqrt(1.0 / 2) * permute_final_dims(b, (2, 0, 1)).clone() * general_att_mask
 
         if(inplace_safe):
             a += square_mask
@@ -171,9 +155,6 @@ class DebuggableInvariantPointAttention(torch.nn.Module):
         else:
             a = a + square_mask
             a = self.softmax(a)
-
-        _log.debug(f"mhc self attention: a ranges {a.min()} - {a.max()}")
-        _log.debug(f"mhc self attention: v ranges {v.min()} - {v.max()}")
 
         ################
         # Compute output
@@ -195,9 +176,6 @@ class DebuggableInvariantPointAttention(torch.nn.Module):
         # [*, N_res, H * C_z]
         o_pair = flatten_final_dims(o_pair, 2)
 
-        _log.debug(f"mhc self attention: o ranges {o.min()} - {o.max()}")
-        _log.debug(f"mhc self attention: o_pair ranges {o_pair.min()} - {o_pair.max()}")
-
         # [*, N_res, C_s]
         s = self.linear_out(
             torch.cat(
@@ -205,4 +183,4 @@ class DebuggableInvariantPointAttention(torch.nn.Module):
             ).to(dtype=z[0].dtype)
         )
 
-        return s, a.clone(), a_sd, a_b
+        return s, a.clone()

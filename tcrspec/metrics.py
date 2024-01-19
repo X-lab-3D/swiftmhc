@@ -10,7 +10,7 @@ from sklearn.metrics import roc_auc_score, matthews_corrcoef
 
 from .domain.amino_acid import amino_acids_by_one_hot_index
 from .models.data import TensorDict
-from .loss import get_calpha_rmsd, sum_within_loop_clashes_between_residues
+from .loss import get_calpha_rmsd, sum_within_peptide_clashes_between_residues
 
 
 def get_sequence(aatype: List[int], mask: List[bool]) -> str:
@@ -18,7 +18,7 @@ def get_sequence(aatype: List[int], mask: List[bool]) -> str:
     s = ""
     for i, b in enumerate(mask):
         if b:
-            s += amino_acids_by_one_hot_index[aatype[i]].one_letter_code
+            s += amino_acids_by_one_hot_index[int(aatype[i])].one_letter_code
 
     return s
 
@@ -55,8 +55,8 @@ class MetricsRecord:
         self._data_len = 0
         self._losses_sum = {}
         self._rmsds = {}
-        self._within_loop_clashes = {}
-        self._loop_sequences = {}
+        self._within_peptide_clashes = {}
+        self._peptide_sequences = {}
 
         self._id_order = []
         self._truth_data = {}
@@ -77,7 +77,7 @@ class MetricsRecord:
         """
 
         # count how many datapoints have passed
-        batch_size = truth["loop_aatype"].shape[0]
+        batch_size = truth["peptide_aatype"].shape[0]
         self._data_len += batch_size
 
         # memorize the order of the ids
@@ -94,7 +94,7 @@ class MetricsRecord:
         self._rmsds.update(get_calpha_rmsd(output, truth))
 
         # store the clashes per data point
-        self._within_loop_clashes.update(sum_within_loop_clashes_between_residues(output, truth))
+        self._within_peptide_clashes.update(sum_within_peptide_clashes_between_residues(output, truth))
 
         # store the affinity predictions and truth values per data point
         for key in ["affinity", "class", "classification"]:
@@ -116,21 +116,21 @@ class MetricsRecord:
                 else:
                     self._truth_data[key] += truth[key].cpu().tolist()
 
-        # store the loop sequences
-        loop_aatype = truth["loop_aatype"].cpu().tolist()
-        loop_mask = truth["loop_self_residues_mask"].cpu().tolist()
+        # store the peptide sequences
+        peptide_aatype = truth["peptide_aatype"].cpu().tolist()
+        peptide_mask = truth["peptide_self_residues_mask"].cpu().tolist()
         for i in range(batch_size):
             id_ = truth["ids"][i]
-            loop_sequence = get_sequence(loop_aatype[i], loop_mask[i])
-            self._loop_sequences[id_] = loop_sequence
+            peptide_sequence = get_sequence(peptide_aatype[i], peptide_mask[i])
+            self._peptide_sequences[id_] = peptide_sequence
 
-        # store the loop sequences
-        loop_aatype = truth["loop_aatype"].cpu().tolist()
-        loop_mask = truth["loop_self_residues_mask"].cpu().tolist()
+        # store the peptide sequences
+        peptide_aatype = truth["peptide_aatype"].cpu().tolist()
+        peptide_mask = truth["peptide_self_residues_mask"].cpu().tolist()
         for i in range(batch_size):
             id_ = truth["ids"][i]
-            loop_sequence = get_sequence(loop_aatype[i], loop_mask[i])
-            self._loop_sequences[id_] = loop_sequence
+            peptide_sequence = get_sequence(peptide_aatype[i], peptide_mask[i])
+            self._peptide_sequences[id_] = peptide_sequence
 
         self._batches_passed += 1
         if self._batches_passed % self.batch_write_interval == 0:
@@ -157,13 +157,13 @@ class MetricsRecord:
         sequence_order = []
         values = []
         ids = []
-        for id_, value in self._within_loop_clashes.items():
-            sequence_order.append(self._loop_sequences[id_])
+        for id_, value in self._within_peptide_clashes.items():
+            sequence_order.append(self._peptide_sequences[id_])
             values.append(value)
             ids.append(id_)
 
         # create table
-        table_dict = {"ID": ids, "loop": sequence_order, "clashes within loop": values}
+        table_dict = {"ID": ids, "peptide": sequence_order, "clashes within peptide": values}
         table = pandas.DataFrame(table_dict)
 
         # save to file
@@ -178,12 +178,12 @@ class MetricsRecord:
         rmsds = []
         ids = []
         for id_, rmsd in self._rmsds.items():
-            sequence_order.append(self._loop_sequences[id_])
+            sequence_order.append(self._peptide_sequences[id_])
             rmsds.append(rmsd)
             ids.append(id_)
 
         # create a table
-        table_dict = {"ID": ids, "loop": sequence_order, "RMSD(Å)": rmsds}
+        table_dict = {"ID": ids, "peptide": sequence_order, "RMSD(Å)": rmsds}
         table = pandas.DataFrame(table_dict)
 
         # save to file
@@ -195,9 +195,9 @@ class MetricsRecord:
 
         sequence_order = []
         for id_ in self._id_order:
-            sequence_order.append(self._loop_sequences[id_])
+            sequence_order.append(self._peptide_sequences[id_])
 
-        table_dict = {"ID": self._id_order, "loop": sequence_order}
+        table_dict = {"ID": self._id_order, "peptide": sequence_order}
 
         for key in ["affinity", "class", "classification"]:
             if key in self._truth_data:

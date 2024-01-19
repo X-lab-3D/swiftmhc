@@ -32,7 +32,7 @@ _log = logging.getLogger(__name__)
 
 class Predictor(torch.nn.Module):
     def __init__(self,
-                 loop_maxlen: int,
+                 peptide_maxlen: int,
                  protein_maxlen: int,
                  model_type: ModelType,
                  config: ml_collections.ConfigDict):
@@ -44,17 +44,17 @@ class Predictor(torch.nn.Module):
         structure_module_config.no_blocks = 2
         structure_module_config.no_heads_ipa = 2
 
-        self.loop_maxlen = loop_maxlen
+        self.peptide_maxlen = peptide_maxlen
         self.protein_maxlen = protein_maxlen
 
         self.n_head = structure_module_config.no_heads_ipa
 
         self.transform = torch.nn.ModuleList([
-            RelativePositionEncoder(self.n_head, self.loop_maxlen, structure_module_config.c_s)
+            RelativePositionEncoder(self.n_head, self.peptide_maxlen, structure_module_config.c_s)
             for _ in range(structure_module_config.no_blocks)
         ])
 
-        self.loop_norm = torch.nn.Sequential(
+        self.peptide_norm = torch.nn.Sequential(
             torch.nn.Dropout(p=structure_module_config.dropout_rate),
             LayerNorm(structure_module_config.c_s)
         )
@@ -63,13 +63,14 @@ class Predictor(torch.nn.Module):
 
         self.protein_dist_norm = torch.nn.LayerNorm((self.protein_maxlen, self.protein_maxlen, 1))
 
-        self.protein_ipa = IPA(structure_module_config.c_s,
-                               structure_module_config.c_z,
-                               structure_module_config.c_ipa,
-                               structure_module_config.no_heads_ipa,
-                               structure_module_config.no_qk_points,
-                               structure_module_config.no_v_points,
-                               self.protein_maxlen)
+        self.protein_ipa = IPA(
+            structure_module_config.c_s,
+            structure_module_config.c_z,
+            structure_module_config.c_ipa,
+            structure_module_config.no_heads_ipa,
+            structure_module_config.no_qk_points,
+            structure_module_config.no_v_points
+        )
         self.protein_ipa.inf = structure_module_config.inf
 
         self.protein_norm = torch.nn.Sequential(
@@ -87,7 +88,7 @@ class Predictor(torch.nn.Module):
             torch.nn.Tanh(),
         )
 
-        self.loop_feature = torch.nn.Sequential(
+        self.peptide_feature = torch.nn.Sequential(
             torch.nn.Linear(structure_module_config.c_s, c_interaction, bias=False),
             torch.nn.Tanh(),
         )
@@ -111,36 +112,36 @@ class Predictor(torch.nn.Module):
     def score_interactions(
         self,
         a: torch.Tensor,
-        s_loop: torch.Tensor,
+        s_peptide: torch.Tensor,
         s_protein: torch.Tensor,
-        mask_loop: torch.Tensor,
+        mask_peptide: torch.Tensor,
         mask_protein: torch.Tensor,
     ) -> torch.Tensor:
 
-        batch_size, loop_maxlen, _ = s_loop.shape
+        batch_size, peptide_maxlen, _ = s_peptide.shape
         protein_maxlen = s_protein.shape[1]
 
-        # [*, loop_maxlen, c] ranges (-1 - 1)
-        f_loop = self.loop_feature(s_loop) * mask_loop.unsqueeze(-1)
+        # [*, peptide_maxlen, c] ranges (-1 - 1)
+        f_peptide = self.peptide_feature(s_peptide) * mask_peptide.unsqueeze(-1)
 
         # [*, protein_maxlen, c] ranges (-1 - 1)
         f_protein = self.protein_feature(s_protein) * mask_protein.unsqueeze(-1)
 
-        c = f_loop.shape[-1]
+        c = f_peptide.shape[-1]
 
-        # [*, loop_maxlen, protein_maxlen, c]
-        ff = f_loop.unsqueeze(-2) * f_protein.unsqueeze(-3)
+        # [*, peptide_maxlen, protein_maxlen, c]
+        ff = f_peptide.unsqueeze(-2) * f_protein.unsqueeze(-3)
 
-        # [*, n_block * n_head, loop_maxlen, protein_maxlen]
-        w = a.reshape(batch_size, -1, loop_maxlen, protein_maxlen)
+        # [*, n_block * n_head, peptide_maxlen, protein_maxlen]
+        w = a.reshape(batch_size, -1, peptide_maxlen, protein_maxlen)
 
-        # [*, loop_maxlen, protein_maxlen, n_block * n_head]
+        # [*, peptide_maxlen, protein_maxlen, n_block * n_head]
         w = w.transpose(-3, -2).transpose(-2, -1)
 
-        # [*, loop_maxlen, protein_maxlen, 1]
+        # [*, peptide_maxlen, protein_maxlen, 1]
         w = self.head_weight(w)
 
-        # [*, loop_maxlen, protein_maxlen, c]
+        # [*, peptide_maxlen, protein_maxlen, c]
         wff = w * ff / sqrt(c)
 
         # [*, output_size]
@@ -149,106 +150,108 @@ class Predictor(torch.nn.Module):
         return p
 
 
-    def forward(self, batch: TensorDict) -> TensorDict:
+    def forward(self, batch: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
         """
-            Returns:
-                single:               [batch_size, loop_len, c_s]
-                aatype:               [batch_size, loop_len]  (int)
-                affinity:             [batch_size]
+        Args:
+            peptide_aatype:                 [*, peptide_maxlen] (int, 0 - 19)
+            peptide_sequence_onehot:        [*, peptide_maxlen, c_s]
+            peptide_self_residues_mask:     [*, peptide_maxlen]
+            peptide_cross_residue_mask:     [*, peptide_maxlen]
+            protein_sequence_onehot:        [*, protein_maxlen, c_s]
+            protein_self_residues_mask:     [*, protein_maxlen]
+            protein_cross_residues_mask:    [*, protein_maxlen]
+            protein_backbone_rigid_tensor:  [*, protein_maxlen, 4, 4]
+            protein_proximities:            [*, protein_maxlen, protein_maxlen, 1]
 
-                frames:               [n_blocks, batch_size, loop_len, 4, 4]
-                sidechain_frames:     [n_blocks, batch_size, loop_len, 8, 4, 4]
-                unnormalized_angles:  [n_blocks, batch_size, loop_len, 7, 2]
-                angles:               [n_blocks, batch_size, loop_len, 7, 2]
-                positions:            [n_blocks, batch_size, loop_len, 14, 3]
-                states:               [n_blocks, batch_size, loop_len, c_s]
+        Returns:
+            single:                     [*, peptide_maxlen, c_s]
+            final_frames:               [*, peptide_maxlen, 7]
+            final_sidechain_frames:     [*, peptide_maxlen, 7, 4, 4]
+            final_angles:               [*, peptide_maxlen, 7, 2] (cos(a), sin(a))
+            final_unnormalized_angles:  [*, peptide_maxlen, 7, 2] (cos(a), sin(a))
+            final_positions:            [*, peptide_maxlen, 14, 3]
+            atom14_atom_exists:         [*, peptide_maxlen, 14]
+            final_atom_positions:       [*, peptide_maxlen, 37, 3]
+            atom37_atom_exists:         [*, peptide_maxlen, 37]
+            affinity:                   [*] (for regression only)
+            classification:             [*, 2] (for classification only)
+            class:                      [*] (0 / 1, for classification only)
         """
 
-        # [batch_size, loop_len, c_s]
-        loop_seq = batch["loop_sequence_onehot"]
-        # initial_loop_seq = loop_seq.clone()
-        batch_size, loop_maxlen, loop_depth = loop_seq.shape
+        # [*, peptide_maxlen, c_s]
+        peptide_seq = batch["peptide_sequence_onehot"]
+        batch_size, peptide_maxlen, peptide_depth = peptide_seq.shape
 
-        # transform the loop
-        loop_embd = loop_seq.clone()
+        # transform the peptide
+        peptide_embd = peptide_seq.clone()
         for encoder in self.transform:
-            loop_upd, loop_att = encoder(loop_embd, batch["loop_self_residues_mask"])
-            loop_embd = self.loop_norm(loop_embd + loop_upd)
+            peptide_upd, peptide_att = encoder(peptide_embd, batch["peptide_self_residues_mask"])
+            peptide_embd = self.peptide_norm(peptide_embd + peptide_upd)
 
         # structure-based self-attention on the protein
         protein_T = Rigid.from_tensor_4x4(batch["protein_backbone_rigid_tensor"])
 
-        # [batch_size, protein_len, c_s]
+        # [*, protein_maxlen, c_s]
         protein_embd = batch["protein_sequence_onehot"]
         protein_norm_prox = self.protein_dist_norm(batch["protein_proximities"])
 
         protein_as = []
-        protein_as_sd = []
-        protein_as_b = []
         for _ in range(self.n_ipa_repeat):
-            protein_upd, protein_a, protein_a_sd, protein_a_b = self.protein_ipa(protein_embd,
-                                                                                  protein_norm_prox,
-                                                                                  protein_T,
-                                                                                  batch["protein_self_residues_mask"].float())
+            protein_upd, protein_a = self.protein_ipa(protein_embd,
+                                                      protein_norm_prox,
+                                                      protein_T,
+                                                      batch["protein_self_residues_mask"].float())
             protein_as.append(protein_a.clone().detach())
-            protein_as_sd.append(protein_a_sd.detach())
-            protein_as_b.append(protein_a_b.detach())
             protein_embd =  self.protein_norm(protein_embd + protein_upd)
 
         # store the attention weights, for debugging
-        # [batch_size, n_block, n_head, protein_len, protein_len]
+        # [*, n_block, H, protein_maxlen, protein_maxlen]
         protein_as = torch.stack(protein_as).transpose(0, 1)
-        protein_as_sd = torch.stack(protein_as_sd).transpose(0, 1)
-        protein_as_b = torch.stack(protein_as_b).transpose(0, 1)
 
-        # cross attention and loop structure prediction
-        output = self.cross(batch["loop_aatype"],
-                            loop_embd,
-                            batch["loop_cross_residues_mask"],
+        # cross attention and peptide structure prediction
+        output = self.cross(batch["peptide_aatype"],
+                            peptide_embd,
+                            batch["peptide_cross_residues_mask"],
                             protein_embd,
                             batch["protein_cross_residues_mask"],
                             protein_T)
 
         output["protein_self_attention"] = protein_as
-        output["protein_self_attention_sd"] = protein_as_sd
-        output["protein_self_attention_b"] = protein_as_b
 
         # amino acid sequence: [1, 0, 2, ... ] meaning : Ala, Met, Cys
-        # [batch_size, loop_len]
-        output["aatype"] = batch["loop_aatype"]
+        # [*, peptide_maxlen]
+        output["aatype"] = batch["peptide_aatype"]
 
         # whether the heavy atoms exists or not
-        # for each loop residue
-        # [batch_size, loop_len, 14] (true or false)
+        # for each peptide residue
         output = make_atom14_masks(output)
 
-        # adding hydrogens:
-        # [batch_size, loop_len, 37, 3]
+        # converting 14-atom format to 37-atom format:
+        # [*, peptide_maxlen, 37, 3]
         output["final_atom_positions"] = atom14_to_atom37(output["final_positions"], output)
 
-        #loop_embd = self.affinity_norm(loop_embd + output["single"])
-        loop_embd = output["single"]
+        peptide_embd = output["single"]
 
         # [*, n_interactions, c_s]
         p = self.score_interactions(
             output["cross_ipa_att"],
-            loop_embd,
+            peptide_embd,
             protein_embd,
-            batch["loop_cross_residues_mask"],
+            batch["peptide_cross_residues_mask"],
             batch["protein_cross_residues_mask"],
         )
 
         # affinity prediction
         if self.model_type == ModelType.REGRESSION:
-            # [batch_size]
+            # [*]
             output["affinity"] = p.reshape(batch_size)
 
         elif self.model_type == ModelType.CLASSIFICATION:
 
-            # [batch_size, 2]
+            # [*, 2]
             output["classification"] = p
 
-            # [batch_size]
+            # [*]
             output["class"] = torch.argmax(output["classification"], dim=1)
 
         return output
