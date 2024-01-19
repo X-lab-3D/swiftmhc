@@ -94,13 +94,13 @@ class CrossStructureModule(torch.nn.Module):
         # self.atom_mask
         # self.lit_positions
 
-        self.layer_norm_s_loop = LayerNorm(self.c_s)
+        self.layer_norm_s_peptide = LayerNorm(self.c_s)
         self.layer_norm_s_protein = LayerNorm(self.c_s)
 
-        self.linear_in_loop = Linear(self.c_s, self.c_s)
+        self.linear_in_peptide = Linear(self.c_s, self.c_s)
         self.linear_in_protein = Linear(self.c_s, self.c_s)
 
-        self.loop_ipa = CrossInvariantPointAttention(
+        self.peptide_ipa = CrossInvariantPointAttention(
             self.c_s,
             self.c_ipa,
             self.no_heads_ipa,
@@ -108,11 +108,11 @@ class CrossStructureModule(torch.nn.Module):
             self.no_v_points,
             eps=self.epsilon,
         )
-        self.loop_ipa_dropout = torch.nn.Dropout(self.dropout_rate)
-        self.loop_layer_norm_ipa = LayerNorm(self.c_s)
-        self.loop_transition = StructureModuleTransition(self.c_s,
-                                                         self.n_transition_layers,
-                                                         self.dropout_rate)
+        self.peptide_ipa_dropout = torch.nn.Dropout(self.dropout_rate)
+        self.peptide_layer_norm_ipa = LayerNorm(self.c_s)
+        self.peptide_transition = StructureModuleTransition(self.c_s,
+                                                            self.n_transition_layers,
+                                                            self.dropout_rate)
 
         self.bb_update = BackboneUpdate(self.c_s)
 
@@ -126,9 +126,9 @@ class CrossStructureModule(torch.nn.Module):
 
     def forward(
         self,
-        loop_aatype: torch.Tensor,
-        s_loop_initial: torch.Tensor,
-        loop_mask: torch.Tensor,
+        peptide_aatype: torch.Tensor,
+        s_peptide_initial: torch.Tensor,
+        peptide_mask: torch.Tensor,
         s_protein_initial: torch.Tensor,
         protein_mask: torch.Tensor,
         T_protein: Rigid
@@ -136,48 +136,44 @@ class CrossStructureModule(torch.nn.Module):
     ) -> Dict[str, torch.Tensor]:
         """
         Args:
-            loop_aatype:       [batch_size, loop_len]
-            s_loop_initial:    [batch_size, loop_len, c_s]
-            loop_mask:         [batch_size, loop_len]
-            s_protein_initial: [batch_size, protein_len, c_s]
-            protein_mask:      [batch_size, protein_len]
-            T_protein:         [batch_size, protein_len, 4, 4]
+            peptide_aatype:         [*, peptide_maxlen] (0 - 19)
+            s_peptide_initial:      [*, peptide_maxlen, c_s]
+            peptide_mask:           [*, peptide_maxlen]
+            s_protein_initial:      [*, protein_maxlen, c_s]
+            protein_mask:           [*, protein_maxlen]
+            T_protein:              [*, protein_maxlen, 4, 4]
         Returns:
-            frames:              [n_blocks, batch_size, loop_len, 4, 4]
-            sidechain_frames:    [n_blocks, batch_size, loop_len, 4, 4]
-            unnormalized_angles: [n_blocks, batch_size, loop_len, 7, 2]
-            angles:              [n_blocks, batch_size, loop_len, 7, 2]
-            positions:           [n_blocks, batch_size, loop_len, 18, 3]
-            states:              [n_blocks, batch_size, loop_len, c_s]
-            single:           [batch_size, loop_len, c_s]
+            frames:                 [*, peptide_maxlen, 4, 4]
+            sidechain_frames:       [*, peptide_maxlen, 4, 4]
+            unnormalized_angles:    [*, peptide_maxlen, 7, 2]
+            angles:                 [*, peptide_maxlen, 7, 2]
+            positions:              [*, peptide_maxlen, 18, 3]
+            states:                 [*, peptide_maxlen, c_s]
+            single:                 [*, peptide_maxlen, c_s]
+            cross_ipa_att:          [*, n_block, H, peptide_maxlen, protein_maxlen]
         """
 
-        batch_size, loop_maxlen, embd_depth = s_loop_initial.shape
+        batch_size, peptide_maxlen, embd_depth = s_peptide_initial.shape
 
-        s_loop = torch.clone(s_loop_initial)
+        # [*, peptide_maxlen, c_s]
+        s_peptide_initial = self.layer_norm_s_peptide(s_peptide_initial)
+
+        # [*, protein_maxlen, c_s]
+        s_protein_initial = self.layer_norm_s_protein(s_protein_initial)
+
+        # [*, peptide_maxlen, c_s]
+        s_peptide = torch.clone(s_peptide_initial)
+        s_peptide = self.linear_in_peptide(s_peptide)
+
+        # [*, protein_maxlen, c_s]
         s_protein = torch.clone(s_protein_initial)
-
-        # [batch_size, loop_len, c_s]
-        s_loop = self.layer_norm_s_loop(s_loop)
-
-        # [batch_size, protein_len, c_s]
-        s_protein = self.layer_norm_s_protein(s_protein)
-
-        _log.debug(f"cross block: normalized s_protein ranges {s_protein.min()} - {s_protein.max()}")
-
-        # [batch_size, loop_len, c_s]
-        s_loop_initial = torch.clone(s_loop)
-        s_loop = self.linear_in_loop(s_loop)
-
-        # [batch_size, protein_len, c_s]
-        s_protein_initial = torch.clone(s_protein)
         s_protein = self.linear_in_protein(s_protein)
 
-        # [batch_size, loop_maxlen]
-        T_loop = Rigid.identity(
-            s_loop.shape[:-1],
-            s_loop.dtype,
-            s_loop.device,
+        # [*, peptide_maxlen]
+        T_peptide = Rigid.identity(
+            s_peptide.shape[:-1],
+            s_peptide.dtype,
+            s_peptide.device,
             self.training,
             fmt="quat",
         )
@@ -186,16 +182,15 @@ class CrossStructureModule(torch.nn.Module):
         for i in range(self.n_blocks):
 
             preds = self._block(
-                s_loop_initial,
-                loop_aatype,
-                s_loop, s_protein,
-                T_loop, T_protein,
-                loop_mask, protein_mask,
+                s_peptide_initial,
+                peptide_aatype,
+                s_peptide, s_protein,
+                T_peptide, T_protein,
+                peptide_mask, protein_mask,
             )
 
-            s_loop = preds["states"]
-
-            T_loop = Rigid.from_tensor_7(preds["unscaled_frames"])
+            s_peptide = preds["states"]
+            T_peptide = Rigid.from_tensor_7(preds["unscaled_frames"])
 
             outputs.append(preds)
 
@@ -213,72 +208,72 @@ class CrossStructureModule(torch.nn.Module):
         return r
 
     def _block(self,
-               s_loop_initial: torch.Tensor,
-               loop_aatype: torch.Tensor,
-               s_loop: torch.Tensor,
+               s_peptide_initial: torch.Tensor,
+               peptide_aatype: torch.Tensor,
+               s_peptide: torch.Tensor,
                s_protein: torch.Tensor,
-               T_loop: Rigid,
+               T_peptide: Rigid,
                T_protein: Rigid,
-               loop_mask: torch.Tensor,
+               peptide_mask: torch.Tensor,
                protein_mask: torch.Tensor) -> Dict[str, torch.Tensor]:
 
-        # [batch_size, loop_len, c_s]
-        s_upd, ipa_att, ipa_att_sd, ipa_att_pts = self.loop_ipa(
-            s_loop, s_protein,
-            T_loop, T_protein,
-            loop_mask, protein_mask,
+        # [*, peptide_maxlen, c_s]
+        s_upd, ipa_att = self.peptide_ipa(
+            s_peptide, s_protein,
+            T_peptide, T_protein,
+            peptide_mask, protein_mask,
         )
-        s_loop = s_loop + s_upd
-        s_loop = self.loop_ipa_dropout(s_loop)
-        s_loop = self.loop_layer_norm_ipa(s_loop)
-        s_loop = self.loop_transition(s_loop)
+        s_peptide = s_peptide + s_upd
+        s_peptide = self.peptide_ipa_dropout(s_peptide)
+        s_peptide = self.peptide_layer_norm_ipa(s_peptide)
+        s_peptide = self.peptide_transition(s_peptide)
 
-        # [batch_size, loop_len]
-        T_loop = T_loop.compose_q_update_vec(self.bb_update(s_loop))
+        # [*, peptide_maxlen]
+        T_peptide = T_peptide.compose_q_update_vec(self.bb_update(s_peptide))
 
-        # To hew as closely as possible to AlphaFold, we convert our
+        # openfold: To hew as closely as possible to AlphaFold, we convert our
         # quaternion-based transformations to rotation-matrix ones
         # here
         backb_to_global = Rigid(
             Rotation(
-                rot_mats=T_loop.get_rots().get_rot_mats(), 
+                rot_mats=T_peptide.get_rots().get_rot_mats(), 
                 quats=None
             ),
-            T_loop.get_trans(),
+            T_peptide.get_trans(),
         )
 
         backb_to_global = backb_to_global.scale_translation(self.trans_scale_factor)
 
-        # [batch_size, loop_len, 7, 2]
-        unnormalized_angles, angles = self.angle_resnet(s_loop, s_loop_initial)
+        # [*, peptide_len, 7, 2]
+        unnormalized_angles, angles = self.angle_resnet(s_peptide, s_peptide_initial)
 
         # Calculate frames for side chains
         all_frames_to_global = self.torsion_angles_to_frames(
             backb_to_global,
             angles,
-            loop_aatype,
+            peptide_aatype,
         )
 
         # Compute all atom coordinates, from torsions
         pred_xyz = self.frames_and_literature_positions_to_atom14_pos(
             all_frames_to_global,
-            loop_aatype,
+            peptide_aatype,
         )
 
-        scaled_T_loop = T_loop.scale_translation(self.trans_scale_factor)
+        scaled_T_peptide = T_peptide.scale_translation(self.trans_scale_factor)
 
         preds = {
             "cross_ipa_att": ipa_att,
-            "unscaled_frames": T_loop.to_tensor_7(),
-            "frames": scaled_T_loop.to_tensor_7(),
+            "unscaled_frames": T_peptide.to_tensor_7(),
+            "frames": scaled_T_peptide.to_tensor_7(),
             "sidechain_frames": all_frames_to_global.to_tensor_4x4(),
             "unnormalized_angles": unnormalized_angles,
             "angles": angles,
             "positions": pred_xyz,
-            "states": s_loop,
+            "states": s_peptide,
         }
 
-        T_loop = T_loop.stop_rot_gradient()
+        T_peptide = T_peptide.stop_rot_gradient()
 
         return preds
 

@@ -1,83 +1,80 @@
+from typing import List
 import logging
-import random
 import os
 import csv
 from tempfile import mkdtemp
 from shutil import rmtree
+import random
 
 import torch
 
-from tcrspec.domain.amino_acid import amino_acids, amino_acids_by_name, AMINO_ACID_DIMENSION
-from tcrspec.predictor import Predictor, _residue_weights_to_tables
+from openfold.config import config as openfold_config
+from openfold.utils.feats import atom14_to_atom37
+from openfold.np import residue_constants as rc
+
+from tcrspec.modules.predictor import Predictor
+from tcrspec.models.types import ModelType
+from tcrspec.loss import get_loss
 
 
 _log = logging.getLogger(__name__)
 
 
+def random_mask(maxlen: int) -> List[bool]:
+    length = random.randrange(maxlen)
+    diff = maxlen - length
 
-def test_residue_weights_to_tables():
+    return [True] * length + [False] * diff
 
-    n_complexes = 10
-    n_pmhc_residues = 100
-    n_cdr_residues = 20
-    n_head = 8
-
-    pmhc_sequence = torch.stack([torch.stack([random.choice(amino_acids).one_hot_code for _ in range(n_pmhc_residues)])
-                                 for __ in range(n_complexes)])
-    cdr_sequence = torch.stack([torch.stack([random.choice(amino_acids).one_hot_code for _ in range(n_cdr_residues)])
-                                for __ in range(n_complexes)])
-
-    weights = torch.rand(n_complexes, n_pmhc_residues, n_cdr_residues, n_head)
-
-    directory_path = mkdtemp()
-
-    allowed_names = list(amino_acids_by_name.keys())
-
-    try:
-        _residue_weights_to_tables(f"{directory_path}/test", pmhc_sequence, cdr_sequence, weights)
-
-        file_name = os.listdir(directory_path)[0]
-
-        file_path = os.path.join(directory_path, file_name)
-
-        with open(file_path, 'rt') as f:
-            r = csv.reader(f)
-
-            header = next(r)
-
-            for name in header[1:]:
-                assert name in allowed_names, f"header does not match format: {header}"
-
-            for row in r:
-
-                name = row[0]
-                assert name in allowed_names, f"row does not match format: {row}"
-
-                for weights in row[1:]:
-                    for weight in weights.split():
-                        weight = float(weight)
-                        assert weight >= 0.0 and weight <= 1.0, f"unexpected weight value {weight}"
-    finally:
-        rmtree(directory_path)
 
 
 def test_predictor():
 
     n_complexes = 10
-    n_pmhc_residues = 100
-    n_cdr_residues = 20
-    n_sequence_channels = AMINO_ACID_DIMENSION
-    n_head = 8
-    n_classes = 2
+    peptide_maxlen = 16
+    protein_maxlen = 200
 
-    module = Predictor(n_pmhc_residues, n_cdr_residues, n_head)
+    data = {
+        "peptide_sequence_onehot": torch.rand(n_complexes, peptide_maxlen, 32),
+        "peptide_self_residues_mask": torch.tensor([random_mask(peptide_maxlen) for __ in range(n_complexes)]),
+        "peptide_cross_residues_mask": torch.tensor([random_mask(peptide_maxlen) for __ in range(n_complexes)]),
+        "peptide_aatype": torch.tensor([[random.randrange(20) for _ in range(peptide_maxlen)] for __ in range(n_complexes)]),
+        "peptide_torsion_angles_mask": torch.tensor([[[bool(random.randrange(2)) for ___ in range(7) ] for _ in range(peptide_maxlen)] for __ in range(n_complexes)]),
+        "peptide_torsion_angles_sin_cos": torch.rand(n_complexes, peptide_maxlen, 7, 2),
+        "peptide_backbone_rigid_tensor": torch.rand(n_complexes, peptide_maxlen, 4, 4),
+        "peptide_atom14_gt_positions": torch.rand(n_complexes, peptide_maxlen, 14, 3),
+        "peptide_atom14_alt_gt_positions": torch.rand(n_complexes, peptide_maxlen, 14, 3),
+        "peptide_atom14_gt_exists": torch.tensor([[[bool(random.randrange(2)) for ___ in range(14) ] for _ in range(peptide_maxlen)] for __ in range(n_complexes)]),
+        "peptide_all_atom_positions": torch.rand(n_complexes, peptide_maxlen, 37, 3),
+        "peptide_all_atom_mask": torch.tensor([[[bool(random.randrange(2)) for ___ in range(37) ] for _ in range(peptide_maxlen)] for __ in range(n_complexes)]),
+        "peptide_residue_index": torch.tensor([range(peptide_maxlen) for __ in range(n_complexes)]),
 
-    pmhc_sequences = torch.rand(n_complexes, n_pmhc_residues, n_sequence_channels)
-    cdr_sequences = torch.rand(n_complexes, n_cdr_residues, n_sequence_channels)
+        "protein_sequence_onehot": torch.rand(n_complexes, protein_maxlen, 32),
+        "protein_cross_residues_mask": torch.tensor([random_mask(protein_maxlen) for __ in range(n_complexes)]),
+        "protein_self_residues_mask": torch.tensor([random_mask(protein_maxlen) for __ in range(n_complexes)]),
+        "protein_backbone_rigid_tensor": torch.rand(n_complexes, protein_maxlen, 4, 4),
+        "protein_proximities": torch.rand(n_complexes, protein_maxlen, protein_maxlen, 1),
+        "protein_aatype": torch.tensor([[random.randrange(20) for _ in range(protein_maxlen)] for __ in range(n_complexes)]),
+        "protein_atom14_gt_positions": torch.rand(n_complexes, protein_maxlen, 14, 3),
+        "protein_atom14_gt_exists": torch.tensor([[[bool(random.randrange(2)) for ___ in range(14) ] for _ in range(protein_maxlen)] for __ in range(n_complexes)]),
+        "protein_all_atom_positions": torch.rand(n_complexes, protein_maxlen, 37, 3),
+        "protein_all_atom_mask": torch.tensor([[[bool(random.randrange(2)) for ___ in range(37) ] for _ in range(protein_maxlen)] for __ in range(n_complexes)]),
+        "protein_residue_index": torch.tensor([range(protein_maxlen) for __ in range(n_complexes)]),
 
-    phmc_transformations = torch.rand(n_complexes, n_pmhc_residues, 3, 4)
+        "class": torch.tensor([random.randrange(2) for __ in range(n_complexes)]),
+    }
+    restype_atom14_to_atom37 = []
+    for rt in rc.restypes:
+        atom_names = rc.restype_name_to_atom14_names[rc.restype_1to3[rt]]
+        restype_atom14_to_atom37.append([(rc.atom_order[name] if name else 0) for name in atom_names])
 
-    predictions = module(cdr_sequences, pmhc_sequences, phmc_transformations,
-                         create_weight_tables=True)
+    data["peptide_residx_atom14_to_atom37"] = torch.tensor(restype_atom14_to_atom37)[data["peptide_aatype"]]
+    data["protein_residx_atom14_to_atom37"] = torch.tensor(restype_atom14_to_atom37)[data["protein_aatype"]]
 
-    assert predictions.shape[0] == n_complexes
+    model = Predictor(peptide_maxlen, protein_maxlen, ModelType.CLASSIFICATION, openfold_config.model)
+
+    output = model(data)
+
+    losses = get_loss(output, data, True, True, True, True)
+
+    assert "total" in losses

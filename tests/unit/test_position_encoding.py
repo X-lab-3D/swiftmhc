@@ -1,21 +1,29 @@
 import torch
 
-from tcrspec.modules.position_encoding import PositionalEncoding, get_onehot_positions
+import random
+
+from tcrspec.modules.position_encoding import RelativePositionEncoder
 
 
 def test_positional_encoding():
-    length = 16
-    depth = 64
-    batch_size = 32
 
-    encoder = PositionalEncoding(depth, length)
+    batch_size = 10
+    maxlen = 16
 
-    z = torch.zeros(batch_size, length, depth)
+    encoder = RelativePositionEncoder(2, maxlen, 32)
 
-    encoded = encoder(z)
+    l=12
 
-    for batch_index in range(batch_size):
+    masks = torch.tensor([[i < l for i in range(maxlen)] for _ in range(batch_size)])
 
-        for pos in range(1, length):
+    codes = encoder.relpos(masks)
 
-            assert torch.any(encoded[batch_index, pos - 1] != encoded[batch_index, pos]), f"at batch {batch_index}: position encoded {pos - 1} same as {pos}"
+    for j in range(batch_size):
+
+        code = codes[j]
+
+        assert torch.all(code[0, 0] == code[5, 5])
+        assert torch.all(code[0, 1] == code[5, 6])
+        assert torch.all(code[1, 0] == code[6, 5])
+
+        assert torch.any(code[0, 10] != code[2, 5])

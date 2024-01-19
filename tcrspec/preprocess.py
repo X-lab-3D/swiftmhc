@@ -43,7 +43,7 @@ _log = logging.getLogger(__name__)
 PREPROCESS_KD_NAME = "kd"
 PREPROCESS_CLASS_NAME = "class"
 PREPROCESS_PROTEIN_NAME = "protein"
-PREPROCESS_PEPTIDE_NAME = "loop"  # we initially stored data under 'loop', keep this for backward compatibility
+PREPROCESS_PEPTIDE_NAME = "peptide"
 
 
 def _write_preprocessed_data(hdf5_path: str, storage_id: str,
@@ -466,6 +466,7 @@ def _get_masked_structure(
         f.write(model_bytes)
 
     if len(list(pdb_parser.get_structure("model",model_path).get_residues())) == 0:
+        os.remove(model_path)
         raise ValueError(f"no residues in {model_path}")
 
     # superpose with pymol

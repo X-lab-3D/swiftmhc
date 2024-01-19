@@ -7,11 +7,18 @@ import torch
 import numpy
 import pandas
 
+from openfold.np import residue_constants as rc
+
 from tcrspec.metrics import MetricsRecord
 from tcrspec.loss import get_calpha_rmsd
 
 
 def test_metrics():
+
+    restype_atom14_to_atom37 = []
+    for rt in rc.restypes:
+        atom_names = rc.restype_name_to_atom14_names[rc.restype_1to3[rt]]
+        restype_atom14_to_atom37.append([(rc.atom_order[name] if name else 0) for name in atom_names])
 
     pass_name = "unit"
     batch_size = 4
@@ -39,12 +46,18 @@ def test_metrics():
         })
         pred_datas[-1]["class"] = torch.argmax(pred_datas[-1]["classification"], dim=1)
 
+        aatype = (torch.rand(batch_size, 9) * 20).int()
+
         batch_datas.append({
             "ids": ids,
             "class": torch.rand(batch_size) > 0.5,
-            "loop_atom14_gt_positions": true_coord,
-            "loop_cross_residues_mask": mask,
-            "loop_aatype": (torch.rand(batch_size, 9) * 20).int(),
+            "peptide_atom14_gt_positions": true_coord,
+            "peptide_atom14_gt_exists": torch.ones(batch_size, 9, 14),
+            "peptide_cross_residues_mask": mask,
+            "peptide_self_residues_mask": mask,
+            "peptide_aatype": aatype,
+            "peptide_residue_index": torch.tensor([range(9) for _ in range(batch_size)]),
+            "peptide_residx_atom14_to_atom37": torch.tensor(restype_atom14_to_atom37)[aatype],
         })
 
         rmsds.update(get_calpha_rmsd(pred_datas[-1], batch_datas[-1]))
@@ -59,12 +72,12 @@ def test_metrics():
     try:
         for epoch_index in range(n_epoch):
 
-            record = MetricsRecord()
+            record = MetricsRecord(epoch_index, pass_name, output_dir)
 
             for batch_index in range(n_batch):
                 record.add_batch(loss_datas[batch_index], pred_datas[batch_index], batch_datas[batch_index])
 
-            record.save(epoch_index, pass_name, output_dir)
+            record.save()
 
         table = pandas.read_csv(os.path.join(output_dir, 'metrics.csv'))
     finally:
@@ -78,6 +91,11 @@ def test_metrics():
     assert table[f"{pass_name} accuracy"][0] == acc
 
 def test_metrics_one_epoch():
+
+    restype_atom14_to_atom37 = []
+    for rt in rc.restypes:
+        atom_names = rc.restype_name_to_atom14_names[rc.restype_1to3[rt]]
+        restype_atom14_to_atom37.append([(rc.atom_order[name] if name else 0) for name in atom_names])
 
     pass_name = "unit"
     batch_size = 4
@@ -104,12 +122,18 @@ def test_metrics_one_epoch():
         })
         pred_datas[-1]["class"] = torch.argmax(pred_datas[-1]["classification"], dim=1)
 
+        aatype = (torch.rand(batch_size, 9) * 20).int()
+
         batch_datas.append({
             "ids": ids,
             "class": torch.rand(batch_size) > 0.5,
-            "loop_atom14_gt_positions": true_coord,
-            "loop_cross_residues_mask": mask,
-            "loop_aatype": (torch.rand(batch_size, 9) * 20).int(),
+            "peptide_atom14_gt_positions": true_coord,
+            "peptide_atom14_gt_exists": torch.ones(batch_size, 9, 14),
+            "peptide_cross_residues_mask": mask,
+            "peptide_self_residues_mask": mask,
+            "peptide_aatype": (torch.rand(batch_size, 9) * 20).int(),
+            "peptide_residue_index": torch.tensor([range(9) for _ in range(batch_size)]),
+            "peptide_residx_atom14_to_atom37": torch.tensor(restype_atom14_to_atom37)[aatype],
         })
 
         rmsds.update(get_calpha_rmsd(pred_datas[-1], batch_datas[-1]))
@@ -124,12 +148,12 @@ def test_metrics_one_epoch():
     try:
         for epoch_index in [-1]:
 
-            record = MetricsRecord()
+            record = MetricsRecord(epoch_index, pass_name, output_dir)
 
             for batch_index in range(n_batch):
                 record.add_batch(loss_datas[batch_index], pred_datas[batch_index], batch_datas[batch_index])
 
-            record.save(epoch_index, pass_name, output_dir)
+            record.save()
 
         table = pandas.read_csv(os.path.join(output_dir, 'metrics.csv'))
     finally:

@@ -122,6 +122,14 @@ def save_structure_to_hdf5(
 
 
 def recreate_structure_to_hdf5(hdf5_path: str, name: str, data: List[Tuple[str, torch.Tensor, torch.Tensor, torch.Tensor]]):
+    """
+    Builds a structure from the atom coordinates and saves it to a hdf5 file
+
+    Args:
+        hdf5_path: output file
+        name: hdf5 group name to store under
+        data: structure data, to create structure from
+    """
 
     _log.debug(f"recreating {name}")
 
@@ -137,6 +145,7 @@ def recreate_structure_to_hdf5(hdf5_path: str, name: str, data: List[Tuple[str, 
 
 
 def on_error(e):
+    "callback function, send the error to the logs"
     _log.error(str(e))
 
 
@@ -151,14 +160,18 @@ def output_structures_to_directory(
     Used to save all models (truth) and (prediction) to two hdf5 files
 
     Args:
+        process_count: how many simultaneous processes to run, writing PDB to disk
         output_directory: where to store the hdf5 files under
-        data: truth data
+        filename_prefix: prefix to put in the hdf5 filename
+        data: truth data, from dataset
         output: model output
     """
 
+    # define paths
     truth_path = os.path.join(output_directory, f"{filename_prefix}-true.hdf5")
     pred_path = os.path.join(output_directory, f"{filename_prefix}-predicted.hdf5")
 
+    # don't need more processes than structures
     if process_count > len(data["ids"]):
         process_count = len(data["ids"])
 
@@ -170,13 +183,11 @@ def output_structures_to_directory(
         # get the data from gpu to cpu, if not already
         classes = data["class"].cpu()
 
-        loop_residue_numbers = data["loop_residue_numbers"].cpu()
-        loop_sequence_onehot = data["loop_sequence_onehot"].cpu()
-        loop_atom14_gt_positions = data["loop_atom14_gt_positions"].cpu()
+        peptide_residue_numbers = data["loop_residue_numbers"].cpu()
+        peptide_sequence_onehot = data["loop_sequence_onehot"].cpu()
+        peptide_atom14_gt_positions = data["loop_atom14_gt_positions"].cpu()
 
-        loop_atom14_positions = None
-        if "final_positions" in output:
-            loop_atom14_positions = output["final_positions"].cpu()
+        peptide_atom14_positions = output["final_positions"].cpu()
 
         protein_residue_numbers = data["protein_residue_numbers"].cpu()
         protein_sequence_onehot = data["protein_sequence_onehot"].cpu()
@@ -184,26 +195,27 @@ def output_structures_to_directory(
 
         for index, id_ in enumerate(data["ids"]):
 
-            # binders only
+            # do binders only
             if classes[index].item() == 0:
                 continue
 
-            if loop_atom14_positions is not None:
-                pool.apply_async(
-                    recreate_structure_to_hdf5,
-                    (
-                        truth_path, id_,
-                        [("P", loop_residue_numbers[index], loop_sequence_onehot[index], loop_atom14_gt_positions[index]),
-                         ("M", protein_residue_numbers[index], protein_sequence_onehot[index], protein_atom14_gt_positions[index])]
-                    ),
-                    error_callback=on_error,
-                )
+            # submit job for output structure
+            pool.apply_async(
+                recreate_structure_to_hdf5,
+                (
+                    truth_path, id_,
+                    [("P", peptide_residue_numbers[index], peptide_sequence_onehot[index], peptide_atom14_gt_positions[index]),
+                     ("M", protein_residue_numbers[index], protein_sequence_onehot[index], protein_atom14_gt_positions[index])]
+                ),
+                error_callback=on_error,
+            )
 
+            # submit job for true structure
             pool.apply_async(
                 recreate_structure_to_hdf5,
                 (
                     pred_path, id_,
-                    [("P", loop_residue_numbers[index], loop_sequence_onehot[index], loop_atom14_positions[index]),
+                    [("P", peptide_residue_numbers[index], peptide_sequence_onehot[index], peptide_atom14_positions[index]),
                      ("M", protein_residue_numbers[index], protein_sequence_onehot[index], protein_atom14_gt_positions[index])]
                 ),
                 error_callback=on_error,
@@ -219,6 +231,14 @@ class Trainer:
                  lr: float,
                  model_type: ModelType,
     ):
+        """
+        Args:
+            device: will be used to load the model parameters on
+            workers_count: number of workers to simultaneously read from the data
+            lr: learning rate
+            model_type: regression or classification
+        """
+
         self._lr = lr
         self._model_type = model_type
 
@@ -226,9 +246,11 @@ class Trainer:
 
         self._early_stop_epsilon = 1e-3
 
+        # for snapshots: every 20 batches
         self._snap_period = 20
 
-        self.loop_maxlen = 16
+        # how much space to allocate for peptide anc protein (AA)
+        self.peptide_maxlen = 16
         self.protein_maxlen = 200
 
         self.workers_count = workers_count
@@ -305,10 +327,11 @@ class Trainer:
             model: the model that is trained
             data: input data for the model
             affinity_tune: whether to include affinity loss in backward propagation
+            fape_tune: whether to include fape loss in backward propagation
+            chi_tune: whether to include chi loss in backward propagation
             fine_tune: whether to include fine tuning losses in backward propagation
-
         Returns:
-            the losses and the output data
+            the losses [0] and the output data [1]
         """
 
         # set all gradients to zero
@@ -341,7 +364,7 @@ class Trainer:
                fape_tune: bool,
                chi_tune: bool,
                fine_tune: bool,
-               output_directory: Optional[str] = None,
+               output_directory: str,
                animated_data: Optional[Dict[str, torch.Tensor]] = None,
     ):
         """
@@ -354,6 +377,8 @@ class Trainer:
             model: the model that will be trained
             data_loader: data to insert into the model
             affinity_tune: whether to include affinity loss in backward propagation
+            fape_tune: whether to include fape loss in backward propagation
+            chi_tune: whether to include chi loss in backward propagation
             fine_tune: whether to include fine tuning losses in backward propagation
             output_directory: where to store the results
             animated_data: data to store snapshot structures from, for a given fraction of the batches.
@@ -374,27 +399,24 @@ class Trainer:
                                                    fape_tune,
                                                    chi_tune,
                                                    fine_tune)
-            if output_directory is not None:
+            # make the snapshot, if requested
+            if animated_data is not None and (batch_index + 1) % self._snap_period == 0:
 
-                # make the snapshot, if requested
-                if animated_data is not None and (batch_index + 1) % self._snap_period == 0:
+                self._snapshot(f"{epoch_index}.{batch_index + 1}",
+                               model,
+                               output_directory, animated_data)
 
-                    self._snapshot(f"{epoch_index}.{batch_index + 1}",
-                                   model,
-                                   output_directory, animated_data)
-
-                # Save to metrics
-                record.add_batch(batch_loss, batch_output, batch_data)
+            # Save to metrics
+            record.add_batch(batch_loss, batch_output, batch_data)
 
         # Create the metrics row for this epoch
-        if output_directory is not None:
-            record.save()
+        record.save()
 
     def _validate(self,
                   epoch_index: int,
                   model: Predictor,
                   data_loader: DataLoader,
-                  output_directory: Optional[str] = None,
+                  output_directory: str,
                   structure_builders_count: Optional[int] = 0,
     ) -> float:
         """
@@ -406,6 +428,7 @@ class Trainer:
             model: the model that will be evaluated
             data_loader: data to insert into the model
             output_directory: where to store the results
+            structure_builders_count: how many structure builders (pdb writers) to run simultaneously
         Returns:
             the mean total loss for all inserted data
         """
@@ -433,7 +456,7 @@ class Trainer:
                 datapoint_count += batch_data['loop_aatype'].shape[0]
                 sum_of_losses += batch_loss['total'].item() * batch_data['loop_aatype'].shape[0]
 
-                if structure_builders_count > 0 and output_directory is not None:
+                if structure_builders_count > 0:
                     output_structures_to_directory(structure_builders_count,
                                                    output_directory,
                                                    data_loader.dataset.name,
@@ -443,8 +466,7 @@ class Trainer:
                 record.add_batch(batch_loss, batch_output, batch_data)
 
         # Create the metrics row for this epoch
-        if output_directory is not None:
-            record.save()
+        record.save()
 
         if datapoint_count > 0:
             return (sum_of_losses / datapoint_count)
@@ -474,7 +496,7 @@ class Trainer:
         _log.info(f"testing {model_path} on {structure_builders_count} structure builders")
 
         # init model
-        model = Predictor(self.loop_maxlen,
+        model = Predictor(self.peptide_maxlen,
                           self.protein_maxlen,
                           self._model_type,
                           openfold_config.model)
@@ -501,6 +523,7 @@ class Trainer:
     def _get_selection_data_batch(datasets: List[ProteinLoopDataset], names: List[str]) -> Dict[str, torch.Tensor]:
         """
         Searches for the requested entries in the datasets and collates them together in a batch.
+        This needs to be done when animating structures.
 
         Args:
             datasets: all datasets to search through
@@ -552,10 +575,12 @@ class Trainer:
             run_id: directory to store the resulting files
             pretrained_model_path: an optional pretrained model file to start from
             animated_complex_ids: names of complexes to animate during the run. their structure snapshots will be stored in an HDF5
+            disable_struct_loss: don't include structural loss terms: fape, chi, bond-length violations, bond angle violations, clashes, torsion violations
+            disable_ba_loss: don't include the binding affinity loss term
         """
 
         # Set up the model
-        model = Predictor(self.loop_maxlen,
+        model = Predictor(self.peptide_maxlen,
                           self.protein_maxlen,
                           self._model_type,
                           openfold_config.model)
@@ -642,13 +667,14 @@ class Trainer:
             data_path: HDF5 path to load
             batch_size: number of data points per batch, that the loader should output
             device: to load the batch data on
+            shuffle: whether to shuffle the order of the data
             entry_ids: an optional list of datapoint names to use, if omitted load all data.
         Returns:
             a data loader, providing access to the requested data
         """
 
         dataset = ProteinLoopDataset(data_path, device,
-                                     loop_maxlen=self.loop_maxlen,
+                                     peptide_maxlen=self.peptide_maxlen,
                                      protein_maxlen=self.protein_maxlen,
                                      entry_names=entry_ids)
 
@@ -672,7 +698,15 @@ def read_ids_from(path: str) -> List[str]:
 
 
 def random_subdivision(ids: List[str], fraction: float) -> Tuple[List[str], List[str]]:
-    "Randomly divides a list of ids in two, given a fraction [0 - 1] to take"
+    """
+    Randomly divides a list of ids in two, given a fraction
+
+    Args:
+        ids: the list to divide
+        fraction: the amount (0.0 - 1.0) for the list to move to the second return list
+    Returns:
+        two lists of ids, that together make the original input list
+    """
 
     n = int(round(fraction * len(ids)))
 

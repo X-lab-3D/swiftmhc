@@ -17,41 +17,28 @@ from openfold.utils.rigid_utils import Rigid
 from .models.types import ModelType
 from .models.data import TensorDict
 from .models.residue import Residue
-from .models.complex import ComplexClass, ComplexTableEntry, ComplexDataEntry, StructureDataEntry
 from .domain.amino_acid import amino_acids_by_letter, amino_acids_by_one_hot_index, AMINO_ACID_DIMENSION
 from .tools.pdb import get_selected_residues, get_residue_transformations, get_residue_proximities
-from .preprocess import PREPROCESS_KD_NAME, PREPROCESS_CLASS_NAME, PREPROCESS_PROTEIN_NAME, PREPROCESS_LOOP_NAME
-from .modules.sequence_encoding import mask_loop_left_center_right
+from .preprocess import PREPROCESS_KD_NAME, PREPROCESS_CLASS_NAME, PREPROCESS_PROTEIN_NAME, PREPROCESS_PEPTIDE_NAME
 
 
 _log = logging.getLogger(__name__)
 
 
 def get_entry_names(
-        hdf5_path: str,
-        loop_length_filter: Optional[int] = None,
-        allele_name_filter: Optional[str] = None,
+    hdf5_path: str,
 ) -> List[str]:
+    """
+    Get the names of the entry groups directly under the HDF5 data file
+
+    Args:
+        hdf5_path: data file to get the entry names from
+    Returns:
+        the entry names in the data file
+    """
 
     with h5py.File(hdf5_path, 'r') as hdf5_file:
-
-        if loop_length_filter is not None:
-            ids = []
-            for key in hdf5_file:
-                aatype = hdf5_file[key][PREPROCESS_LOOP_NAME]["aatype"][:]
-                if aatype.shape[0] == loop_length_filter:
-                    ids.append(key)
-            return ids
-
-        elif allele_name_filter is not None:
-            ids = []
-            for key in hdf5_file:
-                allele_name = hdf5_file[key][PREPROCESS_PROTEIN_NAME]["allele_name"][()].decode("utf_8")
-                if allele_name == allele_name_filter:
-                    ids.append(key)
-            return ids
-        else:
-            return list(hdf5_file.keys())
+        return list(hdf5_file.keys())
 
 
 class ProteinLoopDataset(Dataset):
@@ -59,7 +46,7 @@ class ProteinLoopDataset(Dataset):
         self,
         hdf5_path: str,
         device: torch.device,
-        loop_maxlen: int,
+        peptide_maxlen: int,
         protein_maxlen: int,
         entry_names: Optional[List[str]] = None,
     ):
@@ -67,7 +54,7 @@ class ProteinLoopDataset(Dataset):
 
         self._hdf5_path = hdf5_path
         self._device = device
-        self._loop_maxlen = loop_maxlen
+        self._peptide_maxlen = peptide_maxlen
         self._protein_maxlen = protein_maxlen
 
         if entry_names is not None:
@@ -95,6 +82,9 @@ class ProteinLoopDataset(Dataset):
         return entry_name in self._entry_names
 
     def get_entry(self, entry_name: str) -> Dict[str, torch.Tensor]:
+        """
+        Gets the data entry with the given name(ID)
+        """
 
         result = {}
 
@@ -103,6 +93,7 @@ class ProteinLoopDataset(Dataset):
 
             result["ids"] = entry_name
 
+            # The target affinity value is optional, thus only take it if present
             if PREPROCESS_KD_NAME in entry_group:
                 result["kd"] = torch.tensor(entry_group[PREPROCESS_KD_NAME][()], device=self._device, dtype=torch.float)
                 result["affinity"] = 1.0 - torch.log(result["kd"]) / log(50000)
@@ -111,9 +102,18 @@ class ProteinLoopDataset(Dataset):
             elif PREPROCESS_CLASS_NAME in entry_group:
                 result["class"] = torch.tensor(entry_group[PREPROCESS_CLASS_NAME][()], device=self._device, dtype=torch.long)
 
-            for prefix, max_length, start_index in [(PREPROCESS_PROTEIN_NAME, self._protein_maxlen, self._loop_maxlen + 3),
-                                                    (PREPROCESS_LOOP_NAME, self._loop_maxlen, 0)]:
+            # Decide whether we take the peptide (if present) or just the protein residue data
+            # In this iteration list:
+            # 1. the group name: protein or peptide
+            # 2. the maximum number of residues to fit, thus how much space to allocate
+            # 3. the starting number in the list of indexes
+            residue_iteration = [(PREPROCESS_PROTEIN_NAME, self._protein_maxlen, self._peptide_maxlen + 3)]
+            if PREPROCESS_PEPTIDE_NAME in entry_group:
+                residue_iteration.append((PREPROCESS_PEPTIDE_NAME, self._peptide_maxlen, 0))
 
+            for prefix, max_length, start_index in residue_iteration:
+
+                # aatype, needed by openfold
                 aatype_data = entry_group[prefix]["aatype"][:]
                 length = aatype_data.shape[0]
                 if length < 3:
@@ -125,10 +125,6 @@ class ProteinLoopDataset(Dataset):
                 # Put all residues leftmost
                 index = torch.zeros(max_length, device=self._device, dtype=torch.bool)
                 index[:length] = True
-
-                #if prefix == PREPROCESS_LOOP_NAME:
-                #    # For the loop, put residues partly leftmost, partly centered, partly rightmost
-                #    index = mask_loop_left_center_right(length, max_length)
 
                 result[f"{prefix}_aatype"] = torch.zeros(max_length, device=self._device, dtype=torch.long)
                 result[f"{prefix}_aatype"][index] = torch.tensor(aatype_data, device=self._device, dtype=torch.long)
@@ -144,13 +140,14 @@ class ProteinLoopDataset(Dataset):
                         # If no mask, then set all present residues to True.
                         result[f"{prefix}_{interfix}_residues_mask"][index] = True
 
-                # alphafold needs each connected pair of residues to be one index apart
+                # openfold needs each connected pair of residues to be one index apart
                 # unconnected residues must be further apart
                 result[f"{prefix}_residue_index"] = torch.zeros(max_length, dtype=torch.long, device=self._device)
                 result[f"{prefix}_residue_index"][index] = torch.arange(start_index,
                                                                         start_index + length,
                                                                         1, device=self._device)
 
+                # get the rest of the data from the HDF5 file
                 result[f"{prefix}_residue_numbers"] = torch.zeros(max_length, dtype=torch.int, device=self._device)
                 result[f"{prefix}_residue_numbers"][index] = torch.tensor(entry_group[prefix]["residue_numbers"][:], dtype=torch.int, device=self._device)
 
@@ -174,6 +171,7 @@ class ProteinLoopDataset(Dataset):
 
                     result[f"{prefix}_{field_name}"] = t
 
+            # protein residue-residue proximity data
             prox_data = entry_group[PREPROCESS_PROTEIN_NAME]["proximities"][:]
             result["protein_proximities"] = torch.zeros(self._protein_maxlen, self._protein_maxlen, 1,
                                                         device=self._device, dtype=torch.float)
@@ -184,6 +182,9 @@ class ProteinLoopDataset(Dataset):
 
     @staticmethod
     def collate(data_entries: List[Dict[str, torch.Tensor]]) -> Dict[str, torch.Tensor]:
+        """
+        Collation function, to pack data of multiple entries in one batch.
+        """
 
         keys = None
         for e in data_entries:
