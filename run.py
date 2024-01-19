@@ -183,9 +183,9 @@ def output_structures_to_directory(
         # get the data from gpu to cpu, if not already
         classes = data["class"].cpu()
 
-        peptide_residue_numbers = data["loop_residue_numbers"].cpu()
-        peptide_sequence_onehot = data["loop_sequence_onehot"].cpu()
-        peptide_atom14_gt_positions = data["loop_atom14_gt_positions"].cpu()
+        peptide_residue_numbers = data["peptide_residue_numbers"].cpu()
+        peptide_sequence_onehot = data["peptide_sequence_onehot"].cpu()
+        peptide_atom14_gt_positions = data["peptide_atom14_gt_positions"].cpu()
 
         peptide_atom14_positions = output["final_positions"].cpu()
 
@@ -286,7 +286,7 @@ class Trainer:
                 if "true" not in animation_file:
                     true_group = animation_file.require_group("true")
                     structure = recreate_structure(id_,
-                                                   [("P", data["loop_residue_numbers"][index], data["loop_sequence_onehot"][index], data["loop_atom14_gt_positions"][index]),
+                                                   [("P", data["peptide_residue_numbers"][index], data["peptide_sequence_onehot"][index], data["peptide_atom14_gt_positions"][index]),
                                                     ("M", data["protein_residue_numbers"][index], data["protein_sequence_onehot"][index], data["protein_atom14_gt_positions"][index])])
                     save_structure_to_hdf5(structure, true_group)
 
@@ -294,13 +294,13 @@ class Trainer:
 
                 # save predicted pdb
                 structure = recreate_structure(id_,
-                                               [("P", data["loop_residue_numbers"][index], data["loop_sequence_onehot"][index], output["final_positions"][index]),
+                                               [("P", data["peptide_residue_numbers"][index], data["peptide_sequence_onehot"][index], output["final_positions"][index]),
                                                 ("M", data["protein_residue_numbers"][index], data["protein_sequence_onehot"][index], data["protein_atom14_gt_positions"][index])])
                 save_structure_to_hdf5(structure, frame_group)
 
                 # save the residue numbering, for later lookup
-                for key in ("protein_cross_residues_mask", "loop_cross_residues_mask",
-                            "protein_residue_numbers", "loop_residue_numbers"):
+                for key in ("protein_cross_residues_mask", "peptide_cross_residues_mask",
+                            "protein_residue_numbers", "peptide_residue_numbers"):
 
                     if not key in animation_file:
                         animation_file.create_dataset(key, data=data[key][index].cpu())
@@ -453,8 +453,8 @@ class Trainer:
                 batch_loss = get_loss(batch_output, batch_data, True, True, True, True)
 
                 # count the number of loss values
-                datapoint_count += batch_data['loop_aatype'].shape[0]
-                sum_of_losses += batch_loss['total'].item() * batch_data['loop_aatype'].shape[0]
+                datapoint_count += batch_data['peptide_aatype'].shape[0]
+                sum_of_losses += batch_loss['total'].item() * batch_data['peptide_aatype'].shape[0]
 
                 if structure_builders_count > 0:
                     output_structures_to_directory(structure_builders_count,
