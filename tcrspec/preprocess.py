@@ -88,7 +88,7 @@ def _write_preprocessed_data(hdf5_path: str, storage_id: str,
                 protein_group.create_dataset(field_name, data=field_data)
 
         if peptide_data is not None:
-            peptide_group = storage_group.require_group(PREPROCESS_LOOP_NAME)
+            peptide_group = storage_group.require_group(PREPROCESS_PEPTIDE_NAME)
             for field_name, field_data in peptide_data.items():
                 if isinstance(field_data, torch.Tensor):
                     peptide_group.create_dataset(field_name, data=field_data.cpu(), compression="lzf")
