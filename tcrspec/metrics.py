@@ -7,10 +7,11 @@ import numpy
 import pandas
 
 from sklearn.metrics import roc_auc_score, matthews_corrcoef
+from scipy.stats import pearsonr
 
 from .domain.amino_acid import amino_acids_by_one_hot_index
 from .models.data import TensorDict
-from .loss import get_calpha_rmsd, sum_within_peptide_clashes_between_residues
+from .loss import get_calpha_rmsd, sum_within_peptide_clashes_between_residues, AFFINITY_BINDING_TRESHOLD
 
 
 def get_sequence(aatype: List[int], mask: List[bool]) -> str:
@@ -245,9 +246,7 @@ class MetricsRecord:
         # write affinity-related metrics
         if "classification" in self._output_data and "class" in self._truth_data and len(set(self._truth_data["class"])) > 1:
 
-            p = torch.nn.functional.softmax(torch.tensor(self._output_data["classification"]), dim=-1)[..., 1]
-
-            auc = roc_auc_score(self._truth_data["class"], p)            
+            auc = roc_auc_score(self._truth_data["class"], self._output_data["classification"])            
             table.loc[row_index, f"{pass_name} ROC AUC"] = round(auc, 3)
 
         if "class" in self._output_data and "class" in self._truth_data:
@@ -260,6 +259,17 @@ class MetricsRecord:
         if "affinity" in self._output_data and "affinity" in self._truth_data:
             r = pearsonr(self._output_data["affinity"], self._truth_data["affinity"]).statistic
             table.loc[row_index, f"{pass_name} pearson correlation"] = round(r, 3)
+
+            output_class = (numpy.array(self._output_data["affinity"]) > AFFINITY_BINDING_TRESHOLD)
+
+            acc = get_accuracy(self._truth_data["class"], output_class)
+            table.loc[row_index, f"{pass_name} accuracy"] = round(acc, 3)
+
+            auc = roc_auc_score(self._truth_data["class"], self._output_data["affinity"])
+            table.loc[row_index, f"{pass_name} ROC AUC"] = round(auc, 3)
+
+            mcc = matthews_corrcoef(self._truth_data["class"], output_class)
+            table.loc[row_index, f"{pass_name} matthews correlation"] = round(mcc, 3)
 
         # store metrics
         table.to_csv(metrics_path, sep=',', encoding='utf-8', index=False, quoting=csv.QUOTE_NONNUMERIC)

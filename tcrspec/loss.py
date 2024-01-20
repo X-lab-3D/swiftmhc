@@ -396,13 +396,14 @@ def get_loss(output: Dict[str, torch.Tensor],
     """
 
     # compute our own affinity-based loss
-    if "class" in output and "class" in batch:
+    if "affinity" in output and "affinity" in batch:
+        affinity_loss = _regression_loss_function(output["affinity"], batch["affinity"])
+        non_binders_index = batch["affinity"] < AFFINITY_BINDING_TRESHOLD
+
+    elif "class" in output and "class" in batch:
         affinity_loss = _classification_loss_function(output["classification"], batch["class"])
         non_binders_index = torch.logical_not(batch["class"])
 
-    elif "affinity" in output and "affinity" in batch:
-        affinity_loss = _affinity_loss_function(output["affinity"], batch["affinity"])
-        non_binders_index = batch["affinity"] < AFFINITY_BINDING_TRESHOLD
     else:
         raise ValueError("Cannot compute affinity loss without class or affinity in both output and batch data")
 
