@@ -246,7 +246,7 @@ class MetricsRecord:
         # write affinity-related metrics
         if "classification" in self._output_data and "class" in self._truth_data and len(set(self._truth_data["class"])) > 1:
 
-            auc = roc_auc_score(self._truth_data["class"], self._output_data["classification"])            
+            auc = roc_auc_score(self._truth_data["class"], self._output_data["classification"][..., 1])
             table.loc[row_index, f"{pass_name} ROC AUC"] = round(auc, 3)
 
         if "class" in self._output_data and "class" in self._truth_data:
