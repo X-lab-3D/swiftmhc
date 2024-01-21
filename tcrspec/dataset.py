@@ -159,6 +159,10 @@ class ProteinLoopDataset(Dataset):
                 t = torch.tensor(entry_group[prefix]["sequence_onehot"][:], device=self._device, dtype=torch.float)
                 result[f"{prefix}_sequence_onehot"][index, :t.shape[1]] = t
 
+                result[f"{prefix}_blosum62"] = torch.zeros((max_length, 32), device=self._device, dtype=torch.float)
+                t = torch.tensor(entry_group[prefix]["blosum62"][:], device=self._device, dtype=torch.float)
+                result[f"{prefix}_blosum62"][index, :t.shape[1]] = t
+
                 for field_name in ["backbone_rigid_tensor",
                                    "torsion_angles_sin_cos", "alt_torsion_angles_sin_cos",
                                    "atom14_gt_positions", "atom14_alt_gt_positions",
