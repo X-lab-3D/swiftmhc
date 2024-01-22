@@ -98,7 +98,7 @@ class MetricsRecord:
         self._within_peptide_clashes.update(sum_within_peptide_clashes_between_residues(output, truth))
 
         # store the affinity predictions and truth values per data point
-        for key in ["affinity", "class", "classification"]:
+        for key in ["affinity", "class", "logits"]:
             if key in output:
                 if key not in self._output_data:
                     self._output_data[key] = []
@@ -200,12 +200,16 @@ class MetricsRecord:
 
         table_dict = {"ID": self._id_order, "peptide": sequence_order}
 
-        for key in ["affinity", "class", "classification"]:
+        for key in ["affinity", "class"]:
             if key in self._truth_data:
                 table_dict[f"true {key}"] = self._truth_data[key]
 
             if key in self._output_data:
                 table_dict[f"output {key}"] = self._output_data[key]
+
+        if "logits" in self._output_data:
+            for i in range(2):
+                table_dict[f"output logit {i}"] = [l[i] for l in self._output_data["logits"]]
 
         table = pandas.DataFrame(table_dict)
 
@@ -244,9 +248,11 @@ class MetricsRecord:
         table.loc[row_index, f"{pass_name} mean binders C-alpha RMSD(Å)"] = mean
 
         # write affinity-related metrics
-        if "classification" in self._output_data and "class" in self._truth_data and len(set(self._truth_data["class"])) > 1:
+        if "logits" in self._output_data and "class" in self._truth_data and len(set(self._truth_data["class"])) > 1:
 
-            auc = roc_auc_score(self._truth_data["class"], self._output_data["classification"][..., 1])
+            p = torch.nn.functional.softmax(self._output_data["logits"])
+
+            auc = roc_auc_score(self._truth_data["class"], p[:, 1])
             table.loc[row_index, f"{pass_name} ROC AUC"] = round(auc, 3)
 
         if "class" in self._output_data and "class" in self._truth_data:

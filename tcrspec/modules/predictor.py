@@ -109,7 +109,7 @@ class Predictor(torch.nn.Module):
 
         self.affinity_linear = torch.nn.Linear(c_interaction, output_size)
 
-    def score_interactions(
+    def predict_ba(
         self,
         a: torch.Tensor,
         s_peptide: torch.Tensor,
@@ -233,7 +233,7 @@ class Predictor(torch.nn.Module):
         peptide_embd = output["single"]
 
         # [*, n_interactions, c_s]
-        p = self.score_interactions(
+        ba_output = self.predict_ba(
             output["cross_ipa_att"],
             peptide_embd,
             protein_embd,
@@ -244,15 +244,15 @@ class Predictor(torch.nn.Module):
         # affinity prediction
         if self.model_type == ModelType.REGRESSION:
             # [*]
-            output["affinity"] = p.reshape(batch_size)
+            output["affinity"] = ba_output.reshape(batch_size)
 
         elif self.model_type == ModelType.CLASSIFICATION:
 
             # [*, 2]
-            output["classification"] = p
+            output["logits"] = ba_output
 
             # [*]
-            output["class"] = torch.argmax(output["classification"], dim=1)
+            output["class"] = torch.argmax(ba_output, dim=1)
 
         return output
 
