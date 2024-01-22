@@ -244,7 +244,7 @@ class Trainer:
 
         self._device = device
 
-        self._early_stop_epsilon = 1e-2
+        self._early_stop_epsilon = 0.005
 
         # for snapshots: every 20 batches
         self._snap_period = 20
@@ -621,6 +621,8 @@ class Trainer:
 
             # flip this setting after the given number of epochs
             fine_tune = (epoch_index >= epoch_count) and not disable_struct_loss
+            if fine_tune and epoch_index == epoch_count:
+                _log.info(f"fine tuning starts at epoch {epoch_index}")
 
             # train during epoch
             with Timer(f"train epoch {epoch_index}") as t:
