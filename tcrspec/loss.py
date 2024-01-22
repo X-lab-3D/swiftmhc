@@ -401,7 +401,7 @@ def get_loss(output: Dict[str, torch.Tensor],
         non_binders_index = batch["affinity"] < AFFINITY_BINDING_TRESHOLD
 
     elif "class" in output and "class" in batch:
-        affinity_loss = _classification_loss_function(output["classification"], batch["class"])
+        affinity_loss = _classification_loss_function(output["logits"], batch["class"])
         non_binders_index = torch.logical_not(batch["class"])
 
     else:
