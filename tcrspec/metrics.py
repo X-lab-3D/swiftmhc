@@ -250,7 +250,7 @@ class MetricsRecord:
         # write affinity-related metrics
         if "logits" in self._output_data and "class" in self._truth_data and len(set(self._truth_data["class"])) > 1:
 
-            p = torch.nn.functional.softmax(torch.tensor(self._output_data["logits"]))
+            p = torch.nn.functional.softmax(torch.tensor(self._output_data["logits"]), dim=-1)
 
             auc = roc_auc_score(self._truth_data["class"], p[:, 1])
             table.loc[row_index, f"{pass_name} ROC AUC"] = round(auc, 3)
