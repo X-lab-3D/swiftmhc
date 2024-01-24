@@ -315,7 +315,7 @@ class Trainer:
                data: TensorDict,
                affinity_tune: bool,
                fape_tune: bool,
-               chi_tune: bool,
+               torsion_tune: bool,
                fine_tune: bool,
     ) -> Tuple[TensorDict, Dict[str, torch.Tensor]]:
         """
@@ -328,7 +328,7 @@ class Trainer:
             data: input data for the model
             affinity_tune: whether to include affinity loss in backward propagation
             fape_tune: whether to include fape loss in backward propagation
-            chi_tune: whether to include chi loss in backward propagation
+            torsion_tune: whether to include torsion loss in backward propagation
             fine_tune: whether to include fine tuning losses in backward propagation
         Returns:
             the losses [0] and the output data [1]
@@ -341,7 +341,7 @@ class Trainer:
         output = model(data)
 
         # calculate losses
-        losses = get_loss(output, data, affinity_tune, fape_tune, chi_tune, fine_tune)
+        losses = get_loss(output, data, affinity_tune, fape_tune, torsion_tune, fine_tune)
 
         # backward propagation
         loss = losses["total"]
@@ -362,7 +362,7 @@ class Trainer:
                data_loader: DataLoader,
                affinity_tune: bool,
                fape_tune: bool,
-               chi_tune: bool,
+               torsion_tune: bool,
                fine_tune: bool,
                output_directory: str,
                animated_data: Optional[Dict[str, torch.Tensor]] = None,
@@ -378,7 +378,7 @@ class Trainer:
             data_loader: data to insert into the model
             affinity_tune: whether to include affinity loss in backward propagation
             fape_tune: whether to include fape loss in backward propagation
-            chi_tune: whether to include chi loss in backward propagation
+            torsion_tune: whether to include torsion loss in backward propagation
             fine_tune: whether to include fine tuning losses in backward propagation
             output_directory: where to store the results
             animated_data: data to store snapshot structures from, for a given fraction of the batches.
@@ -397,7 +397,7 @@ class Trainer:
                                                    batch_data,
                                                    affinity_tune,
                                                    fape_tune,
-                                                   chi_tune,
+                                                   torsion_tune,
                                                    fine_tune)
             # make the snapshot, if requested
             if animated_data is not None and (batch_index + 1) % self._snap_period == 0:
@@ -418,7 +418,7 @@ class Trainer:
                   data_loader: DataLoader,
                   affinity_tune: bool,
                   fape_tune: bool,
-                  chi_tune: bool,
+                  torsion_tune: bool,
                   fine_tune: bool,
                   output_directory: str,
                   structure_builders_count: Optional[int] = 0,
@@ -454,7 +454,7 @@ class Trainer:
                 batch_output = model(batch_data)
 
                 # calculate the losses, for monitoring only
-                batch_loss = get_loss(batch_output, batch_data, affinity_tune, fape_tune, chi_tune, fine_tune)
+                batch_loss = get_loss(batch_output, batch_data, affinity_tune, fape_tune, torsion_tune, fine_tune)
 
                 # count the number of loss values
                 datapoint_count += batch_data['peptide_aatype'].shape[0]
@@ -616,7 +616,7 @@ class Trainer:
                            run_id, animated_data)
 
         fape_tune = not disable_struct_loss
-        chi_tune = not disable_struct_loss
+        torsion_tune = not disable_struct_loss
         affinity_tune = not disable_ba_loss
 
         # do the actual learning iteration
@@ -631,14 +631,14 @@ class Trainer:
             # train during epoch
             with Timer(f"train epoch {epoch_index}") as t:
                 self._epoch(epoch_index, optimizer, model, train_loader,
-                            affinity_tune, fape_tune, chi_tune, fine_tune,
+                            affinity_tune, fape_tune, torsion_tune, fine_tune,
                             run_id, animated_data)
                 t.add_to_title(f"on {len(train_loader.dataset)} data points")
 
             # validate
             with Timer(f"valid epoch {epoch_index}") as t:
                 valid_loss = self._validate(epoch_index, model, valid_loader,
-                                            affinity_tune, fape_tune, chi_tune, True,
+                                            affinity_tune, fape_tune, torsion_tune, True,
                                             run_id)
                 t.add_to_title(f"on {len(valid_loader.dataset)} data points")
 
@@ -646,7 +646,7 @@ class Trainer:
             for test_loader in test_loaders:
                 with Timer(f"test epoch {epoch_index}") as t:
                     self._validate(epoch_index, model, test_loader,
-                                   affinity_tune, fape_tune, chi_tune, True,
+                                   affinity_tune, fape_tune, torsion_tune, True,
                                    run_id)
                     t.add_to_title(f"on {len(test_loader.dataset)} data points")
 

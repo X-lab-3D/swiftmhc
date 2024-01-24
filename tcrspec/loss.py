@@ -273,6 +273,32 @@ def _compute_cross_violation_loss(output: Dict[str, torch.Tensor],
     return loss
 
 
+def _torsion_angle_loss(
+    a: torch.Tensor,
+    a_mask: torch.Tensor, 
+    a_gt: torch.Tensor,
+    a_alt_gt: torch.Tensor,
+) -> torch.Tensor:
+
+    # [*, N, 7]
+    norm = torch.norm(a, dim=-1)
+
+    # [*, N, 7, 2]
+    a = a / norm.unsqueeze(-1)
+
+    # [*, N, 7]
+    diff_norm_gt = torch.norm(a - a_gt, dim=-1)
+    diff_norm_alt_gt = torch.norm(a - a_alt_gt, dim=-1)
+    min_diff = torch.minimum(diff_norm_gt ** 2, diff_norm_alt_gt ** 2)
+
+    # [*]
+    l_torsion = openfold_masked_mean(a_mask, min_diff, dim=(-2, -1))
+    l_angle_norm = openfold_masked_mean(a_mask, torch.abs(norm - 1), dim=(-1, -2))
+
+    an_weight = 0.02
+    return l_torsion + an_weight * l_angle_norm
+
+
 def _supervised_chi_loss(angles_sin_cos: torch.Tensor,
                          unnormalized_angles_sin_cos: torch.Tensor,
                          aatype: torch.Tensor,
@@ -309,7 +335,7 @@ def _supervised_chi_loss(angles_sin_cos: torch.Tensor,
         Returns:
             [*] loss tensor
     """
-    pred_angles = angles_sin_cos[..., 3:, :]
+    pred_angles = angles_sin_cos
     residue_type_one_hot = torch.nn.functional.one_hot(
         aatype,
         openfold_restype_num + 1,
@@ -367,7 +393,7 @@ def get_loss(output: Dict[str, torch.Tensor],
              batch: Dict[str, torch.Tensor],
              affinity_tune: bool,
              fape_tune: bool,
-             chi_tune: bool,
+             torsion_tune: bool,
              fine_tune: bool) -> TensorDict:
     """
     Compute all losses and sum them up, according to what is desired.
@@ -377,12 +403,12 @@ def get_loss(output: Dict[str, torch.Tensor],
         batch: what came out of the dataset
         affinity_tune: whether or not to include the binding affinity loss term
         fape_tune: whether or not to include the FAPE loss term
-        chi_tune: whether or not to include the chi loss term
+        torsion_tune: whether or not to include the torsion loss term
         fine_tune: whether or not to include bond length, bond angle violations or clashes in the loss
 
     Returns:
         total:                      [*] the sum of selected loss terms, per batch entry
-        chi:                        [*] chi loss, per batch entry
+        torsion:                    [*] torsion loss, per batch entry
         affinity:                   [*] binding affinity loss, per batch entry
         total violation:            [*] bond length, bond angle violations and clashes, per batch entry
         bond violation:             [*] mean bond length violation loss, per batch entry
@@ -407,14 +433,11 @@ def get_loss(output: Dict[str, torch.Tensor],
     else:
         raise ValueError("Cannot compute affinity loss without class or affinity in both output and batch data")
 
-    # compute chi loss, as in openfold
-    chi_loss = _supervised_chi_loss(output["final_angles"],
-                                    output["final_unnormalized_angles"],
-                                    batch["peptide_aatype"],
-                                    batch["peptide_self_residues_mask"],
-                                    batch["peptide_torsion_angles_mask"][..., 3:],
-                                    batch["peptide_torsion_angles_sin_cos"][..., 3:, :],
-                                    **openfold_config.loss.supervised_chi)
+    # compute torsion losses
+    torsion_loss = _torsion_angle_loss(output["final_angles"],
+                                       batch["peptide_torsion_angles_mask"],
+                                       batch["peptide_torsion_angles_sin_cos"],
+                                       batch["peptide_alt_torsion_angles_sin_cos"])
 
     # compute fape loss, as in openfold
     fape_losses = _compute_fape_loss(output, batch,
@@ -430,9 +453,9 @@ def get_loss(output: Dict[str, torch.Tensor],
     if fape_tune:
         total_loss += 1.0 * fape_losses["total"]
 
-    # add chi loss
-    if chi_tune:
-        total_loss += 1.0 * chi_loss
+    # add torsion loss
+    if torsion_tune:
+        total_loss += 1.0 * torsion_loss
 
     # incorporate affinity loss
     if affinity_tune:
@@ -451,7 +474,7 @@ def get_loss(output: Dict[str, torch.Tensor],
     # average losses over batch dimension
     result = TensorDict({
         "total": total_loss.mean(dim=0),
-        "chi": chi_loss.mean(dim=0),
+        "torsion": torsion_loss.mean(dim=0),
         "affinity": affinity_loss.mean(dim=0),
     })
 
