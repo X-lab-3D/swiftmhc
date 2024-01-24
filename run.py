@@ -416,6 +416,10 @@ class Trainer:
                   epoch_index: int,
                   model: Predictor,
                   data_loader: DataLoader,
+                  affinity_tune: bool,
+                  fape_tune: bool,
+                  chi_tune: bool,
+                  fine_tune: bool,
                   output_directory: str,
                   structure_builders_count: Optional[int] = 0,
     ) -> float:
@@ -450,7 +454,7 @@ class Trainer:
                 batch_output = model(batch_data)
 
                 # calculate the losses, for monitoring only
-                batch_loss = get_loss(batch_output, batch_data, True, True, True, True)
+                batch_loss = get_loss(batch_output, batch_data, affinity_tune, fape_tune, chi_tune, fine_tune)
 
                 # count the number of loss values
                 datapoint_count += batch_data['peptide_aatype'].shape[0]
@@ -633,13 +637,17 @@ class Trainer:
 
             # validate
             with Timer(f"valid epoch {epoch_index}") as t:
-                valid_loss = self._validate(epoch_index, model, valid_loader, run_id)
+                valid_loss = self._validate(epoch_index, model, valid_loader,
+                                            affinity_tune, fape_tune, chi_tune, True,
+                                            run_id)
                 t.add_to_title(f"on {len(valid_loader.dataset)} data points")
 
             # test
             for test_loader in test_loaders:
                 with Timer(f"test epoch {epoch_index}") as t:
-                    self._validate(epoch_index, model, test_loader, run_id)
+                    self._validate(epoch_index, model, test_loader,
+                                   affinity_tune, fape_tune, chi_tune, True,
+                                   run_id)
                     t.add_to_title(f"on {len(test_loader.dataset)} data points")
 
             # early stopping, if no more improvement
@@ -648,8 +656,11 @@ class Trainer:
                     # end training
                     break
                 else:
+                    _log.info(f"starting fine tune at epoch {epoch_index + 1}")
+
                     # make fine tune start here
                     epoch_count = epoch_index
+                    total_epochs = epoch_count + fine_tune_count
 
             # If the validation loss improves, save the model.
             if valid_loss < lowest_loss:
