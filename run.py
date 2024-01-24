@@ -521,7 +521,7 @@ class Trainer:
 
             # run the model to output results
             with Timer(f"test on {test_loader.dataset.name}, {len(test_loader.dataset)} data points"):
-                self._validate(-1, model, test_loader, run_id, structure_builders_count)
+                self._validate(-1, model, test_loader, True, True, True, True, run_id, structure_builders_count)
 
     @staticmethod
     def _get_selection_data_batch(datasets: List[ProteinLoopDataset], names: List[str]) -> Dict[str, torch.Tensor]:
