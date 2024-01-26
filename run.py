@@ -603,6 +603,7 @@ class Trainer:
 
         # Keep track of the lowest loss value seen during the run.
         lowest_loss = float("inf")
+        previous_loss = float("inf")
 
         # make the initial snapshots for animation, if we're animating something
         animated_data = None
@@ -651,7 +652,9 @@ class Trainer:
                     t.add_to_title(f"on {len(test_loader.dataset)} data points")
 
             # early stopping, if no more improvement
-            if abs(valid_loss - lowest_loss) < self._early_stop_epsilon:
+            if abs(valid_loss - lowest_loss) < self._early_stop_epsilon and \
+                     abs(valid_loss - previous_loss) < self._early_stop_epsilon:
+
                 if fine_tune:
                     # end training
                     break
@@ -667,6 +670,8 @@ class Trainer:
                 lowest_loss = valid_loss
 
                 torch.save(model.state_dict(), model_path)
+
+            previous_loss = valid_loss
 
     def get_data_loader(self,
                         data_path: str,
