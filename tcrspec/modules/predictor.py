@@ -127,6 +127,12 @@ class Predictor(torch.nn.Module):
         # [*, protein_maxlen, c] ranges (-1 - 1)
         f_protein = self.protein_feature(s_protein) * mask_protein.unsqueeze(-1)
 
+        # [*]
+        nres_peptide = mask_peptide.int().sum(dim=-1)
+
+        # [*]
+        nres_protein = mask_protein.int().sum(dim=-1)
+
         c = f_peptide.shape[-1]
 
         # [*, peptide_maxlen, protein_maxlen, c]
@@ -146,6 +152,9 @@ class Predictor(torch.nn.Module):
 
         # [*, output_size]
         p = self.affinity_linear(wff).sum(dim=(-3, -2))
+
+        # take mean
+        p = p / (nres_peptide * nres_protein).unsqueeze(-1)
 
         return p
 
