@@ -232,7 +232,7 @@ class Predictor(torch.nn.Module):
 
         peptide_embd = output["single"]
 
-        # [*, n_interactions, c_s]
+        # [*, output_size]
         ba_output = self.predict_ba(
             output["cross_ipa_att"],
             peptide_embd,
