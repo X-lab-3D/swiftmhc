@@ -108,6 +108,10 @@ class Predictor(torch.nn.Module):
             raise TypeError(str(model_type))
 
         self.affinity_linear = torch.nn.Linear(c_interaction, output_size)
+        # init at zero
+        with torch.no_grad():
+            for name, param in self.affinity_linear.named_parameters():
+                param.zero_()
 
     def predict_ba(
         self,
@@ -126,12 +130,6 @@ class Predictor(torch.nn.Module):
 
         # [*, protein_maxlen, c] ranges (-1 - 1)
         f_protein = self.protein_feature(s_protein) * mask_protein.unsqueeze(-1)
-
-        # [*]
-        nres_peptide = mask_peptide.int().sum(dim=-1)
-
-        # [*]
-        nres_protein = mask_protein.int().sum(dim=-1)
 
         c = f_peptide.shape[-1]
 
@@ -152,9 +150,6 @@ class Predictor(torch.nn.Module):
 
         # [*, output_size]
         p = self.affinity_linear(wff).sum(dim=(-3, -2))
-
-        # take mean
-        p = p / (nres_peptide * nres_protein).unsqueeze(-1)
 
         return p
 
