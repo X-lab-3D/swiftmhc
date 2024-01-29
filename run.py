@@ -827,19 +827,17 @@ if __name__ == "__main__":
 
         elif len(args.data_path) == 2:
 
-            # assume that the train and validation sets are one HDF5 file, the other is the test set
+            # assume that the two files are train and validation set, no test set
 
-            train_entry_names, valid_entry_names = random_subdivision(get_entry_names(args.data_path[0]), 0.1)
-            train_loader = trainer.get_data_loader(args.data_path[0], args.batch_size, device, train_entry_names, shuffle=True)
-            valid_loader = trainer.get_data_loader(args.data_path[0], args.batch_size, device, valid_entry_names, shuffle=False)
-            test_loaders = [trainer.get_data_loader(args.data_path[1], args.batch_size, device, shuffle=False)]
+            train_loader = trainer.get_data_loader(args.data_path[0], args.batch_size, device, shuffle=True)
+            valid_loader = trainer.get_data_loader(args.data_path[1], args.batch_size, device, shuffle=False)
+            test_loaders = []
 
-            _log.debug(f"training on {args.data_path[0]} subset")
-            _log.debug(f"validating on {args.data_path[0]} subset")
-            _log.debug(f"testing on {args.data_path[1]}")
+            _log.debug(f"training on {args.data_path[0]}")
+            _log.debug(f"validating on {args.data_path[1]}")
 
         else:
-            # only one hdf5 file for train, validation and test.
+            # only one hdf5 file for train, validation and optionally test.
 
             if args.test_subset_path is not None:
 
@@ -848,15 +846,18 @@ if __name__ == "__main__":
                 train_valid_entry_names = get_excluded(get_entry_names(args.data_path[0]), test_entry_names)
                 train_entry_names, valid_entry_names = random_subdivision(train_valid_entry_names, 0.1)
             else:
-                # Otherwise, subdivide randomly
+                # Otherwise, make only a train and validation set
                 train_entry_names, valid_test_entry_names = random_subdivision(get_entry_names(args.data_path[0]), 0.2)
-                valid_entry_names, test_entry_names = random_subdivision(valid_test_entry_names, 0.5)
+                test_entry_names = []
 
             _log.debug(f"training, validating & testing on {args.data_path[0]} subsets")
 
             train_loader = trainer.get_data_loader(args.data_path[0], args.batch_size, device, train_entry_names, shuffle=True)
             valid_loader = trainer.get_data_loader(args.data_path[0], args.batch_size, device, valid_entry_names, shuffle=False)
-            test_loaders = [trainer.get_data_loader(args.data_path[0], args.batch_size, device, test_entry_names, shuffle=False)]
+
+            test_loaders = []
+            if len(test_entry_names) > 0:
+                test_loaders = [trainer.get_data_loader(args.data_path[0], args.batch_size, device, test_entry_names, shuffle=False)]
 
         # train with the composed datasets and user-provided settings
         trainer.train(train_loader, valid_loader, test_loaders,
