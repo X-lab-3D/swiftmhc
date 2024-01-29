@@ -422,6 +422,7 @@ def get_loss(output: Dict[str, torch.Tensor],
     """
 
     # compute our own affinity-based loss
+    affinity_loss = None
     if "affinity" in output and "affinity" in batch:
         affinity_loss = _regression_loss_function(output["affinity"], batch["affinity"])
         non_binders_index = batch["affinity"] < AFFINITY_BINDING_TRESHOLD
@@ -430,7 +431,7 @@ def get_loss(output: Dict[str, torch.Tensor],
         affinity_loss = _classification_loss_function(output["logits"], batch["class"])
         non_binders_index = torch.logical_not(batch["class"])
 
-    else:
+    elif affinity_tune:
         raise ValueError("Cannot compute affinity loss without class or affinity in both output and batch data")
 
     # compute torsion losses
@@ -475,8 +476,10 @@ def get_loss(output: Dict[str, torch.Tensor],
     result = TensorDict({
         "total": total_loss.mean(dim=0),
         "torsion": torsion_loss.mean(dim=0),
-        "affinity": affinity_loss.mean(dim=0),
     })
+
+    if affinity_loss is not None:
+        result["affinity"] = affinity_loss.mean(dim=0)
 
     # add these separate components to the result too:
     for component_id, loss_tensor in fape_losses.items():
