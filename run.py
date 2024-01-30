@@ -760,16 +760,19 @@ if __name__ == "__main__":
     # It must have an unique name.
     if args.run_id is not None:
         run_id = args.run_id
-
-        suffix = 0
-        while os.path.isdir(run_id):
-            # if the directory already exists, add a suffix to the name
-            suffix += 1
-            run_id = f"{args.run_id}-{suffix}"
     else:
         # no name given, so make a random one
         run_id = str(uuid4())
-    os.mkdir(run_id)
+
+    # check if there's already a model
+    pretrained_model_path = args.pretrained_model
+    if os.path.isdir(run_id):
+        if pretrained_model_path is None:
+            pretrained_model_path = Trainer.get_model_path(run_id)
+            if not os.path.isfile(pretrained_model_path):
+                pretrained_model_path = None
+    else:
+        os.mkdir(run_id)
 
     # apply debug settings, if chosen so
     log_level = logging.INFO
@@ -803,13 +806,13 @@ if __name__ == "__main__":
     trainer = Trainer(device, args.workers, args.lr, model_type)
 
     if args.test_only:
-        if args.pretrained_model is None:
+        if pretrained_model_path is None:
             raise ValueError("testing requires a pretrained model")
 
         # We do a test, no training
         test_loaders = [trainer.get_data_loader(test_path, args.batch_size, device, shuffle=False)
                         for test_path in args.data_path]
-        trainer.test(test_loaders, run_id, args.animate, args.pretrained_model, args.builders)
+        trainer.test(test_loaders, run_id, args.animate, pretrained_model_path, args.builders)
 
     else:  # train, validate, test
         if len(args.data_path) >= 3:
@@ -862,5 +865,5 @@ if __name__ == "__main__":
         # train with the composed datasets and user-provided settings
         trainer.train(train_loader, valid_loader, test_loaders,
                       args.epoch_count, args.fine_tune_count,
-                      run_id, args.pretrained_model,
+                      run_id, pretrained_model_path,
                       args.animate, args.disable_struct_loss, args.disable_ba_loss)
