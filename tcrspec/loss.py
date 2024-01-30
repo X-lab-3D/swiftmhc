@@ -423,6 +423,7 @@ def get_loss(output: Dict[str, torch.Tensor],
 
     # compute our own affinity-based loss
     affinity_loss = None
+    non_binders_index = None
     if "affinity" in output and "affinity" in batch:
         affinity_loss = _regression_loss_function(output["affinity"], batch["affinity"])
         non_binders_index = batch["affinity"] < AFFINITY_BINDING_TRESHOLD
@@ -469,8 +470,13 @@ def get_loss(output: Dict[str, torch.Tensor],
     # for true non-binders, the total loss is simply affinity-based
     if affinity_tune:
         total_loss[non_binders_index] = 1.0 * affinity_loss[non_binders_index]
-    else:
+
+    elif non_binders_index is not None:
         total_loss[non_binders_index] = 0.0
+
+    else:
+        # set all to zero, since we don't know which are the binders
+        total_loss[:] = 0.0
 
     # average losses over batch dimension
     result = TensorDict({

@@ -519,9 +519,22 @@ class Trainer:
 
         for test_loader in test_loaders:
 
+            # if we can generate affinity losses, we should
+            affinity_tune = False
+            if self._model_type == ModelType.REGRESSION:
+                affinity_tune = "affinity" in test_loader.dataset[0]
+
+            elif self._model_type == ModelType.CLASSIFICATION:
+                affinity_tune = "class" in test_loader.dataset[0]
+
+            # if we can generate structure losses, we should
+            structure_tune = "peptide_all_atom_positions" in test_loader.dataset[0]
+
             # run the model to output results
             with Timer(f"test on {test_loader.dataset.name}, {len(test_loader.dataset)} data points"):
-                self._validate(-1, model, test_loader, True, True, True, True, run_id, structure_builders_count)
+                self._validate(-1, model, test_loader,
+                               affinity_tune, structure_tune, structure_tune, structure_tune,
+                               run_id, structure_builders_count)
 
     @staticmethod
     def _get_selection_data_batch(datasets: List[ProteinLoopDataset], names: List[str]) -> Dict[str, torch.Tensor]:
