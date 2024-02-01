@@ -98,24 +98,18 @@ class MetricsRecord:
         self._within_peptide_clashes.update(sum_within_peptide_clashes_between_residues(output, truth))
 
         # store the affinity predictions and truth values per data point
-        for key in ["affinity", "class", "logits"]:
+        for key in ["affinity", "logits", "class"]:
             if key in output:
                 if key not in self._output_data:
                     self._output_data[key] = []
 
-                if output[key].dtype == torch.float:
-                    self._output_data[key] += output[key].cpu().round(decimals=3).tolist()
-                else:
-                    self._output_data[key] += output[key].cpu().tolist()
+                self._output_data[key] += output[key].cpu().tolist()
 
             if key in truth:
                 if key not in self._truth_data:
                     self._truth_data[key] = []
 
-                if truth[key].dtype == torch.float:
-                    self._truth_data[key] += truth[key].cpu().round(decimals=3).tolist()
-                else:
-                    self._truth_data[key] += truth[key].cpu().tolist()
+                self._truth_data[key] += truth[key].cpu().tolist()
 
         # store the peptide sequences
         peptide_aatype = truth["peptide_aatype"].cpu().tolist()
