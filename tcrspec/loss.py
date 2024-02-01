@@ -41,6 +41,7 @@ from openfold.utils.rigid_utils import Rigid, Rotation
 from openfold.config import config as openfold_config
 from openfold.utils.tensor_utils import permute_final_dims
 
+from tcrspec.models.types import ModelType
 from tcrspec.time import Timer
 from tcrspec.preprocess import preprocess
 from tcrspec.dataset import ProteinLoopDataset
@@ -391,7 +392,7 @@ _regression_loss_function = torch.nn.MSELoss(reduction="none")
 
 def get_loss(output: Dict[str, torch.Tensor],
              batch: Dict[str, torch.Tensor],
-             affinity_tune: bool,
+             affinity_tune: Union[ModelType, None],
              fape_tune: bool,
              torsion_tune: bool,
              fine_tune: bool) -> TensorDict:
@@ -401,7 +402,7 @@ def get_loss(output: Dict[str, torch.Tensor],
     Args:
         output: what came out of the model
         batch: what came out of the dataset
-        affinity_tune: whether or not to include the binding affinity loss term
+        affinity_tune: CLASSIFICATION, REGRESSION or not included
         fape_tune: whether or not to include the FAPE loss term
         torsion_tune: whether or not to include the torsion loss term
         fine_tune: whether or not to include bond length, bond angle violations or clashes in the loss
@@ -424,16 +425,15 @@ def get_loss(output: Dict[str, torch.Tensor],
     # compute our own affinity-based loss
     affinity_loss = None
     non_binders_index = None
-    if "affinity" in output and "affinity" in batch:
+    if affinity_tune == ModelType.REGRESSION:
+
         affinity_loss = _regression_loss_function(output["affinity"], batch["affinity"])
         non_binders_index = batch["affinity"] < AFFINITY_BINDING_TRESHOLD
 
-    elif "class" in output and "class" in batch:
+    elif affinity_tune == ModelType.CLASSIFICATION:
+
         affinity_loss = _classification_loss_function(output["logits"], batch["class"])
         non_binders_index = torch.logical_not(batch["class"])
-
-    elif affinity_tune:
-        raise ValueError("Cannot compute affinity loss without class or affinity in both output and batch data")
 
     # compute torsion losses
     torsion_loss = _torsion_angle_loss(output["final_angles"],
@@ -460,7 +460,7 @@ def get_loss(output: Dict[str, torch.Tensor],
         total_loss += 1.0 * torsion_loss
 
     # incorporate affinity loss
-    if affinity_tune:
+    if affinity_tune is not None:
         total_loss += 1.0 * affinity_loss
 
     # add all fine tune losses (bond lengths, angles, torsions, clashes)
@@ -468,7 +468,7 @@ def get_loss(output: Dict[str, torch.Tensor],
         total_loss += 1.0 * violation_losses["total"]
 
     # for true non-binders, the total loss is simply affinity-based
-    if affinity_tune:
+    if affinity_tune is not None:
         total_loss[non_binders_index] = 1.0 * affinity_loss[non_binders_index]
 
     elif non_binders_index is not None:
