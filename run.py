@@ -313,7 +313,7 @@ class Trainer:
                optimizer: Optimizer,
                model: Predictor,
                data: TensorDict,
-               affinity_tune: Union[ModelType, None],
+               affinity_tune: bool,
                fape_tune: bool,
                torsion_tune: bool,
                fine_tune: bool,
@@ -326,7 +326,7 @@ class Trainer:
             optimizer: needed to optimize the model
             model: the model that is trained
             data: input data for the model
-            affinity_tune: whether to include CLASSIFICATION, REGRESSION or no affinity loss in the backward propagation
+            affinity_tune: whether to include affinity loss in the backward propagation
             fape_tune: whether to include fape loss in backward propagation
             torsion_tune: whether to include torsion loss in backward propagation
             fine_tune: whether to include fine tuning losses in backward propagation
@@ -341,7 +341,7 @@ class Trainer:
         output = model(data)
 
         # calculate losses
-        losses = get_loss(output, data, affinity_tune, fape_tune, torsion_tune, fine_tune)
+        losses = get_loss(self._model_type, output, data, affinity_tune, fape_tune, torsion_tune, fine_tune)
 
         # backward propagation
         loss = losses["total"]
@@ -360,7 +360,7 @@ class Trainer:
                optimizer: Optimizer,
                model: Predictor,
                data_loader: DataLoader,
-               affinity_tune: Union[ModelType, None],
+               affinity_tune: bool,
                fape_tune: bool,
                torsion_tune: bool,
                fine_tune: bool,
@@ -376,7 +376,7 @@ class Trainer:
             optimizer: needed to optimize the model
             model: the model that will be trained
             data_loader: data to insert into the model
-            affinity_tune: whether to include CLASSIFICATION, REGRESSION or no affinity loss in the backward propagation
+            affinity_tune: whether to include affinity loss in the backward propagation
             fape_tune: whether to include fape loss in backward propagation
             torsion_tune: whether to include torsion loss in backward propagation
             fine_tune: whether to include fine tuning losses in backward propagation
@@ -416,7 +416,7 @@ class Trainer:
                   epoch_index: int,
                   model: Predictor,
                   data_loader: DataLoader,
-                  affinity_tune: Union[ModelType, None],
+                  affinity_tune: bool,
                   fape_tune: bool,
                   torsion_tune: bool,
                   fine_tune: bool,
@@ -431,7 +431,7 @@ class Trainer:
             epoch_index: the number of the epoch to save the metrics to
             model: the model that will be evaluated
             data_loader: data to insert into the model
-            affinity_tune: whether to include CLASSIFICATION, REGRESSION or no affinity loss in the backward propagation
+            affinity_tune: whether to include affinity loss in the backward propagation
             fape_tune: whether to include fape loss in backward propagation
             torsion_tune: whether to include torsion loss in backward propagation
             fine_tune: whether to include fine tuning losses in backward propagation
@@ -458,7 +458,7 @@ class Trainer:
                 batch_output = model(batch_data)
 
                 # calculate the losses, for monitoring only
-                batch_loss = get_loss(batch_output, batch_data, affinity_tune, fape_tune, torsion_tune, fine_tune)
+                batch_loss = get_loss(self._model_type, batch_output, batch_data, affinity_tune, fape_tune, torsion_tune, fine_tune)
 
                 # count the number of loss values
                 datapoint_count += batch_data['peptide_aatype'].shape[0]
@@ -524,12 +524,12 @@ class Trainer:
         for test_loader in test_loaders:
 
             # if we can generate affinity losses, we should
-            affinity_tune = None
+            affinity_tune = False
             if self._model_type == ModelType.REGRESSION and "affinity" in test_loader.dataset[0]:
-                affinity_tune = ModelType.REGRESSION
+                affinity_tune = True
 
             elif self._model_type == ModelType.CLASSIFICATION and "class" in test_loader.dataset[0]:
-                affinity_tune = ModelType.CLASSIFICATION
+                affinity_tune = True
 
             # if we can generate structure losses, we should
             structure_tune = "peptide_all_atom_positions" in test_loader.dataset[0]
@@ -634,10 +634,7 @@ class Trainer:
 
         fape_tune = not disable_struct_loss
         torsion_tune = not disable_struct_loss
-        if disable_ba_loss:
-            affinity_tune = None
-        else:
-            affinity_tune = self._model_type
+        affinity_tune = not disable_struct_loss
 
         # do the actual learning iteration
         total_epochs = epoch_count + fine_tune_count
