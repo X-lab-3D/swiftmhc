@@ -22,16 +22,17 @@ def test_omega_calculation():
 
     xyz = torch.stack(xyz)
 
-    omegas_unnormalized = m.calculate_omegas_from_positions(xyz)
-    omegas = torch.nn.functional.normalize(omegas_unnormalized, dim=-1)
+    omegas = m.calculate_omegas_from_positions(xyz)
 
-    eps = 0.15
+    eps = 0.05
 
-    for index, residue in enumerate(residues):
+    for index in range(omegas.shape[0]):
 
-        if index > 0:
+        if residues[index + 1].get_resname() == "PRO":
+            continue
 
-            sin, cos = omegas[index]
+        sin, cos = omegas[index]
 
-            assert abs(abs(cos) - 1.0) < eps, (residues[index - 1], residue, cos.item())
-            assert abs(sin) < eps, (residues[index - 1], residue, sin.item())
+        # omega must be close to pi radials, 180 degrees
+        assert abs(cos + 1.0) < eps, (residues[index], residues[index + 1], cos.item())
+        assert abs(sin) < eps, (residues[index], residue[index + 1], sin.item())
