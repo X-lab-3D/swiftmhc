@@ -262,8 +262,9 @@ class CrossStructureModule(torch.nn.Module):
 
         # calculate the actual omega angles, according to atom positions
         post_omegas_from_xyz = self.calculate_omegas_from_positions(pred_xyz)
-        unnormalized_angles[..., 1:, :] = post_omegas_from_xyz
-        angles[..., 1:, :] = post_omegas_from_xyz
+        omegas = torch.cat([post_omegas_from_xyz,
+                            post_omegas_from_xyz.new_zeros(post_omegas_from_xyz.shape[0],1,2)], dim=-2)
+        angles = torch.cat([omegas.unsqueeze(-2), angles[..., 1:, :]], dim=-2)
 
         scaled_T_peptide = T_peptide.scale_translation(self.trans_scale_factor)
 
