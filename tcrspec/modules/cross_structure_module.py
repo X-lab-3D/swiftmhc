@@ -260,6 +260,11 @@ class CrossStructureModule(torch.nn.Module):
             peptide_aatype,
         )
 
+        # calculate the actual omega angles, according to atom positions
+        post_omegas_from_xyz = self.calculate_omegas_from_positions(pred_xyz)
+        unnormalized_angles[..., 1:, :] = post_omegas_from_xyz
+        angles[..., 1:, :] = torch.nn.functional.normalize(unnormalized_angles[..., 1:, :], dim=-1)
+
         scaled_T_peptide = T_peptide.scale_translation(self.trans_scale_factor)
 
         preds = {
@@ -346,3 +351,59 @@ class CrossStructureModule(torch.nn.Module):
             self.atom_mask,
             self.lit_positions,
         )
+
+    def calculate_omegas_from_positions(self, positions: torch.Tensor):
+        """
+        The amide's hydrogen is missing.
+        So we calculate the omega from the Ca-C-N-Ca angle.
+
+        Args:
+            positions:  [*, N_res, 14, 3]
+        Returns:
+            post omegas sin, cos:  [*, N_res - 1, 2] (not normalized)
+        """
+
+        atom_index_N = 0
+        atom_index_CA = 1
+        atom_index_C = 2
+
+        # [*, N_res - 1, 3]
+        positions_CA0 = positions[..., :-1, atom_index_CA, :]
+        positions_C0 = positions[..., :-1:, atom_index_C, :]
+        positions_N1 = positions[..., 1:, atom_index_N, :]
+        positions_CA1 = positions[..., 1:, atom_index_CA, :]
+
+        # [*, N_res - 1, 3]
+        vectors_CAC = positions_C0 - positions_CA0
+
+        # [*, N_res - 1]
+        lengths_CAC = torch.sqrt(torch.sum(vectors_CAC ** 2, dim=-1) + self.epsilon)
+
+        # [*, N_res - 1, 3]
+        units_CAC = vectors_CAC / lengths_CAC.unsqueeze(-1)
+        
+        # [*, N_res - 1, 3]
+        vectors_CAN = positions_N1 - positions_CA1
+
+        # [*, N_res - 1]
+        lengths_CAN = torch.sqrt(torch.sum(vectors_CAN ** 2, dim=-1) + self.epsilon)
+
+        # [*, N_res - 1, 3]
+        units_CAN = vectors_CAN / lengths_CAN.unsqueeze(-1)
+
+        # [*, N_res - 1, 3]
+        plane_n = torch.cross(units_CAC, units_CAN, dim=-1)
+
+        # [*, N_res - 1, 3]
+        proj_CAC = units_CAC - (plane_n * units_CAC).sum(dim=-1).unsqueeze(-1) * plane_n
+
+        # [*, N_res - 1, 3]
+        proj_CAN = units_CAN - (plane_n * units_CAN).sum(dim=-1).unsqueeze(-1) * plane_n
+
+        # [*, N_res - 1]
+        omegas_cos = (proj_CAC * proj_CAN).sum(dim=-1)
+
+        # [*, N_res - 1]
+        omegas_sin = (proj_CAC * (proj_CAN - proj_CAC)).sum(dim=-1)
+
+        return torch.cat([omegas_sin[..., None], omegas_cos[..., None]], dim=-1)
