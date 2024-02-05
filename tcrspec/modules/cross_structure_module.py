@@ -361,8 +361,8 @@ class CrossStructureModule(torch.nn.Module):
         So we calculate the omega from the Ca-C-N-Ca angle.
 
         Args:
-            positions:      [*, N_res, 14, 3]
-            positions_mask: [*, N_res, 14]
+            positions: [*, N_res, 14, 3]
+            res_mask:  [*, N_res] (boolean)
         Returns:
             post omegas sin, cos:  [*, N_res - 1, 2] (normalized)
         """
