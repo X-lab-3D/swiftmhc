@@ -261,10 +261,12 @@ class CrossStructureModule(torch.nn.Module):
         )
 
         # calculate the actual omega angles, according to atom positions
-        post_omegas_from_xyz = self.calculate_omegas_from_positions(pred_xyz)
-        omegas = torch.cat([post_omegas_from_xyz,
-                            post_omegas_from_xyz.new_zeros(post_omegas_from_xyz.shape[0],1,2)], dim=-2)
+        post_omegas_from_xyz = self.calculate_omegas_from_positions(pred_xyz, peptide_mask)
+        last_omega = post_omegas_from_xyz.new_tensor([1.0, 0.0])  # cosine 1, sine 0
+        last_omega = last_omega.unsqueeze(0).expand(post_omegas_from_xyz.shape[0], -1).unsqueeze(1)
+        omegas = torch.cat([post_omegas_from_xyz, last_omega], dim=-2)
         angles = torch.cat([omegas.unsqueeze(-2), angles[..., 1:, :]], dim=-2)
+        unnormalized_angles = torch.cat([omegas.unsqueeze(-2), unnormalized_angles[..., 1:, :]], dim=-2)
 
         scaled_T_peptide = T_peptide.scale_translation(self.trans_scale_factor)
 
@@ -353,13 +355,14 @@ class CrossStructureModule(torch.nn.Module):
             self.lit_positions,
         )
 
-    def calculate_omegas_from_positions(self, positions: torch.Tensor):
+    def calculate_omegas_from_positions(self, positions: torch.Tensor, res_mask: torch.Tensor):
         """
         The amide's hydrogen is missing.
         So we calculate the omega from the Ca-C-N-Ca angle.
 
         Args:
-            positions:  [*, N_res, 14, 3]
+            positions:      [*, N_res, 14, 3]
+            positions_mask: [*, N_res, 14]
         Returns:
             post omegas sin, cos:  [*, N_res - 1, 2] (normalized)
         """
@@ -375,6 +378,10 @@ class CrossStructureModule(torch.nn.Module):
         positions_C0 = positions[..., :-1:, atom_index_C, :]
         positions_N1 = positions[..., 1:, atom_index_N, :]
         positions_CA1 = positions[..., 1:, atom_index_CA, :]
+
+        # [*, N_res - 1]
+        mask = res_mask[..., :-1] * res_mask[..., 1:]
+        masked_out = torch.logical_not(mask)
 
         # make directional vectors for the 3 bonds
 
@@ -408,5 +415,8 @@ class CrossStructureModule(torch.nn.Module):
 
         # [*, N_res - 1]
         omega_sin = (axis * newmann1).sum(dim=-1)
+        
+        omega_cos = omega_cos * mask.float() + masked_out.float()
+        omega_sin = omega_sin * mask.float()
 
         return torch.cat([omega_sin[..., None], omega_cos[..., None]], dim=-1)
