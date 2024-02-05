@@ -803,7 +803,7 @@ if __name__ == "__main__":
         logging.basicConfig(stream=sys.stdout,
                             level=log_level)
     else:
-        logging.basicConfig(filename=f"{run_id}/tcrspec.log", filemode="a",
+        logging.basicConfig(filename=f"{run_id}/swiftmhc.log", filemode="a",
                             level=log_level)
 
     # If cuda is available, use it.
