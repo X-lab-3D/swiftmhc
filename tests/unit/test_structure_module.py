@@ -22,7 +22,9 @@ def test_omega_calculation():
 
     xyz = torch.stack(xyz)
 
-    omegas = m.calculate_omegas_from_positions(xyz)
+    mask = torch.ones(xyz.shape[:-2])
+
+    omegas = m.calculate_omegas_from_positions(xyz, mask)
 
     eps = 0.05
 
