@@ -1,4 +1,4 @@
-from typing import Tuple
+from typing import Tuple, Optional
 from math import pi, ceil, floor, log, sqrt
 import logging
 
@@ -50,8 +50,12 @@ class PositionalEncoding(torch.nn.Module):
 
 class RelativePositionEncoder(torch.nn.Module):
 
-    def __init__(self, no_heads: int, relpos_k: int, depth: int):
-
+    def __init__(
+            self,
+            no_heads: int, relpos_k: int, depth: int,
+            dropout_rate: Optional[float] = 0.1,
+            transition: Optional[int] = 128
+    ):
         super(RelativePositionEncoder, self).__init__()
 
         self.no_heads = no_heads
@@ -68,6 +72,22 @@ class RelativePositionEncoder(torch.nn.Module):
         self.linear_b = torch.nn.Linear(self.no_bins, self.no_heads, bias=False)
 
         self.linear_output = torch.nn.Linear((self.no_bins + depth) * self.no_heads, depth)
+
+        self.norm_attention = torch.nn.Sequential(
+            torch.nn.Dropout(dropout_rate),
+            torch.nn.LayerNorm(depth),
+        )
+
+        self.feed_forward = torch.nn.Sequential(
+            torch.nn.Linear(depth, transition),
+            torch.nn.ReLU(),
+            torch.nn.Linear(transition, depth),
+        )
+
+        self.norm_feed_forward = torch.nn.Sequential(
+            torch.nn.Dropout(dropout_rate),
+            torch.nn.LayerNorm(depth),
+        )
 
     def relpos(self, masks: torch.Tensor) -> torch.Tensor:
         """
@@ -115,6 +135,16 @@ class RelativePositionEncoder(torch.nn.Module):
         return torch.stack(ps)
 
     def forward(self, s: torch.Tensor, masks: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+
+        x, a = self.attention(s, masks)
+        s = self.norm_attention(s + x)
+
+        x = self.feed_forward(s)
+        s = self.norm_feed_forward(s + x)
+
+        return s, a
+
+    def attention(self, s: torch.Tensor, masks: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Args:
             s:

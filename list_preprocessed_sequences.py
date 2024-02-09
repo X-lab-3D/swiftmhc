@@ -6,7 +6,7 @@ from typing import List
 
 import h5py
 
-from tcrspec.domain.amino_acid import amino_acids_by_one_hot_index
+from swiftmhc.domain.amino_acid import amino_acids_by_one_hot_index
 
 
 arg_parser = ArgumentParser(description="list the sequences in a preprocessed hdf5 file")

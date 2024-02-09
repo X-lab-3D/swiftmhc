@@ -4,9 +4,9 @@ from numpy import pi
 
 import torch
 
-from tcrspec.preprocess import preprocess
-from tcrspec.dataset import ProteinLoopDataset
-from tcrspec.metrics import get_sequence
+from swiftmhc.preprocess import preprocess
+from swiftmhc.dataset import ProteinLoopDataset
+from swiftmhc.metrics import get_sequence
 
 
 def test_preprocess_BA_67447():

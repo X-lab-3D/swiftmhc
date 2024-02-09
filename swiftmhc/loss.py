@@ -41,16 +41,16 @@ from openfold.utils.rigid_utils import Rigid, Rotation
 from openfold.config import config as openfold_config
 from openfold.utils.tensor_utils import permute_final_dims
 
-from tcrspec.models.types import ModelType
-from tcrspec.time import Timer
-from tcrspec.preprocess import preprocess
-from tcrspec.dataset import ProteinLoopDataset
-from tcrspec.modules.predictor import Predictor
-from tcrspec.models.amino_acid import AminoAcid
-from tcrspec.tools.amino_acid import one_hot_decode_sequence
-from tcrspec.models.data import TensorDict
-from tcrspec.tools.pdb import recreate_structure
-from tcrspec.domain.amino_acid import amino_acids_by_one_hot_index
+from swiftmhc.models.types import ModelType
+from swiftmhc.time import Timer
+from swiftmhc.preprocess import preprocess
+from swiftmhc.dataset import ProteinLoopDataset
+from swiftmhc.modules.predictor import Predictor
+from swiftmhc.models.amino_acid import AminoAcid
+from swiftmhc.tools.amino_acid import one_hot_decode_sequence
+from swiftmhc.models.data import TensorDict
+from swiftmhc.tools.pdb import recreate_structure
+from swiftmhc.domain.amino_acid import amino_acids_by_one_hot_index
 
 
 _log = logging.getLogger(__name__)

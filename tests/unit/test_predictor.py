@@ -12,9 +12,9 @@ from openfold.config import config as openfold_config
 from openfold.utils.feats import atom14_to_atom37
 from openfold.np import residue_constants as rc
 
-from tcrspec.modules.predictor import Predictor
-from tcrspec.models.types import ModelType
-from tcrspec.loss import get_loss
+from swiftmhc.modules.predictor import Predictor
+from swiftmhc.models.types import ModelType
+from swiftmhc.loss import get_loss
 
 
 _log = logging.getLogger(__name__)

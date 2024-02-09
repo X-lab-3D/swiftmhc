@@ -7,7 +7,7 @@ import h5py
 from Bio.PDB.PDBIO import PDBIO
 import torch
 
-from tcrspec.tools.pdb import recreate_structure
+from swiftmhc.tools.pdb import recreate_structure
 
 
 arg_parser = ArgumentParser("recreate a structure from a hdf5 dataset file")

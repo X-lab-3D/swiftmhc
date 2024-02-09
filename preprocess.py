@@ -12,7 +12,7 @@ from uuid import uuid4
 
 import pandas
 import h5py
-from tcrspec.preprocess import preprocess
+from swiftmhc.preprocess import preprocess
 
 
 _log = logging.getLogger(__name__)

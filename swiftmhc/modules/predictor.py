@@ -24,6 +24,7 @@ from ..models.data import TensorDict
 from ..tools.amino_acid import one_hot_decode_sequence
 from .transform import DebuggableTransformerEncoderLayer
 from .ipa import DebuggableInvariantPointAttention as IPA
+from .cross_ipa import CrossInvariantPointAttention as CrossIPA
 from ..models.types import ModelType
 
 
@@ -80,26 +81,7 @@ class Predictor(torch.nn.Module):
 
         self.cross = CrossStructureModule(**structure_module_config)
 
-        c_transition = 128
-        c_interaction = 64
-
-        self.protein_feature = torch.nn.Sequential(
-            torch.nn.Linear(structure_module_config.c_s, c_interaction, bias=False),
-            torch.nn.Tanh(),
-        )
-
-        self.peptide_feature = torch.nn.Sequential(
-            torch.nn.Linear(structure_module_config.c_s, c_interaction, bias=False),
-            torch.nn.Tanh(),
-        )
-
-        self.head_weight = torch.nn.Sequential(
-            torch.nn.Linear(self.n_ipa_repeat * self.n_head, 1),
-            torch.nn.Softmax(-1),
-        )
-
         self.model_type = model_type
-
         if model_type == ModelType.REGRESSION:
             output_size = 1
         elif model_type == ModelType.CLASSIFICATION:
@@ -107,52 +89,12 @@ class Predictor(torch.nn.Module):
         else:
             raise TypeError(str(model_type))
 
-        self.affinity_linear = torch.nn.Linear(c_interaction, output_size)
-        # init at zero
-        with torch.no_grad():
-            for name, param in self.affinity_linear.named_parameters():
-                param.zero_()
-
-    def predict_ba(
-        self,
-        a: torch.Tensor,
-        s_peptide: torch.Tensor,
-        s_protein: torch.Tensor,
-        mask_peptide: torch.Tensor,
-        mask_protein: torch.Tensor,
-    ) -> torch.Tensor:
-
-        batch_size, peptide_maxlen, _ = s_peptide.shape
-        protein_maxlen = s_protein.shape[1]
-
-        # [*, peptide_maxlen, c] ranges (-1 - 1)
-        f_peptide = self.peptide_feature(s_peptide) * mask_peptide.unsqueeze(-1)
-
-        # [*, protein_maxlen, c] ranges (-1 - 1)
-        f_protein = self.protein_feature(s_protein) * mask_protein.unsqueeze(-1)
-
-        c = f_peptide.shape[-1]
-
-        # [*, peptide_maxlen, protein_maxlen, c]
-        ff = f_peptide.unsqueeze(-2) * f_protein.unsqueeze(-3)
-
-        # [*, n_block * n_head, peptide_maxlen, protein_maxlen]
-        w = a.reshape(batch_size, -1, peptide_maxlen, protein_maxlen)
-
-        # [*, peptide_maxlen, protein_maxlen, n_block * n_head]
-        w = w.transpose(-3, -2).transpose(-2, -1)
-
-        # [*, peptide_maxlen, protein_maxlen, 1]
-        w = self.head_weight(w)
-
-        # [*, peptide_maxlen, protein_maxlen, c]
-        wff = w * ff / sqrt(c)
-
-        # [*, output_size]
-        p = self.affinity_linear(wff).sum(dim=(-3, -2))
-
-        return p
-
+        c_transition = 128
+        self.affinity_transition = torch.nn.Sequential(
+            torch.nn.Linear(structure_module_config.c_s, c_transition),
+            torch.nn.ReLU(),
+            torch.nn.Linear(c_transition, output_size),
+        )
 
     def forward(self, batch: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
         """
@@ -236,14 +178,14 @@ class Predictor(torch.nn.Module):
 
         peptide_embd = output["single"]
 
+        # [*, peptide_maxlen, output_size]
+        p = self.affinity_transition(peptide_embd)
+
+        # [*, peptide_maxlen, 1]
+        mask = batch["peptide_cross_residues_mask"].unsqueeze(-1)
+
         # [*, output_size]
-        ba_output = self.predict_ba(
-            output["cross_ipa_att"],
-            peptide_embd,
-            protein_embd,
-            batch["peptide_cross_residues_mask"],
-            batch["protein_cross_residues_mask"],
-        )
+        ba_output = (p * mask).sum(dim=-2) / mask.sum(dim=-2)
 
         # affinity prediction
         if self.model_type == ModelType.REGRESSION:
@@ -256,7 +198,7 @@ class Predictor(torch.nn.Module):
             output["logits"] = ba_output
 
             # [*]
-            output["class"] = torch.argmax(ba_output, dim=1)
+            output["class"] = torch.argmax(ba_output, dim=-1)
 
         return output
 

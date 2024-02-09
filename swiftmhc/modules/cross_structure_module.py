@@ -5,7 +5,7 @@ import torch
 
 from openfold.utils.rigid_utils import Rotation, Rigid
 from openfold.model.primitives import Linear, LayerNorm
-from openfold.model.structure_module import BackboneUpdate, AngleResnet, StructureModuleTransition
+from openfold.model.structure_module import AngleResnet, StructureModuleTransition
 from openfold.utils.tensor_utils import dict_multimap
 from openfold.utils.feats import (
     frames_and_literature_positions_to_atom14_pos,
@@ -23,6 +23,42 @@ from ..operate import average_rigid
 
 
 _log = logging.getLogger(__name__)
+
+
+class BackboneUpdate(torch.nn.Module):
+    """
+    Implements part of Algorithm 23.
+    """
+
+    def __init__(self, c_s):
+        """
+        Args:
+            c_s:
+                Single representation channel dimension
+        """
+        super(BackboneUpdate, self).__init__()
+
+        self.c_s = c_s
+
+        self.c_transition = 128
+
+        self.mlp = torch.nn.Sequential(
+            torch.nn.Linear(self.c_s, self.c_transition),
+            torch.nn.ReLU(),
+            Linear(self.c_transition, 6, init="final")
+        )
+
+    def forward(self, s: torch.Tensor) -> torch.Tensor:
+        """
+        Args:
+            [*, N_res, C_s] single representation
+        Returns:
+            [*, N_res, 6] update vector 
+        """
+        # [*, 6]
+        update = self.mlp(s)
+
+        return update
 
 
 class CrossStructureModule(torch.nn.Module):

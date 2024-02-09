@@ -2,7 +2,7 @@ import torch
 
 import random
 
-from tcrspec.modules.position_encoding import RelativePositionEncoder
+from swiftmhc.modules.position_encoding import RelativePositionEncoder
 
 
 def test_positional_encoding():

@@ -55,32 +55,33 @@ from openfold.utils.rigid_utils import Rigid, Rotation
 from openfold.config import config as openfold_config
 from openfold.utils.tensor_utils import permute_final_dims
 
-from tcrspec.time import Timer
-from tcrspec.preprocess import preprocess
-from tcrspec.dataset import ProteinLoopDataset, get_entry_names
-from tcrspec.modules.predictor import Predictor
-from tcrspec.models.complex import ComplexClass
-from tcrspec.models.amino_acid import AminoAcid
-from tcrspec.tools.amino_acid import one_hot_decode_sequence
-from tcrspec.loss import get_loss, get_calpha_rmsd
-from tcrspec.models.data import TensorDict
-from tcrspec.tools.pdb import recreate_structure
-from tcrspec.domain.amino_acid import amino_acids_by_one_hot_index
-from tcrspec.models.types import ModelType
-from tcrspec.metrics import MetricsRecord
+from swiftmhc.time import Timer
+from swiftmhc.preprocess import preprocess
+from swiftmhc.dataset import ProteinLoopDataset, get_entry_names
+from swiftmhc.modules.predictor import Predictor
+from swiftmhc.models.complex import ComplexClass
+from swiftmhc.models.amino_acid import AminoAcid
+from swiftmhc.tools.amino_acid import one_hot_decode_sequence
+from swiftmhc.loss import get_loss, get_calpha_rmsd
+from swiftmhc.models.data import TensorDict
+from swiftmhc.tools.pdb import recreate_structure
+from swiftmhc.domain.amino_acid import amino_acids_by_one_hot_index
+from swiftmhc.models.types import ModelType
+from swiftmhc.metrics import MetricsRecord
 
 
-arg_parser = ArgumentParser(description="run a TCR-spec network model")
+arg_parser = ArgumentParser(description="run a SwiftMHC network model")
 arg_parser.add_argument("--run-id", "-r", help="name of the run and the directory to store it")
 arg_parser.add_argument("--debug", "-d", help="generate debug files", action='store_const', const=True, default=False)
 arg_parser.add_argument("--log-stdout", "-l", help="log to stdout", action='store_const', const=True, default=False)
-arg_parser.add_argument("--pretrained-model", "-m", help="use a given pretrained model state")
+arg_parser.add_argument("--pretrained-model", "-p", help="use a given pretrained model state")
 arg_parser.add_argument("--workers", "-w", help="number of worker processes to load batches", type=int, default=5)
 arg_parser.add_argument("--builders", "-B", help="number of simultaneous structure builder processes, it has no effect setting this higher than the number of models produced per batch", type=int, default=0)
 arg_parser.add_argument("--batch-size", "-b", help="batch size to use during training/validation/testing", type=int, default=8)
-arg_parser.add_argument("--epoch-count", "-e", help="how many epochs to run during structure training", type=int, default=5)
-arg_parser.add_argument("--fine-tune-count", "-u", help="how many epochs to run during fine-tuning, at the end", type=int, default=5)
-arg_parser.add_argument("--animate", "-a", help="id of a data point to generate intermediary pdb for", nargs="+")
+arg_parser.add_argument("--epoch-count", "-e", help="how many epochs to run during structure training", type=int, default=100)
+arg_parser.add_argument("--affinity-tune-count", "-a", help="how many epochs to run during affinity-tuning, after structure training", type=int, default=50)
+arg_parser.add_argument("--fine-tune-count", "-u", help="how many epochs to run during fine-tuning, at the end", type=int, default=50)
+arg_parser.add_argument("--animate", "-m", help="id of a data point to generate intermediary pdb for", nargs="+")
 arg_parser.add_argument("--lr", help="learning rate setting", type=float, default=0.001)
 arg_parser.add_argument("--classification", "-c", help="do classification instead of regression", action="store_const", const=True, default=False)
 arg_parser.add_argument("--test-only", "-t", help="do not train, only run tests", const=True, default=False, action='store_const')
@@ -577,7 +578,9 @@ class Trainer:
               train_loader: DataLoader,
               valid_loader: DataLoader,
               test_loaders: List[DataLoader],
-              epoch_count: int, fine_tune_count: int,
+              epoch_count: int,
+              affinity_tune_count: int,
+              fine_tune_count: int,
               run_id: str,
               pretrained_model_path: str,
               animated_complex_ids: List[str],
@@ -592,6 +595,7 @@ class Trainer:
             valid_loader: dataset for validation, selecting the best model and deciding on early stopping
             test_loaders: datasets for testing on
             epoch_count: number of epochs to run optimizing just fape and chi for binding peptides
+            affinity_tune_count: number of epochs to run optimizing binding affinity
             fine_tune_count: number of epochs to run optimizing everything
             run_id: directory to store the resulting files
             pretrained_model_path: an optional pretrained model file to start from
@@ -634,16 +638,22 @@ class Trainer:
 
         fape_tune = not disable_struct_loss
         torsion_tune = not disable_struct_loss
-        affinity_tune = not disable_struct_loss
+        fine_tune = False
+        affinity_tune = False
 
         # do the actual learning iteration
-        total_epochs = epoch_count + fine_tune_count
-        for epoch_index in range(total_epochs):
+        total_epochs = epoch_count + affinity_tune_count + fine_tune_count
+        epoch_index = 0
+        while epoch_index < total_epochs:
 
-            # flip this setting after the given number of epochs
-            fine_tune = (epoch_index >= epoch_count) and not disable_struct_loss
-            if fine_tune and epoch_index == epoch_count:
-                _log.info(f"fine tuning starts at epoch {epoch_index}")
+            # determine which loss terms to turn on in training
+            if epoch_index >= (epoch_count + affinity_tune_count):
+                fine_tune = True
+            elif epoch_index >= epoch_count:
+                if disable_ba_loss:
+                    fine_tune = True  # skip affinity tune
+                else:
+                    affinity_tune = True
 
             # train during epoch
             with Timer(f"train epoch {epoch_index}") as t:
@@ -655,7 +665,7 @@ class Trainer:
             # validate
             with Timer(f"valid epoch {epoch_index}") as t:
                 valid_loss = self._validate(epoch_index, model, valid_loader,
-                                            affinity_tune, fape_tune, torsion_tune, True,
+                                            not disable_ba_loss, fape_tune, torsion_tune, True,
                                             run_id)
                 t.add_to_title(f"on {len(valid_loader.dataset)} data points")
 
@@ -663,7 +673,7 @@ class Trainer:
             for test_loader in test_loaders:
                 with Timer(f"test epoch {epoch_index}") as t:
                     self._validate(epoch_index, model, test_loader,
-                                   affinity_tune, fape_tune, torsion_tune, True,
+                                   not disable_ba_loss, fape_tune, torsion_tune, True,
                                    run_id)
                     t.add_to_title(f"on {len(test_loader.dataset)} data points")
 
@@ -673,18 +683,26 @@ class Trainer:
                 if fine_tune:
                     # end training
                     break
-                else:
+
+                elif affinity_tune:
                     _log.info(f"starting fine tune at epoch {epoch_index + 1}")
 
-                    # make fine tune start here
+                    # end affinity tune here
+                    affinity_tune_count = epoch_index - epoch_count
+
+                else:
+                    _log.info(f"starting affinity tune at epoch {epoch_index + 1}")
+
+                    # end normal epochs here
                     epoch_count = epoch_index
-                    total_epochs = epoch_count + fine_tune_count
 
             # If the validation loss improves, save the model.
             if valid_loss < lowest_loss:
                 lowest_loss = valid_loss
 
                 torch.save(model.state_dict(), model_path)
+
+            epoch_index += 1
 
     def get_data_loader(self,
                         data_path: str,
@@ -881,6 +899,6 @@ if __name__ == "__main__":
 
         # train with the composed datasets and user-provided settings
         trainer.train(train_loader, valid_loader, test_loaders,
-                      args.epoch_count, args.fine_tune_count,
+                      args.epoch_count, args.affinity_tune_count, args.fine_tune_count,
                       run_id, pretrained_model_path,
                       args.animate, args.disable_struct_loss, args.disable_ba_loss)

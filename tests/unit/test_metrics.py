@@ -9,8 +9,8 @@ import pandas
 
 from openfold.np import residue_constants as rc
 
-from tcrspec.metrics import MetricsRecord
-from tcrspec.loss import get_calpha_rmsd
+from swiftmhc.metrics import MetricsRecord
+from swiftmhc.loss import get_calpha_rmsd
 
 
 def test_metrics():

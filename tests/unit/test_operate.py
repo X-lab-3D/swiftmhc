@@ -6,7 +6,7 @@ import torch
 
 from openfold.utils.rigid_utils import Rigid, Rotation
 
-from tcrspec.operate import average_rigid
+from swiftmhc.operate import average_rigid
 
 
 _log = logging.getLogger(__name__)

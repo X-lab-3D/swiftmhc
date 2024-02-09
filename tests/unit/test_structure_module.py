@@ -1,8 +1,8 @@
 import torch
 from Bio.PDB.PDBParser import PDBParser
 
-from tcrspec.tools.pdb import get_atom14_positions
-from tcrspec.modules.cross_structure_module import CrossStructureModule
+from swiftmhc.tools.pdb import get_atom14_positions
+from swiftmhc.modules.cross_structure_module import CrossStructureModule
 
 
 pdb_parser = PDBParser()
