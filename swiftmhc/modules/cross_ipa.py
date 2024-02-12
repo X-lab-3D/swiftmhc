@@ -213,7 +213,7 @@ class CrossInvariantPointAttention(torch.nn.Module):
         pt_att = torch.sum(pt_att, dim=-1) * (-0.5)
 
         # [*, len_dst, len_src]
-        square_mask = dst_mask.unsqueeze(-1) * src_mask.unsqueeze(-2)
+        square_mask = torch.logical_and(dst_mask.unsqueeze(-1), src_mask.unsqueeze(-2))
         square_mask = self.inf * (square_mask.to(dtype=torch.float32) - 1.0)
 
         # [*, H, len_dst, len_src]

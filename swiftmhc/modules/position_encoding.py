@@ -170,11 +170,11 @@ class RelativePositionEncoder(torch.nn.Module):
         v = self.linear_q(s).reshape(batch_size, maxlen, self.depth, self.no_heads).transpose(-2, -1).transpose(-3, -2)
 
         # [*, 1, N_res, N_res]
-        square_mask = (masks[:, :, None] * masks[:, None, :]).unsqueeze(-3)
+        square_mask = torch.logical_and(masks[:, :, None], masks[:, None, :]).unsqueeze(-3)
 
         # [*, H, N_res, N_res]
-        a = square_mask * torch.nn.functional.softmax(
-            self.w_L * (torch.matmul(q, k.transpose(-2, -1)) / sqrt(self.depth) + b),
+        a = torch.nn.functional.softmax(
+            self.w_L * (torch.matmul(q, k.transpose(-2, -1)) / sqrt(self.depth) + b) - self.inf * square_mask.float(),
             -1
         )
 

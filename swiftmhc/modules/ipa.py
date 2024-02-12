@@ -123,9 +123,8 @@ class DebuggableInvariantPointAttention(torch.nn.Module):
             z[0] = z[0].cpu()
 
         # [*, N_res, N_res]
-        square_mask = mask.unsqueeze(-1) * mask.unsqueeze(-2)
-        general_att_mask = square_mask.clone().unsqueeze(-3)
-        square_mask = (self.inf * (square_mask - 1)).unsqueeze(-3)
+        square_mask = torch.logical_and(mask.unsqueeze(-1), mask.unsqueeze(-2))
+        square_mask = (self.inf * (square_mask.to(dtype=torch.float32) - 1)).unsqueeze(-3)
 
         # [*, H, N_res, N_res]
         if(is_fp16_enabled()):

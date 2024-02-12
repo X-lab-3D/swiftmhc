@@ -416,7 +416,7 @@ class CrossStructureModule(torch.nn.Module):
         positions_CA1 = positions[..., 1:, atom_index_CA, :]
 
         # [*, N_res - 1]
-        mask = res_mask[..., :-1] * res_mask[..., 1:]
+        mask = torch.logical_and(res_mask[..., :-1], res_mask[..., 1:])
         masked_out = torch.logical_not(mask)
 
         # make directional vectors for the 3 bonds
@@ -452,7 +452,8 @@ class CrossStructureModule(torch.nn.Module):
         # [*, N_res - 1]
         omega_sin = (axis * newmann1).sum(dim=-1)
         
-        omega_cos = omega_cos * mask.float() + masked_out.float()
-        omega_sin = omega_sin * mask.float()
+        # masked areas get 180 degrees omega
+        omega_cos = torch.where(mask, omega_cos,-1.0)
+        omega_sin = torch.where(mask, omega_sin, 0.0)
 
         return torch.cat([omega_sin[..., None], omega_cos[..., None]], dim=-1)

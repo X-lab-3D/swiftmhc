@@ -39,6 +39,8 @@ class Predictor(torch.nn.Module):
                  config: ml_collections.ConfigDict):
         super(Predictor, self).__init__()
 
+        self.eps = 1e-6
+
         structure_module_config = copy(config.structure_module)
         structure_module_config.c_s = 32
         structure_module_config.c_z = 1
@@ -92,7 +94,7 @@ class Predictor(torch.nn.Module):
         c_transition = 128
         self.affinity_transition = torch.nn.Sequential(
             torch.nn.Linear(structure_module_config.c_s, c_transition),
-            torch.nn.ReLU(),
+            torch.nn.GELU(),
             torch.nn.Linear(c_transition, output_size),
         )
 
@@ -126,6 +128,7 @@ class Predictor(torch.nn.Module):
 
         # [*, peptide_maxlen, c_s]
         peptide_seq = batch["peptide_sequence_onehot"]
+
         batch_size, peptide_maxlen, peptide_depth = peptide_seq.shape
 
         # transform the peptide
@@ -184,8 +187,14 @@ class Predictor(torch.nn.Module):
         # [*, peptide_maxlen, 1]
         mask = batch["peptide_cross_residues_mask"].unsqueeze(-1)
 
+        # [*]
+        length = batch["peptide_cross_residues_mask"].float().sum(dim=-1)
+
+        # [*, peptide_maxlen, output_size]
+        masked_p = torch.where(mask, p, 0.0)
+
         # [*, output_size]
-        ba_output = (p * mask).sum(dim=-2) / mask.sum(dim=-2)
+        ba_output = masked_p.sum(dim=-2) / length.unsqueeze(-1)
 
         # affinity prediction
         if self.model_type == ModelType.REGRESSION:
