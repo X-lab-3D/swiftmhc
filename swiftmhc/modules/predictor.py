@@ -94,7 +94,7 @@ class Predictor(torch.nn.Module):
         c_transition = 128
         self.affinity_transition = torch.nn.Sequential(
             torch.nn.Linear(structure_module_config.c_s, c_transition),
-            torch.nn.GELU(),
+            torch.nn.ReLU(),
             torch.nn.Linear(c_transition, output_size),
         )
 
