@@ -62,8 +62,6 @@ class ProteinLoopDataset(Dataset):
         else:
             self._entry_names = get_entry_names(self._hdf5_path)
 
-        self.inf = 1e9
-
     @property
     def entry_names(self) -> List[str]:
         return self._entry_names
@@ -99,10 +97,7 @@ class ProteinLoopDataset(Dataset):
             if PREPROCESS_KD_NAME in entry_group:
                 result["kd"] = torch.tensor(entry_group[PREPROCESS_KD_NAME][()], device=self._device, dtype=torch.float)
 
-                if result["kd"] == 0.0:
-                    result["affinity"] = torch.tensor(self.inf, device=self._device, dtype=torch.float)
-                else:
-                    result["affinity"] = 1.0 - torch.log(result["kd"]) / log(50000)
+                result["affinity"] = 1.0 - torch.log(result["kd"]) / log(50000)
 
                 result["class"] = torch.tensor(entry_group[PREPROCESS_KD_NAME][()] < 500.0, device=self._device, dtype=torch.long)
 
