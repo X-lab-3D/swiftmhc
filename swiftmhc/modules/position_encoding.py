@@ -174,7 +174,7 @@ class RelativePositionEncoder(torch.nn.Module):
 
         # [*, H, N_res, N_res]
         a = torch.nn.functional.softmax(
-            self.w_L * (torch.matmul(q, k.transpose(-2, -1)) / sqrt(self.depth) + b) - self.inf * square_mask.float(),
+            self.w_L * (torch.matmul(q, k.transpose(-2, -1)) / sqrt(self.depth) + b) - self.inf * torch.logical_not(square_mask).float(),
             -1
         )
 
