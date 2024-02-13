@@ -298,7 +298,7 @@ class CrossStructureModule(torch.nn.Module):
 
         # calculate the actual omega angles, according to atom positions
         post_omegas_from_xyz = self.calculate_omegas_from_positions(pred_xyz, peptide_mask)
-        last_omega = post_omegas_from_xyz.new_tensor([1.0, 0.0])  # cosine 1, sine 0
+        last_omega = post_omegas_from_xyz.new_tensor([0.0, -1.0])  # sine 0, cosine -1 : 180 degrees
         last_omega = last_omega.unsqueeze(0).expand(post_omegas_from_xyz.shape[0], -1).unsqueeze(1)
         omegas = torch.cat([post_omegas_from_xyz, last_omega], dim=-2)
         angles = torch.cat([omegas.unsqueeze(-2), angles[..., 1:, :]], dim=-2)
