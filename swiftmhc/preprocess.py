@@ -40,7 +40,7 @@ from .models.complex import ComplexClass
 _log = logging.getLogger(__name__)
 
 
-PREPROCESS_KD_NAME = "kd"
+PREPROCESS_IC50_NAME = "IC50"
 PREPROCESS_CLASS_NAME = "class"
 PREPROCESS_PROTEIN_NAME = "protein"
 PREPROCESS_PEPTIDE_NAME = "peptide"
@@ -58,7 +58,7 @@ def _write_preprocessed_data(hdf5_path: str, storage_id: str,
         storage_id: id to store the entry under as an hdf5 group
         protein_data: result output by '_read_residue_data' function, on protein residues
         peptide_data: result output by '_read_residue_data' function, on peptide residues
-        target: a number(Kd) or a class(BINDING/NONBINDING) to express binding affinity
+        target: a number (IC50) or a class (BINDING/NONBINDING) to express binding affinity
     """
 
     with h5py.File(hdf5_path, 'a') as hdf5_file:
@@ -67,7 +67,7 @@ def _write_preprocessed_data(hdf5_path: str, storage_id: str,
 
         # store target data
         if isinstance(target, float):
-            storage_group.create_dataset(PREPROCESS_KD_NAME, data=target)
+            storage_group.create_dataset(PREPROCESS_IC50_NAME, data=target)
 
         elif isinstance(target, str):
             cls = ComplexClass.from_string(target)
@@ -541,7 +541,7 @@ def preprocess(
     Preprocess p-MHC-I data, to be used in SwiftMHC.
 
     Args:
-        table_path: CSV input data table, containing columns: ID (of complex), measurement_value (optional, Kd or BINDING/NONBINDING), allele (optional, name of MHC allele)
+        table_path: CSV input data table, containing columns: ID (of complex), measurement_value (optional, IC50 or BINDING/NONBINDING), allele (optional, name of MHC allele)
         models_path: directory or tarball, to search for models with the IDs from the input table
         protein_self_mask_path: mask file to be used for self attention
         protein_cross_mask_path: mask file to be used for cross attention

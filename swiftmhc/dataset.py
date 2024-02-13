@@ -19,7 +19,7 @@ from .models.data import TensorDict
 from .models.residue import Residue
 from .domain.amino_acid import amino_acids_by_letter, amino_acids_by_one_hot_index, AMINO_ACID_DIMENSION
 from .tools.pdb import get_selected_residues, get_residue_transformations, get_residue_proximities
-from .preprocess import PREPROCESS_KD_NAME, PREPROCESS_CLASS_NAME, PREPROCESS_PROTEIN_NAME, PREPROCESS_PEPTIDE_NAME
+from .preprocess import PREPROCESS_IC50_NAME, PREPROCESS_CLASS_NAME, PREPROCESS_PROTEIN_NAME, PREPROCESS_PEPTIDE_NAME
 
 
 _log = logging.getLogger(__name__)
@@ -94,12 +94,15 @@ class ProteinLoopDataset(Dataset):
             result["ids"] = entry_name
 
             # The target affinity value is optional, thus only take it if present
-            if PREPROCESS_KD_NAME in entry_group:
-                result["kd"] = torch.tensor(entry_group[PREPROCESS_KD_NAME][()], device=self._device, dtype=torch.float)
+            if PREPROCESS_IC50_NAME in entry_group:
+                result["ic50"] = torch.tensor(entry_group[PREPROCESS_IC50_NAME][()], device=self._device, dtype=torch.float)
 
-                result["affinity"] = 1.0 - torch.log(result["kd"]) / log(50000)
+                if entry_group[PREPROCESS_IC50_NAME][()] == 0.0:
+                    raise ValueError(f"IC50 is zero for {entry_name}")
 
-                result["class"] = torch.tensor(entry_group[PREPROCESS_KD_NAME][()] < 500.0, device=self._device, dtype=torch.long)
+                result["affinity"] = 1.0 - torch.log(result["ic50"]) / log(50000)
+
+                result["class"] = torch.tensor(entry_group[PREPROCESS_IC50_NAME][()] < 500.0, device=self._device, dtype=torch.long)
 
             elif PREPROCESS_CLASS_NAME in entry_group:
                 result["class"] = torch.tensor(entry_group[PREPROCESS_CLASS_NAME][()], device=self._device, dtype=torch.long)
