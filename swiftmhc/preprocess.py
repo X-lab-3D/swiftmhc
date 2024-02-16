@@ -502,9 +502,13 @@ def _get_masked_structure(
         for chain_id, residue_number, amino_acid in reference_mask:
 
             # locate the masked residue in the reference structure
-            reference_residue = [residue for residue in reference_structure.get_residues()
+            matching_residues = [residue for residue in reference_structure.get_residues()
                                  if residue.get_parent().get_id() == chain_id and
-                                    residue.get_id() == (' ', residue_number, ' ')][0]
+                                    residue.get_id() == (' ', residue_number, ' ')]
+            if len(matching_residues) == 0:
+                raise ValueError(f"The mask has residue {chain_id},{residue_number}, but the reference structure doesn't")
+
+            reference_residue = matching_residues[0]
 
             if reference_residue.get_resname() != amino_acid.three_letter_code.upper():
                 raise ValueError(
