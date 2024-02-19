@@ -49,7 +49,7 @@ PREPROCESS_PEPTIDE_NAME = "peptide"
 def _write_preprocessed_data(hdf5_path: str, storage_id: str,
                              protein_data: Dict[str, torch.Tensor],
                              peptide_data: Optional[Dict[str, torch.Tensor]] = None,
-                             target: Optional[Union[float, ComplexClass]] = None):
+                             target: Optional[Union[float, str, ComplexClass]] = None):
     """
     Output preprocessed protein-peptide data to and hdf5 file.
 
