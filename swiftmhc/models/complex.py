@@ -15,7 +15,13 @@ class ComplexClass(Enum):
         if s.upper() == 'NONBINDING':
             return ComplexClass.NONBINDING
 
+        elif s.upper() == 'NEGATIVE':
+            return ComplexClass.NONBINDING
+
         elif s.upper() == 'BINDING':
+            return ComplexClass.BINDING
+
+        elif s.upper() == 'POSITIVE':
             return ComplexClass.BINDING
 
         raise ValueError(s)
