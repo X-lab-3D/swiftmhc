@@ -7,6 +7,8 @@ import logging
 from uuid import uuid4
 from typing import Tuple, Union, Optional, List, Dict, Set, Any
 from math import log, sqrt
+import random
+from copy import copy
 import csv
 import h5py
 import numpy
@@ -759,7 +761,8 @@ def random_subdivision(ids: List[str], fraction: float) -> Tuple[List[str], List
 
     n = int(round(fraction * len(ids)))
 
-    shuffled = torch.randperm(ids)
+    shuffled = copy(ids)
+    random.shuffle(shuffled)
 
     return shuffled[:-n], shuffled[-n:]
 
@@ -885,17 +888,17 @@ if __name__ == "__main__":
                 train_entry_names, valid_entry_names = random_subdivision(train_valid_entry_names, 0.1)
             else:
                 # Otherwise, make only a train and validation set
-                train_entry_names, valid_test_entry_names = random_subdivision(get_entry_names(args.data_path[0]), 0.2)
+                train_entry_names, valid_entry_names = random_subdivision(get_entry_names(args.data_path[0]), 0.2)
                 test_entry_names = []
 
             _log.debug(f"training, validating & testing on {args.data_path[0]} subsets")
 
-            train_loader = trainer.get_data_loader(args.data_path[0], args.batch_size, device, train_entry_names, shuffle=True)
-            valid_loader = trainer.get_data_loader(args.data_path[0], args.batch_size, device, valid_entry_names, shuffle=False)
+            train_loader = trainer.get_data_loader(args.data_path[0], args.batch_size, device, True, train_entry_names)
+            valid_loader = trainer.get_data_loader(args.data_path[0], args.batch_size, device, False, valid_entry_names)
 
             test_loaders = []
             if len(test_entry_names) > 0:
-                test_loaders = [trainer.get_data_loader(args.data_path[0], args.batch_size, device, test_entry_names, shuffle=False)]
+                test_loaders = [trainer.get_data_loader(args.data_path[0], args.batch_size, device, False, test_entry_names)]
 
         # train with the composed datasets and user-provided settings
         trainer.train(train_loader, valid_loader, test_loaders,
