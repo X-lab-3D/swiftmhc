@@ -70,8 +70,11 @@ def _write_preprocessed_data(hdf5_path: str, storage_id: str,
             storage_group.create_dataset(PREPROCESS_IC50_NAME, data=target)
 
         elif isinstance(target, str):
-            cls = ComplexClass.from_string(target)
-            storage_group.create_dataset(PREPROCESS_CLASS_NAME, data=int(cls))
+            if target[0].isdigit():
+                storage_group.create_dataset(PREPROCESS_IC50_NAME, data=float(target))
+            else:
+                cls = ComplexClass.from_string(target)
+                storage_group.create_dataset(PREPROCESS_CLASS_NAME, data=int(cls))
 
         elif isinstance(target, ComplexClass):
             storage_group.create_dataset(PREPROCESS_CLASS_NAME, data=int(target))
@@ -427,9 +430,9 @@ def _find_model_as_bytes(
                         raise ValueError(f"{len(bs)} bytes in {model_path}")
                     return bs
 
-    # search in tarball
-    elif models_path.endswith("tar.xz"):
-        with tarfile.open(models_path, 'r:xz') as tf:
+    # search in tarball (slow)
+    elif models_path.endswith("tar"):
+        with tarfile.open(models_path, 'r') as tf:
             for filename in tf.getnames():
                 if filename.endswith(model_name):
                     with tf.extractfile(filename) as f:
@@ -568,6 +571,7 @@ def preprocess(
 
     table = pandas.read_csv(table_path)
 
+    # iterate through the table
     for table_index, row in table.iterrows():
 
         id_ = row["ID"]
@@ -587,6 +591,7 @@ def preprocess(
             allele = None
 
         # find the pdb file
+        _log.debug(f"finding model for {id_}")
         try:
             model_bytes = _find_model_as_bytes(models_path, id_)
         except (KeyError, FileNotFoundError):
@@ -594,6 +599,7 @@ def preprocess(
             continue
 
         try:
+            _log.debug(f"processing model for {id_}")
             # apply the masks to the MHC model
             structure, masked_residues_dict = _get_masked_structure(
                 model_bytes,
