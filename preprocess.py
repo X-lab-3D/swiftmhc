@@ -69,37 +69,47 @@ if __name__ == "__main__":
 
     logging.basicConfig(filename="preprocess.log", filemode="a", level=logging.DEBUG if args.debug else logging.INFO)
 
-    tmp_dir = os.path.join(os.path.dirname(args.output_path), uuid4().hex)
-    os.mkdir(tmp_dir)
+    if args.processes == 1:
+        preprocess(
+            args.table_path,
+            args.models_dir,
+            args.protein_self_mask,
+            args.protein_cross_mask,
+            args.output_path,
+            args.reference_structure,
+        )
+    else:
+        tmp_dir = os.path.join(os.path.dirname(args.output_path), uuid4().hex)
+        os.mkdir(tmp_dir)
 
-    try:
-        # split the data
-        table_paths = split_table(args.table_path, tmp_dir, args.processes)
+        try:
+            # split the data
+            table_paths = split_table(args.table_path, tmp_dir, args.processes)
 
-        ps = []
-        tmp_output_paths = []
-        for table_path in table_paths:
+            ps = []
+            tmp_output_paths = []
+            for table_path in table_paths:
 
-            output_path = f"{table_path}.hdf5"
+                output_path = f"{table_path}.hdf5"
 
-            p = Process(target=preprocess, args=(table_path, args.models_dir, args.protein_self_mask, args.protein_cross_mask, output_path, args.reference_structure))
-            ps.append(p)
+                p = Process(target=preprocess, args=(table_path, args.models_dir, args.protein_self_mask, args.protein_cross_mask, output_path, args.reference_structure))
+                ps.append(p)
 
-            tmp_output_paths.append(output_path)
-            p.start()
+                tmp_output_paths.append(output_path)
+                p.start()
 
-        # wait for all processes to complete
-        for p in ps:
-            p.join()
+            # wait for all processes to complete
+            for p in ps:
+                p.join()
 
-        # merge the preprocessed data into one file
-        with h5py.File(args.output_path, 'w') as output_file:
-            for tmp_output_path in tmp_output_paths:
-                if os.path.isfile(tmp_output_path):
-                    with h5py.File(tmp_output_path, 'r') as tmp_file:
-                        for key, value in tmp_file.items():
-                             tmp_file.copy(value, output_file)
+            # merge the preprocessed data into one file
+            with h5py.File(args.output_path, 'w') as output_file:
+                for tmp_output_path in tmp_output_paths:
+                    if os.path.isfile(tmp_output_path):
+                        with h5py.File(tmp_output_path, 'r') as tmp_file:
+                            for key, value in tmp_file.items():
+                                 tmp_file.copy(value, output_file)
 
-                    os.remove(tmp_output_path)
-    finally:
-        shutil.rmtree(tmp_dir)
+                        os.remove(tmp_output_path)
+        finally:
+            shutil.rmtree(tmp_dir)
