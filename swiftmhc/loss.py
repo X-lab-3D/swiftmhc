@@ -491,7 +491,8 @@ def get_loss(model_type: ModelType,
         "torsion": torsion_loss.mean(dim=0),
     })
 
-    result["affinity"] = affinity_loss.mean(dim=0)
+    if affinity_loss is not None:
+        result["affinity"] = affinity_loss.mean(dim=0)
 
     # add these separate components to the result too:
     for component_id, loss_tensor in fape_losses.items():
