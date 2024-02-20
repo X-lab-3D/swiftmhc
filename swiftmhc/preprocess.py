@@ -128,7 +128,7 @@ def _read_mask_data(path: str) -> List[ResidueMaskType]:
     return mask_data
 
 
-def _get_blosum_encoding(amino_acid_indexes: List[int], blosum_index: int) -> torch.Tensor:
+def _get_blosum_encoding(amino_acid_indexes: List[int], blosum_index: int, device: torch.device) -> torch.Tensor:
     """
     Convert amino acids to BLOSUM encoding
 
@@ -258,7 +258,7 @@ def _read_residue_data(residues: List[Residue]) -> Dict[str, torch.Tensor]:
 
     # embed the sequence
     amino_acids = [amino_acids_by_code[r.get_resname()] for r in residues]
-    sequence_onehot = torch.stack([aa.one_hot_code for aa in amino_acids])
+    sequence_onehot = torch.stack([aa.one_hot_code for aa in amino_acids]).to(device=device)
     aatype = torch.tensor([aa.index for aa in amino_acids], device=device)
 
     # get atom positions and mask
@@ -271,11 +271,11 @@ def _read_residue_data(residues: List[Residue]) -> Dict[str, torch.Tensor]:
         atom14_mask.append(m)
         residue_numbers.append(residue.get_id()[1])
 
-    atom14_positions = torch.stack(atom14_positions)
-    atom14_mask = torch.stack(atom14_mask)
+    atom14_positions = torch.stack(atom14_positions).to(device=device)
+    atom14_mask = torch.stack(atom14_mask).to(device=device)
     residue_numbers = torch.tensor(residue_numbers, device=device)
 
-    blosum62 = _get_blosum_encoding(aatype, 62)
+    blosum62 = _get_blosum_encoding(aatype, 62, device)
 
     # convert to atom 37 format, for the frames and torsion angles
     protein = {
@@ -429,13 +429,14 @@ def _find_model_as_bytes(
 
     # search in tarball
     elif models_path.endswith("tar.xz"):
-        model_path = os.path.join(models_path, model_name)
         with tarfile.open(models_path, 'r:xz') as tf:
-            with tf.extractfile(model_path) as f:
-                bs = f.read()
-                if len(bs) < min_bytes:
-                    raise ValueError(f"{len(bs)} bytes in {model_path}")
-                return bs
+            for filename in tf.getnames():
+                if filename.endswith(model_name):
+                    with tf.extractfile(filename) as f:
+                        bs = f.read()
+                        if len(bs) < min_bytes:
+                            raise ValueError(f"{len(bs)} bytes in {model_path}")
+                        return bs
 
     # if really nothing is found
     raise FileNotFoundError(f"Cannot find {model_id} under {models_path}")
