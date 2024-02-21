@@ -1,7 +1,7 @@
 from typing import List, Tuple, Union, Optional, Dict
 import os
 import logging
-from math import isinf, floor, ceil
+from math import isinf, floor, ceil, log
 import tarfile
 from uuid import uuid4
 
@@ -40,16 +40,24 @@ from .models.complex import ComplexClass
 _log = logging.getLogger(__name__)
 
 
-PREPROCESS_IC50_NAME = "IC50"
+PREPROCESS_AFFINNITY_LOWERBOUND_MASK_NAME = "affinity_lowerbound_mask"
+PREPROCESS_AFFINNITY_UPPERBOUND_MASK_NAME = "affinity_upperbound_mask"
+PREPROCESS_AFFINITY_NAME = "affinity"
 PREPROCESS_CLASS_NAME = "class"
 PREPROCESS_PROTEIN_NAME = "protein"
 PREPROCESS_PEPTIDE_NAME = "peptide"
 
 
-def _write_preprocessed_data(hdf5_path: str, storage_id: str,
-                             protein_data: Dict[str, torch.Tensor],
-                             peptide_data: Optional[Dict[str, torch.Tensor]] = None,
-                             target: Optional[Union[float, str, ComplexClass]] = None):
+def _write_preprocessed_data(
+    hdf5_path: str,
+    storage_id: str,
+    protein_data: Dict[str, torch.Tensor],
+    peptide_data: Optional[Dict[str, torch.Tensor]] = None,
+    affinity: Optional[float] = None,
+    affinity_lowerbound: Optional[bool] = False,
+    affinity_upperbound: Optional[bool] = False,
+    class_: Optional[ComplexClass] = None,
+):
     """
     Output preprocessed protein-peptide data to and hdf5 file.
 
@@ -58,29 +66,25 @@ def _write_preprocessed_data(hdf5_path: str, storage_id: str,
         storage_id: id to store the entry under as an hdf5 group
         protein_data: result output by '_read_residue_data' function, on protein residues
         peptide_data: result output by '_read_residue_data' function, on peptide residues
-        target: a number (IC50) or a class (BINDING/NONBINDING) to express binding affinity
+        affinity: the higher, the more tightly bound
+        affinity_lowerbound: a mask, true for <, false for =
+        affinity_upperbound: a mask, true for >, false for =
+        class_: BINDING/NONBINDING
     """
 
     with h5py.File(hdf5_path, 'a') as hdf5_file:
 
         storage_group = hdf5_file.require_group(storage_id)
 
-        # store target data
-        if isinstance(target, float):
-            storage_group.create_dataset(PREPROCESS_IC50_NAME, data=target)
+        # store affinity/class data
+        if affinity is not None:
+            storage_group.create_dataset(PREPROCESS_AFFINITY_NAME, data=affinity)
 
-        elif isinstance(target, str):
-            if target[0].isdigit():
-                storage_group.create_dataset(PREPROCESS_IC50_NAME, data=float(target))
-            else:
-                cls = ComplexClass.from_string(target)
-                storage_group.create_dataset(PREPROCESS_CLASS_NAME, data=int(cls))
+        storage_group.create_dataset(PREPROCESS_AFFINNITY_LOWERBOUND_MASK_NAME, data=affinity_lowerbound)
+        storage_group.create_dataset(PREPROCESS_AFFINNITY_UPPERBOUND_MASK_NAME, data=affinity_upperbound)
 
-        elif isinstance(target, ComplexClass):
-            storage_group.create_dataset(PREPROCESS_CLASS_NAME, data=int(target))
-
-        elif target is not None:
-            raise TypeError(type(target))
+        if class_ is not None:
+            storage_group.create_dataset(PREPROCESS_CLASS_NAME, data=int(class_))
 
         # store protein data
         protein_group = storage_group.require_group(PREPROCESS_PROTEIN_NAME)
@@ -90,6 +94,7 @@ def _write_preprocessed_data(hdf5_path: str, storage_id: str,
             else:
                 protein_group.create_dataset(field_name, data=field_data)
 
+        # store peptide data
         if peptide_data is not None:
             peptide_group = storage_group.require_group(PREPROCESS_PEPTIDE_NAME)
             for field_name, field_data in peptide_data.items():
@@ -537,6 +542,60 @@ def _get_masked_structure(
     return superposed_structure, mask_result
 
 
+def _k_to_affinity(k: float) -> float:
+    if k == 0.0:
+        raise ValueError(f"k is zero")
+
+    return 1.0 - log(k) / log(50000)
+
+
+affinity_binding_threshold = 1.0 - log(500) / log(50000)
+
+
+def _interpret_target(target: Union[str, float]) -> Tuple[Union[float, None], bool, bool, Union[ComplexClass, None]]:
+    """
+    target can be anything, decide that here.
+
+    Returns:
+        affinity
+        does affinity have a lower bound y/n
+        does affinity have an upper bound y/n
+        class BINDING/NONBINDING
+    """
+
+    # init to default
+    affinity = None
+    affinity_lower_bound = False
+    affinity_upper_bound = False
+    class_ = None
+
+    if isinstance(target, float):
+        affinity = _k_to_affinity(target)
+
+    elif target[0].isdigit():
+        affinity = _k_to_affinity(float(target))
+
+    elif target.startswith("<"):
+        affinity = _k_to_affinity(float(target[1:]))
+        affinity_upper_bound = True
+
+    elif target.startswith(">"):
+        affinity = _k_to_affinity(float(target[1:]))
+        affinity_lower_bound = True
+
+    else:
+        class_ = ComplexClass.from_string(target)
+
+    if affinity is not None:
+        if affinity > affinity_binding_threshold and not affinity_lower_bound:
+            class_ = ComplexClass.BINDING
+
+        elif affinity < affinity_binding_threshold and not affinity_upper_bound:
+            class_ = ComplexClass.NONBINDING
+
+    return affinity, affinity_lower_bound, affinity_upper_bound, class_
+
+
 def preprocess(
     table_path: str,
     models_path: str,
@@ -580,10 +639,12 @@ def preprocess(
 
         _log.debug(f"preprocessing {id_}")
 
+        affinity_lower_bound = False
+        affinity_upper_bound = False
+        affinity = None
+        class_ = None
         if "measurement_value" in row:
-            target = row["measurement_value"]
-        else:
-            target = None
+            affinity, affinity_lower_bound, affinity_upper_bound, class_ = _interpret_target(row["measurement_value"])
 
         if "allele" in row:
             allele = row["allele"]
@@ -661,10 +722,16 @@ def preprocess(
                 peptide_data = None
 
             # write the data that we found
-            _write_preprocessed_data(output_path, id_,
-                                     protein_data,
-                                     peptide_data,
-                                     target)
+            _write_preprocessed_data(
+                output_path,
+                id_,
+                protein_data,
+                peptide_data,
+                affinity,
+                affinity_lower_bound,
+                affinity_upper_bound,
+                class_,
+            )
         except:
             _log.exception(f"on {id_}")
             continue
