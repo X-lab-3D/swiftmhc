@@ -432,10 +432,15 @@ def get_loss(model_type: ModelType,
         if "affinity" in batch:
 
             affinity_loss = _regression_loss_function(output["affinity"], batch["affinity"])
+
+            affinity_loss[torch.logical_and(output["affinity"] < batch["affinity"], batch["affinity_lt"])] = 0.0
+            affinity_loss[torch.logical_and(output["affinity"] > batch["affinity"], batch["affinity_gt"])] = 0.0
+
             non_binders_index = batch["affinity"] < AFFINITY_BINDING_TRESHOLD
 
-        elif not affinity_tune and "class" in batch:
-            # so that we can still tell binders from non-binders
+        elif "class" in batch:
+
+            # needed for structural loss
             non_binders_index = torch.logical_not(batch["class"])
         else:
             raise ValueError("no affinity data to determine loss")

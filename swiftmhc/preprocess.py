@@ -54,8 +54,8 @@ def _write_preprocessed_data(
     protein_data: Dict[str, torch.Tensor],
     peptide_data: Optional[Dict[str, torch.Tensor]] = None,
     affinity: Optional[float] = None,
-    affinity_lowerbound: Optional[bool] = False,
-    affinity_upperbound: Optional[bool] = False,
+    affinity_lt: Optional[bool] = False,
+    affinity_gt: Optional[bool] = False,
     class_: Optional[ComplexClass] = None,
 ):
     """
@@ -67,8 +67,8 @@ def _write_preprocessed_data(
         protein_data: result output by '_read_residue_data' function, on protein residues
         peptide_data: result output by '_read_residue_data' function, on peptide residues
         affinity: the higher, the more tightly bound
-        affinity_lowerbound: a mask, true for <, false for =
-        affinity_upperbound: a mask, true for >, false for =
+        affinity_lt: a mask, true for <, false for =
+        affinity_gt: a mask, true for >, false for =
         class_: BINDING/NONBINDING
     """
 
@@ -80,8 +80,8 @@ def _write_preprocessed_data(
         if affinity is not None:
             storage_group.create_dataset(PREPROCESS_AFFINITY_NAME, data=affinity)
 
-        storage_group.create_dataset(PREPROCESS_AFFINNITY_LOWERBOUND_MASK_NAME, data=affinity_lowerbound)
-        storage_group.create_dataset(PREPROCESS_AFFINNITY_UPPERBOUND_MASK_NAME, data=affinity_upperbound)
+        storage_group.create_dataset(PREPROCESS_AFFINNITY_LOWERBOUND_MASK_NAME, data=affinity_lt)
+        storage_group.create_dataset(PREPROCESS_AFFINNITY_UPPERBOUND_MASK_NAME, data=affinity_gt)
 
         if class_ is not None:
             storage_group.create_dataset(PREPROCESS_CLASS_NAME, data=int(class_))
@@ -565,8 +565,8 @@ def _interpret_target(target: Union[str, float]) -> Tuple[Union[float, None], bo
 
     # init to default
     affinity = None
-    affinity_lower_bound = False
-    affinity_upper_bound = False
+    affinity_lt = False
+    affinity_gt = False
     class_ = None
 
     if isinstance(target, float):
@@ -577,23 +577,23 @@ def _interpret_target(target: Union[str, float]) -> Tuple[Union[float, None], bo
 
     elif target.startswith("<"):
         affinity = _k_to_affinity(float(target[1:]))
-        affinity_upper_bound = True
+        affinity_gt = True
 
     elif target.startswith(">"):
         affinity = _k_to_affinity(float(target[1:]))
-        affinity_lower_bound = True
+        affinity_lt = True
 
     else:
         class_ = ComplexClass.from_string(target)
 
     if affinity is not None:
-        if affinity > affinity_binding_threshold and not affinity_lower_bound:
+        if affinity > affinity_binding_threshold and not affinity_lt:
             class_ = ComplexClass.BINDING
 
-        elif affinity < affinity_binding_threshold and not affinity_upper_bound:
+        elif affinity < affinity_binding_threshold and not affinity_gt:
             class_ = ComplexClass.NONBINDING
 
-    return affinity, affinity_lower_bound, affinity_upper_bound, class_
+    return affinity, affinity_lt, affinity_gt, class_
 
 
 def preprocess(
@@ -639,12 +639,12 @@ def preprocess(
 
         _log.debug(f"preprocessing {id_}")
 
-        affinity_lower_bound = False
-        affinity_upper_bound = False
+        affinity_lt = False
+        affinity_gt = False
         affinity = None
         class_ = None
         if "measurement_value" in row:
-            affinity, affinity_lower_bound, affinity_upper_bound, class_ = _interpret_target(row["measurement_value"])
+            affinity, affinity_lt, affinity_gt, class_ = _interpret_target(row["measurement_value"])
 
         if "allele" in row:
             allele = row["allele"]
@@ -728,8 +728,8 @@ def preprocess(
                 protein_data,
                 peptide_data,
                 affinity,
-                affinity_lower_bound,
-                affinity_upper_bound,
+                affinity_lt,
+                affinity_gt,
                 class_,
             )
         except:

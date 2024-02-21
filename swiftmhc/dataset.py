@@ -105,10 +105,10 @@ class ProteinLoopDataset(Dataset):
                 result["affinity"] = torch.tensor(entry_group[PREPROCESS_AFFINITY_NAME][()], device=self._device, dtype=torch.float)
 
                 if PREPROCESS_AFFINITY_LOWERBOUND_MASK_NAME in entry_group:
-                    result["affinity_lower_bound"] = torch.tensor(entry_group[PREPROCESS_AFFINITY_LOWERBOUND_MASK_NAME][()], device=self._device, dtype=torch.bool)
+                    result["affinity_lt"] = torch.tensor(entry_group[PREPROCESS_AFFINITY_LOWERBOUND_MASK_NAME][()], device=self._device, dtype=torch.bool)
 
                 if PREPROCESS_AFFINITY_UPPERBOUND_MASK_NAME in entry_group:
-                    result["affinity_upper_bound"] = torch.tensor(entry_group[PREPROCESS_AFFINITY_UPPERBOUND_MASK_NAME][()], device=self._device, dtype=torch.bool)
+                    result["affinity_gt"] = torch.tensor(entry_group[PREPROCESS_AFFINITY_UPPERBOUND_MASK_NAME][()], device=self._device, dtype=torch.bool)
 
             if PREPROCESS_CLASS_NAME in entry_group:
                 result["class"] = torch.tensor(entry_group[PREPROCESS_CLASS_NAME][()], device=self._device, dtype=torch.long)
