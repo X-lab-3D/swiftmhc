@@ -608,7 +608,9 @@ def preprocess(
     Preprocess p-MHC-I data, to be used in SwiftMHC.
 
     Args:
-        table_path: CSV input data table, containing columns: ID (of complex), measurement_value (optional, IC50 or BINDING/NONBINDING), allele (optional, name of MHC allele)
+        table_path: CSV input data table, containing columns: ID (of complex),
+                    measurement_value (optional, IC50, Kd or BINDING/NONBINDING/POSITIVE/NEGATIVE),
+                    allele (optional, name of MHC allele)
         models_path: directory or tarball, to search for models with the IDs from the input table
         protein_self_mask_path: mask file to be used for self attention
         protein_cross_mask_path: mask file to be used for cross attention
