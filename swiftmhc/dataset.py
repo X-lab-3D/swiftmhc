@@ -14,10 +14,12 @@ from sklearn.decomposition import PCA
 
 from openfold.utils.rigid_utils import Rigid
 
+from blosum import BLOSUM
+
 from .models.types import ModelType
 from .models.data import TensorDict
 from .models.residue import Residue
-from .domain.amino_acid import amino_acids_by_letter, amino_acids_by_one_hot_index, AMINO_ACID_DIMENSION
+from .domain.amino_acid import amino_acids_by_letter, amino_acids_by_one_hot_index, AMINO_ACID_DIMENSION, canonical_amino_acids
 from .tools.pdb import get_selected_residues, get_residue_transformations, get_residue_proximities
 from .preprocess import (
     PREPROCESS_AFFINITY_NAME,
@@ -27,6 +29,12 @@ from .preprocess import (
     PREPROCESS_PROTEIN_NAME,
     PREPROCESS_PEPTIDE_NAME,
 )
+
+blosum62_matrix = BLOSUM(62)
+blosum62_depth = len(canonical_amino_acids)
+blosum62_codes = {aa1: [blosum62_matrix[aa1.one_letter_code][aa2.one_letter_code]
+                        for aa2 in canonical_amino_acids]
+                  for aa1 in canonical_amino_acids}
 
 
 _log = logging.getLogger(__name__)
@@ -56,7 +64,18 @@ class ProteinLoopDataset(Dataset):
         peptide_maxlen: int,
         protein_maxlen: int,
         entry_names: Optional[List[str]] = None,
+        pairs: Optional[List[Tuple[str, str]]] = None,
     ):
+        """
+        Agrs:
+            hdf5_path: hdf5 file with structural data and optionally binding affinity
+            device: cpu or cuda, must match with model
+            peptide_maxlen: maximum length for storage of peptide data (in amino acids)
+            protein_maxlen: maximum length for storage of protein data (in amino acids)
+            entry_names: optional list of entries to use, by default all entries in the hdf5 are used
+            pairs: optional list of pairs (peptide and allele) to combine, used for predicting unlabeled data with no structure
+        """
+
         self.name = os.path.splitext(os.path.basename(hdf5_path))[0]
 
         self._hdf5_path = hdf5_path
@@ -69,49 +88,87 @@ class ProteinLoopDataset(Dataset):
         else:
             self._entry_names = get_entry_names(self._hdf5_path)
 
+        self._pairs = pairs
+
     @property
     def entry_names(self) -> List[str]:
         return self._entry_names
 
     def __len__(self) -> int:
-        return len(self._entry_names)
+        if self._pairs is not None:
+            return len(self._pairs)
+        else:
+            return len(self._entry_names)
 
     def __getitem__(self, index: int) -> Dict[str, torch.Tensor]:
 
-        entry_name = self._entry_names[index]
+        if self._pairs is not None:
 
-        try:
-            return self.get_entry(entry_name)
-        except Exception as e:
-            raise RuntimeError(f"in entry {entry_name}: {str(e)}")
+            # must make the combination
+            peptide, allele = self._pairs[index]
+
+            try:
+                result = _get_structural_data(allele, False)
+                result = _add_sequence_data(result, peptide)
+                result["peptide"] = peptide
+                result["allele"] = allele
+                result["ids"] = f"{allele}-{peptide}"
+
+                return result
+            except Exception as e:
+                raise RuntimeError(f"for pair {peptide},{allele}: {str(e)}")
+        else:
+            # preprocessed combination from hdf5
+
+            entry_name = self._entry_names[index]
+
+            try:
+                return self.get_entry(entry_name)
+            except Exception as e:
+                raise RuntimeError(f"in entry {entry_name}: {str(e)}")
 
     def has_entry(self,  entry_name: str) -> bool:
         return entry_name in self._entry_names
 
-    def get_entry(self, entry_name: str) -> Dict[str, torch.Tensor]:
-        """
-        Gets the data entry with the given name(ID)
-        """
+    def _add_sequence_data(self, result: Dict[str, torch.Tensor], sequence: str):
+
+        prefix = PREPROCESS_PEPTIDE_NAME
+        length = len(sequence)
+        amino_acids = [amino_acids_by_letter[a] for a in sequence]
+
+        # amino acid mask
+        mask = torch.zeros(self._peptide_maxlen, device=self._device, dtype=torch.bool)
+        mask[:length] = True
+        for interfix in ["self", "cross"]:
+            result[f"{prefix}_{interfix}_residues_mask"] = mask
+
+        # amino acid numbers
+        result[f"{prefix}_aatype"] = torch.zeros(self._peptide_maxlen, device=self._device, dtype=torch.long)
+        result[f"{prefix}_aatype"][:length] = torch.tensor([aa.index for aa in amino_acids], device=self._device)
+
+        # one-hot encoding
+        result[f"{prefix}_sequence_onehot"] = torch.zeros((max_length, 32), device=self._device, dtype=torch.float)
+        result[f"{prefix}_sequence_onehot"][index, :AMINO_ACID_DIMENSION] = torch.stack([aa.one_hot_code for aa in amino_acids],
+                                                                                        device=self._device)
+
+        # blosum62 encoding
+        result[f"{prefix}_blosum62"] = torch.zeros((max_length, 32), device=self._device, dtype=torch.float)
+        result[f"{prefix}_blosum62"][index, :blosum62_depth] = torch.tensor([blosum62_codes[aa] for aa in amino_acids],
+                                                                            device=self._device)
+
+        # openfold needs each connected pair of residues to be one index apart
+        result[f"{prefix}_residue_index"] = torch.zeros(max_length, dtype=torch.long, device=self._device)
+        result[f"{prefix}_residue_index"][index] = torch.arange(start_index,
+                                                                start_index + length,
+                                                                1, device=self._device)
+        return result
+
+    def _get_structural_data(self, entry_name: str, take_peptide: bool) -> Dict[str, torch.Tensor]:
 
         result = {}
 
         with h5py.File(self._hdf5_path, 'r') as hdf5_file:
             entry_group = hdf5_file[entry_name]
-
-            result["ids"] = entry_name
-
-            # The target affinity value is optional, thus only take it if present
-            if PREPROCESS_AFFINITY_NAME in entry_group:
-                result["affinity"] = torch.tensor(entry_group[PREPROCESS_AFFINITY_NAME][()], device=self._device, dtype=torch.float)
-
-                if PREPROCESS_AFFINITY_LOWERBOUND_MASK_NAME in entry_group:
-                    result["affinity_lt"] = torch.tensor(entry_group[PREPROCESS_AFFINITY_LOWERBOUND_MASK_NAME][()], device=self._device, dtype=torch.bool)
-
-                if PREPROCESS_AFFINITY_UPPERBOUND_MASK_NAME in entry_group:
-                    result["affinity_gt"] = torch.tensor(entry_group[PREPROCESS_AFFINITY_UPPERBOUND_MASK_NAME][()], device=self._device, dtype=torch.bool)
-
-            if PREPROCESS_CLASS_NAME in entry_group:
-                result["class"] = torch.tensor(entry_group[PREPROCESS_CLASS_NAME][()], device=self._device, dtype=torch.long)
 
             # Decide whether we take the peptide (if present) or just the protein residue data
             # In this iteration list:
@@ -119,7 +176,7 @@ class ProteinLoopDataset(Dataset):
             # 2. the maximum number of residues to fit, thus how much space to allocate
             # 3. the starting number in the list of indexes
             residue_iteration = [(PREPROCESS_PROTEIN_NAME, self._protein_maxlen, self._peptide_maxlen + 3)]
-            if PREPROCESS_PEPTIDE_NAME in entry_group:
+            if take_peptide:
                 residue_iteration.append((PREPROCESS_PEPTIDE_NAME, self._peptide_maxlen, 0))
 
             for prefix, max_length, start_index in residue_iteration:
@@ -152,7 +209,6 @@ class ProteinLoopDataset(Dataset):
                         result[f"{prefix}_{interfix}_residues_mask"][index] = True
 
                 # openfold needs each connected pair of residues to be one index apart
-                # unconnected residues must be further apart
                 result[f"{prefix}_residue_index"] = torch.zeros(max_length, dtype=torch.long, device=self._device)
                 result[f"{prefix}_residue_index"][index] = torch.arange(start_index,
                                                                         start_index + length,
@@ -193,7 +249,35 @@ class ProteinLoopDataset(Dataset):
 
             result["protein_proximities"][:prox_data.shape[0], :prox_data.shape[1], :] = torch.tensor(prox_data, device=self._device, dtype=torch.float)
 
-            return result
+        return result
+
+    def get_entry(self, entry_name: str) -> Dict[str, torch.Tensor]:
+        """
+        Gets the data entry (case) with the given name(ID)
+        """
+
+        result = self._get_structural_data(entry_name, True)
+
+        with h5py.File(self._hdf5_path, 'r') as hdf5_file:
+            entry_group = hdf5_file[entry_name]
+
+            # store the id with the data entry
+            result["ids"] = entry_name
+
+            # The target affinity value is optional, thus only take it if present
+            if PREPROCESS_AFFINITY_NAME in entry_group:
+                result["affinity"] = torch.tensor(entry_group[PREPROCESS_AFFINITY_NAME][()], device=self._device, dtype=torch.float)
+
+                if PREPROCESS_AFFINITY_LOWERBOUND_MASK_NAME in entry_group:
+                    result["affinity_lt"] = torch.tensor(entry_group[PREPROCESS_AFFINITY_LOWERBOUND_MASK_NAME][()], device=self._device, dtype=torch.bool)
+
+                if PREPROCESS_AFFINITY_UPPERBOUND_MASK_NAME in entry_group:
+                    result["affinity_gt"] = torch.tensor(entry_group[PREPROCESS_AFFINITY_UPPERBOUND_MASK_NAME][()], device=self._device, dtype=torch.bool)
+
+            if PREPROCESS_CLASS_NAME in entry_group:
+                result["class"] = torch.tensor(entry_group[PREPROCESS_CLASS_NAME][()], device=self._device, dtype=torch.long)
+
+        return result
 
     @staticmethod
     def collate(data_entries: List[Dict[str, torch.Tensor]]) -> Dict[str, torch.Tensor]:
