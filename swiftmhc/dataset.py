@@ -13,6 +13,7 @@ from torch.nn.functional import pad
 from sklearn.decomposition import PCA
 
 from openfold.utils.rigid_utils import Rigid
+from openfold.np import residue_constants
 
 from blosum import BLOSUM
 
@@ -108,8 +109,8 @@ class ProteinLoopDataset(Dataset):
             peptide, allele = self._pairs[index]
 
             try:
-                result = _get_structural_data(allele, False)
-                result = _add_sequence_data(result, peptide)
+                result = self._get_structural_data(allele, False)
+                result = self._add_sequence_data(result, peptide)
                 result["peptide"] = peptide
                 result["allele"] = allele
                 result["ids"] = f"{allele}-{peptide}"
@@ -132,6 +133,7 @@ class ProteinLoopDataset(Dataset):
 
     def _add_sequence_data(self, result: Dict[str, torch.Tensor], sequence: str):
 
+        max_length = self._peptide_maxlen
         prefix = PREPROCESS_PEPTIDE_NAME
         length = len(sequence)
         amino_acids = [amino_acids_by_letter[a] for a in sequence]
@@ -148,19 +150,28 @@ class ProteinLoopDataset(Dataset):
 
         # one-hot encoding
         result[f"{prefix}_sequence_onehot"] = torch.zeros((max_length, 32), device=self._device, dtype=torch.float)
-        result[f"{prefix}_sequence_onehot"][index, :AMINO_ACID_DIMENSION] = torch.stack([aa.one_hot_code for aa in amino_acids],
-                                                                                        device=self._device)
-
+        result[f"{prefix}_sequence_onehot"][:length, :AMINO_ACID_DIMENSION] = torch.stack([aa.one_hot_code for aa in amino_acids]).to(device=self._device)
         # blosum62 encoding
         result[f"{prefix}_blosum62"] = torch.zeros((max_length, 32), device=self._device, dtype=torch.float)
-        result[f"{prefix}_blosum62"][index, :blosum62_depth] = torch.tensor([blosum62_codes[aa] for aa in amino_acids],
+        result[f"{prefix}_blosum62"][:length, :blosum62_depth] = torch.tensor([blosum62_codes[aa] for aa in amino_acids],
                                                                             device=self._device)
 
         # openfold needs each connected pair of residues to be one index apart
         result[f"{prefix}_residue_index"] = torch.zeros(max_length, dtype=torch.long, device=self._device)
-        result[f"{prefix}_residue_index"][index] = torch.arange(start_index,
-                                                                start_index + length,
-                                                                1, device=self._device)
+        result[f"{prefix}_residue_index"][:length] = torch.arange(0, length, 1, device=self._device)
+
+        # residue numbers
+        result[f"{prefix}_residue_numbers"] = torch.zeros(max_length, dtype=torch.long, device=self._device)
+        result[f"{prefix}_residue_numbers"][:length] = torch.arange(1, length + 1, 1, device=self._device)
+
+        # atoms mask
+        result[f"{prefix}_atom14_exists"] = torch.zeros((max_length, 14), dtype=torch.float, device=self._device)
+        for i, amino_acid in enumerate(amino_acids):
+            atom_names = residue_constants.restype_name_to_atom14_names[amino_acid.three_letter_code]
+            for j, name in enumerate(atom_names):
+                if name:
+                    result[f"{prefix}_atom14_exists"][i, j] = 1.0
+
         return result
 
     def _get_structural_data(self, entry_name: str, take_peptide: bool) -> Dict[str, torch.Tensor]:
