@@ -305,10 +305,14 @@ class ProteinLoopDataset(Dataset):
 
         result = {}
         for key in keys:
-            if isinstance(e[key], torch.Tensor) or isinstance(e[key], float) or isinstance(e[key], int):
-                result[key] = torch.stack([e[key] for e in data_entries])
-            else:
-                result[key] = [e[key] for e in data_entries]
+            try:
+                if isinstance(e[key], torch.Tensor) or isinstance(e[key], float) or isinstance(e[key], int):
+                    result[key] = torch.stack([e[key] for e in data_entries])
+                else:
+                    result[key] = [e[key] for e in data_entries]
+
+            except RuntimeError as e:
+                raise RuntimeError(f"on {key}: {str(e)}")
 
         return result
 
