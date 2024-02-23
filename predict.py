@@ -17,6 +17,7 @@ from swiftmhc.tools.pdb import recreate_structure
 from swiftmhc.models.types import ModelType
 from swiftmhc.modules.predictor import Predictor
 from swiftmhc.dataset import ProteinLoopDataset
+from swiftmhc.preprocess import affinity_binding_threshold
 
 
 _log = logging.getLogger(__name__)
@@ -83,15 +84,19 @@ def store_output(
         protein_sequence_onehot = batch["protein_sequence_onehot"].cpu()
         protein_atom14_gt_positions = batch["protein_atom14_gt_positions"].cpu()
 
-        pool.apply_async(
-            save_structure,
-            (
-                pdb_path,
-                [("P", peptide_residue_numbers[index], peptide_sequence_onehot[index], peptide_atom14_positions[index]),
-                 ("M", protein_residue_numbers[index], protein_sequence_onehot[index], protein_atom14_gt_positions[index])]
-            ),
-            error_callback=on_error,
-        )
+        if "class" in batch and batch["class"][index] > 0 or \
+           "affinity" in batch and batch["affinity"][index] > affinity_binding_threshold:
+
+            # found a binder case, store the model
+            pool.apply_async(
+                save_structure,
+                (
+                    pdb_path,
+                    [("P", peptide_residue_numbers[index], peptide_sequence_onehot[index], peptide_atom14_positions[index]),
+                     ("M", protein_residue_numbers[index], protein_sequence_onehot[index], protein_atom14_gt_positions[index])]
+                ),
+                error_callback=on_error,
+            )
 
     # save affinity/class
     table_path = os.path.join(directory_path, "results.csv")
@@ -102,6 +107,7 @@ def store_output(
     }
     if "affinity" in output:
         data_dict["affinity"] = output["affinity"]
+        data_dict["class"] = data_dict["affinity"] > affinity_binding_threshold
 
     elif "class" in output:
         data_dict["class"] = output["class"]
