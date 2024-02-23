@@ -205,6 +205,12 @@ class MetricsRecord:
             for i in range(2):
                 table_dict[f"output logit {i}"] = [l[i] for l in self._output_data["logits"]]
 
+        lmax = max([len(table_dict[key]) for key in table_dict])
+        for key in table_dict:
+            l = len(table_dict[key])
+            if l != lmax:
+                raise RuntimeError(f"{key} has length {l}, expecting {lmax}")
+
         table = pandas.DataFrame(table_dict)
 
         # save to file
