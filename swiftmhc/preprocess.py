@@ -590,7 +590,7 @@ def _interpret_target(target: Union[str, float]) -> Tuple[Union[float, None], bo
         if affinity > affinity_binding_threshold and not affinity_lt:
             class_ = ComplexClass.BINDING
 
-        elif affinity < affinity_binding_threshold and not affinity_gt:
+        elif affinity <= affinity_binding_threshold and not affinity_gt:
             class_ = ComplexClass.NONBINDING
 
     return affinity, affinity_lt, affinity_gt, class_
