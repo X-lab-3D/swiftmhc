@@ -84,8 +84,8 @@ def store_output(
         protein_sequence_onehot = batch["protein_sequence_onehot"].cpu()
         protein_atom14_gt_positions = batch["protein_atom14_gt_positions"].cpu()
 
-        if "class" in batch and batch["class"][index] > 0 or \
-           "affinity" in batch and batch["affinity"][index] > affinity_binding_threshold:
+        if "class" in output and output["class"][index] > 0 or \
+           "affinity" in output and output["affinity"][index] > affinity_binding_threshold:
 
             # found a binder case, store the model
             pool.apply_async(
@@ -107,7 +107,7 @@ def store_output(
     }
     if "affinity" in output:
         data_dict["affinity"] = output["affinity"]
-        data_dict["class"] = data_dict["affinity"] > affinity_binding_threshold
+        data_dict["class"] = (data_dict["affinity"] > affinity_binding_threshold).to(dtype=torch.int)
 
     elif "class" in output:
         data_dict["class"] = output["class"]
