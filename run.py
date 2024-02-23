@@ -706,12 +706,15 @@ class Trainer:
 
             epoch_index += 1
 
-    def get_data_loader(self,
-                        data_path: str,
-                        batch_size: int,
-                        device: torch.device,
-                        shuffle: Optional[bool] = True,
-                        entry_ids: Optional[List[str]] = None) -> DataLoader:
+    def get_data_loader(
+        self,
+        data_path: str,
+        batch_size: int,
+        device: torch.device,
+        shuffle: Optional[bool] = True,
+        entry_ids: Optional[List[str]] = None,
+        name: Optional[str] = None,
+    ) -> DataLoader:
         """
         Builds a data loader from a hdf5 dataset path.
         Args:
@@ -720,6 +723,7 @@ class Trainer:
             device: to load the batch data on
             shuffle: whether to shuffle the order of the data
             entry_ids: an optional list of datapoint names to use, if omitted load all data.
+            name: a name to put on the dataset
         Returns:
             a data loader, providing access to the requested data
         """
@@ -728,6 +732,8 @@ class Trainer:
                                      peptide_maxlen=self.peptide_maxlen,
                                      protein_maxlen=self.protein_maxlen,
                                      entry_names=entry_ids)
+        if name is not None:
+            dataset.name = name
 
         loader = DataLoader(dataset,
                             collate_fn=ProteinLoopDataset.collate,
@@ -893,12 +899,14 @@ if __name__ == "__main__":
 
             _log.debug(f"training, validating & testing on {args.data_path[0]} subsets")
 
-            train_loader = trainer.get_data_loader(args.data_path[0], args.batch_size, device, True, train_entry_names)
-            valid_loader = trainer.get_data_loader(args.data_path[0], args.batch_size, device, False, valid_entry_names)
+            data_name = os.path.splitext(os.path.basename(args.data_path[0]))[0]
+
+            train_loader = trainer.get_data_loader(args.data_path[0], args.batch_size, device, True, train_entry_names, f"{data_name}-train")
+            valid_loader = trainer.get_data_loader(args.data_path[0], args.batch_size, device, False, valid_entry_names, f"{data_name}-valid")
 
             test_loaders = []
             if len(test_entry_names) > 0:
-                test_loaders = [trainer.get_data_loader(args.data_path[0], args.batch_size, device, False, test_entry_names)]
+                test_loaders = [trainer.get_data_loader(args.data_path[0], args.batch_size, device, False, test_entry_names, f"{data_name}-test")]
 
         # train with the composed datasets and user-provided settings
         trainer.train(train_loader, valid_loader, test_loaders,
