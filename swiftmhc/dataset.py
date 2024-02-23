@@ -29,6 +29,7 @@ from .preprocess import (
     PREPROCESS_CLASS_NAME,
     PREPROCESS_PROTEIN_NAME,
     PREPROCESS_PEPTIDE_NAME,
+    affinity_binding_threshold,
 )
 
 blosum62_matrix = BLOSUM(62)
@@ -131,6 +132,19 @@ class ProteinLoopDataset(Dataset):
     def has_entry(self,  entry_name: str) -> bool:
         return entry_name in self._entry_names
 
+    def _get_peptide_sequence(self, entry_name: str) -> str:
+        """
+        gets the peptide sequence from the hdf5 file, under the given entry name
+        """
+
+        with h5py.File(self._hdf5_path, 'r') as hdf5_file:
+            entry = hdf5_file[entry_name]
+            peptide = entry[PREPROCESS_PEPTIDE_NAME]
+            aatype = peptide["aatype"]
+            sequence = [residue_constants.restypes[i] for i in aatype]
+
+            return sequence
+
     def _add_sequence_data(self, result: Dict[str, torch.Tensor], sequence: str):
 
         max_length = self._peptide_maxlen
@@ -166,11 +180,16 @@ class ProteinLoopDataset(Dataset):
 
         # atoms mask
         result[f"{prefix}_atom14_exists"] = torch.zeros((max_length, 14), dtype=torch.float, device=self._device)
+        result[f"{prefix}_torsion_angles_mask"] = torch.zeros((max_length, 7), dtype=torch.float, device=self._device)
+        result[f"{prefix}_all_atom_mask"] = torch.zeros((max_length, 37), device=self._device, dtype=torch.bool)
         for i, amino_acid in enumerate(amino_acids):
-            atom_names = residue_constants.restype_name_to_atom14_names[amino_acid.three_letter_code]
-            for j, name in enumerate(atom_names):
-                if name:
-                    result[f"{prefix}_atom14_exists"][i, j] = 1.0
+
+            result[f"{prefix}_torsion_angles_mask"][i, :3] = 1.0
+            for k, mask in enumerate(residue_constants.chi_angles_mask[amino_acid.index]):
+                result[f"{prefix}_torsion_angles_mask"][i, 3 + k] = mask
+
+            result[f"{prefix}_all_atom_mask"][i] = residue_constants.restype_atom37_mask[amino_acid.index]
+            result[f"{prefix}_atom14_exists"][i] = residue_constants.restype_atom14_mask[amino_acid.index]
 
         return result
 
@@ -262,12 +281,27 @@ class ProteinLoopDataset(Dataset):
 
         return result
 
+    def _set_zero_peptide_structure(result: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+        """
+        all frames, atom positions and angles set to zero
+        """
+
+        max_length = self._peptide_maxlen
+
+        result["peptide_backbone_rigid_tensor"] = torch.zeros((max_length, 4, 4), device=self._device, dtype=torch.float)
+
+        result["peptide_torsion_angles_sin_cos"] = torch.zeros((max_length, 7, 2), device=self._device, dtype=torch.float)
+        result["peptide_alt_torsion_angles_sin_cos"] = torch.zeros((max_length, 7, 2), device=self._device, dtype=torch.float)
+
+        result["peptide_atom14_gt_positions"] = torch.zeros((max_length, 14, 3), device=self._device, dtype=torch.float)
+        result["peptide_atom14_alt_gt_positions"] = torch.zeros((max_length, 14, 3), device=self._device, dtype=torch.float)
+
+        result["peptide_all_atom_positions"] = torch.zeros((max_length, 37, 3), device=self._device, dtype=torch.float)
+
     def get_entry(self, entry_name: str) -> Dict[str, torch.Tensor]:
         """
         Gets the data entry (case) with the given name(ID)
         """
-
-        result = self._get_structural_data(entry_name, True)
 
         with h5py.File(self._hdf5_path, 'r') as hdf5_file:
             entry_group = hdf5_file[entry_name]
@@ -285,8 +319,20 @@ class ProteinLoopDataset(Dataset):
                 if PREPROCESS_AFFINITY_UPPERBOUND_MASK_NAME in entry_group:
                     result["affinity_gt"] = torch.tensor(entry_group[PREPROCESS_AFFINITY_UPPERBOUND_MASK_NAME][()], device=self._device, dtype=torch.bool)
 
+                result["class"] = (result["affinity"] > affinity_binding_threshold)
+
             if PREPROCESS_CLASS_NAME in entry_group:
                 result["class"] = torch.tensor(entry_group[PREPROCESS_CLASS_NAME][()], device=self._device, dtype=torch.long)
+
+        if "class" in result and result["class"] > 0:
+            result = self._get_structural_data(entry_name, True)
+        else:
+            # nonbinders need no structural truth data
+            result = self._get_structural_data(entry_name, False)
+
+            peptide_sequence = self._get_peptide_sequence(entry_name)
+            result = self._add_sequence_data(result, peptide_sequence)
+            result = self._set_zero_peptide_structure(result)
 
         return result
 
