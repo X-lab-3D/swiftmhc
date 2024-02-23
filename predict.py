@@ -4,7 +4,7 @@ import os
 import logging
 from argparse import ArgumentParser
 from multiprocessing import Pool
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Optional
 
 import pandas
 import torch
@@ -34,7 +34,7 @@ arg_parser.add_argument("hdf5_path", help="an hdf5 file containing the preproces
 arg_parser.add_argument("output_directory", help="directory for the output files: *.pdb and *.csv")
 arg_parser.add_argument("--batch-size", "-b", type=int, default=64, help="number of simultaneous complexes to predict in one batch")
 arg_parser.add_argument("--num-workers", "-w", type=int, default=5, help="number of simulteneous data readers")
-arg_parser.add_argument("--num-builders", "-B", type=int, default=64, help="number of simultaneous structure builders")
+arg_parser.add_argument("--num-builders", "-B", type=int, default=64, help="number of simultaneous structure builders, set to 0 to disable structure prediction")
 
 
 def create_dataset(table_path: str, hdf5_path: str, device: torch.device) -> ProteinLoopDataset:
@@ -63,7 +63,7 @@ def on_error(e):
 
 
 def store_output(
-    pool: Pool,
+    pool: Optional[Pool],
     directory_path: str,
     batch: Dict[str, torch.Tensor],
     output: Dict[str, torch.Tensor]
@@ -84,8 +84,8 @@ def store_output(
         protein_sequence_onehot = batch["protein_sequence_onehot"].cpu()
         protein_atom14_gt_positions = batch["protein_atom14_gt_positions"].cpu()
 
-        if "class" in output and output["class"][index] > 0 or \
-           "affinity" in output and output["affinity"][index] > affinity_binding_threshold:
+        if pool is not None and ("class" in output and output["class"][index] > 0 or \
+                                 "affinity" in output and output["affinity"][index] > affinity_binding_threshold):
 
             # found a binder case, store the model
             pool.apply_async(
@@ -145,9 +145,16 @@ if __name__ == "__main__":
     model.to(device=device)
     model.load_state_dict(torch.load(args.model_path, map_location=device))
 
-    with Pool(args.num_builders) as builder_pool:
+    if args.num_builders > 0:
+        with Pool(args.num_builders) as builder_pool:
+            with torch.no_grad():
+                for batch in data_loader:
+                    output = model(batch)
+
+                    store_output(builder_pool, args.output_directory, batch, output)
+    else:
         with torch.no_grad():
             for batch in data_loader:
                 output = model(batch)
 
-                store_output(builder_pool, args.output_directory, batch, output)
+                store_output(None, args.output_directory, batch, output)
