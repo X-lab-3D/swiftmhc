@@ -108,7 +108,8 @@ if __name__ == "__main__":
                     if os.path.isfile(tmp_output_path):
                         with h5py.File(tmp_output_path, 'r') as tmp_file:
                             for key, value in tmp_file.items():
-                                 tmp_file.copy(value, output_file)
+                                if key not in output_file:
+                                    tmp_file.copy(value, output_file)
 
                         os.remove(tmp_output_path)
         finally:
