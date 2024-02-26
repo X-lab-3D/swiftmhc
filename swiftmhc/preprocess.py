@@ -72,6 +72,8 @@ def _write_preprocessed_data(
         class_: BINDING/NONBINDING
     """
 
+    _log.debug(f"writing {storage_id} to {hdf5_path}")
+
     with h5py.File(hdf5_path, 'a') as hdf5_file:
 
         storage_group = hdf5_file.require_group(storage_id)
@@ -313,7 +315,7 @@ def _make_sequence_data(sequence: str) -> Dict[str, torch.Tensor]:
     torsion_angles_mask[:, 3:] = torch.tensor([chi_angles_mask[i] for i in aatype], device=device)
 
     # atoms mask
-    atom14_gt_exists = torch.tensor([restype_atom14_mask[i] for i in aatype], device=device)
+    atom14_gt_exists = torch.tensor(numpy.array([restype_atom14_mask[i] for i in aatype]), device=device)
 
     return make_atom14_masks({
         "aatype": aatype,
