@@ -20,7 +20,7 @@ from blosum import BLOSUM
 
 from pymol import cmd as pymol_cmd
 
-from openfold.np.residue_constants import restype_atom37_mask
+from openfold.np.residue_constants import restype_atom37_mask, restype_atom14_mask, chi_angles_mask, restypes
 from openfold.data.data_transforms import (atom37_to_frames,
                                            atom37_to_torsion_angles,
                                            get_backbone_frames,
@@ -32,7 +32,7 @@ from .tools.pdb import (get_residue_transformations,
                         get_atom14_positions,
                         generate_symmetry_alternative,
                         get_residue_proximities)
-from .domain.amino_acid import amino_acids_by_code, canonical_amino_acids
+from .domain.amino_acid import amino_acids_by_letter, amino_acids_by_code, canonical_amino_acids
 from .models.amino_acid import AminoAcid
 from .models.complex import ComplexClass
 
@@ -102,6 +102,47 @@ def _write_preprocessed_data(
                     peptide_group.create_dataset(field_name, data=field_data.cpu(), compression="lzf")
                 else:
                     peptide_group.create_dataset(field_name, data=field_data)
+
+
+def _has_protein_data(
+    hdf5_path: str,
+    name: str,
+) -> bool:
+
+    if not os.path.isfile(hdf5_path):
+        return False
+
+    with h5py.File(hdf5_path, 'r') as hdf5_file:
+        return name in hdf5_file and PREPROCESS_PROTEIN_NAME in hdf5_file[name]
+
+def _load_protein_data(
+    hdf5_path: str,
+    name: str,
+) -> Dict[str, torch.Tensor]:
+
+    data = {}
+
+    with h5py.File(hdf5_path, 'r') as hdf5_file:
+        entry = hdf5_file[name]
+        protein = entry[PREPROCESS_PROTEIN_NAME]
+
+        for key in protein:
+            data[key] = torch.tensor(protein[key][()])
+
+    return data
+
+
+def _save_protein_data(
+    hdf5_path: str,
+    name: str,
+    data: Dict[str, torch.Tensor]
+):
+    with h5py.File(hdf5_path, 'a') as hdf5_file:
+        entry = hdf5_file.require_group(name)
+        protein = entry.require_group(PREPROCESS_PROTEIN_NAME)
+
+        for key in data:
+            protein.create_dataset(key, data=data[key].cpu())
 
 
 ResidueMaskType = Tuple[str, int, AminoAcid]
@@ -236,6 +277,54 @@ def _map_alignment(
     return results
 
 
+def _make_sequence_data(sequence: str) -> Dict[str, torch.Tensor]:
+    """
+    Convert a sequence into a format that SwiftMHC can work with.
+
+    Args:
+        sequence: one letter codes of amino acids
+
+    Returns:
+        residue_numbers: [len] numbers of the residue as in the structure
+        aatype: [len] sequence, indices of amino acids
+        sequence_onehot: [len, 22] sequence, one-hot encoded amino acids
+        blosum62: [len, 20] sequence, BLOSUM62 encoded amino acids
+        torsion_angles_mask: [len, 7]
+        atom14_gt_exists: [len, 14]
+        residx_atom14_to_atom37: [len, 14]
+    """
+
+    if torch.cuda.is_available():
+        device = torch.device("cuda")
+    else:
+        device = torch.device("cpu")
+
+    length = len(sequence)
+    residue_numbers = torch.arange(length, device=device)
+
+    # embed the sequence
+    amino_acids = [amino_acids_by_letter[a] for a in sequence]
+    sequence_onehot = torch.stack([aa.one_hot_code for aa in amino_acids]).to(device=device)
+    aatype = torch.tensor([aa.index for aa in amino_acids], device=device)
+    blosum62 = _get_blosum_encoding(aatype, 62, device)
+
+    # torsion angles (used or not in AA)
+    torsion_angles_mask = torch.ones((length, 7), device=device)
+    torsion_angles_mask[:, 3:] = torch.tensor([chi_angles_mask[i] for i in aatype], device=device)
+
+    # atoms mask
+    atom14_gt_exists = torch.tensor([restype_atom14_mask[i] for i in aatype], device=device)
+
+    return make_atom14_masks({
+        "aatype": aatype,
+        "sequence_onehot": sequence_onehot,
+        "blosum62": blosum62,
+        "residue_numbers": residue_numbers,
+        "torsion_angles_mask": torsion_angles_mask,
+        "atom14_gt_exists": atom14_gt_exists,
+    })
+
+
 def _read_residue_data(residues: List[Residue]) -> Dict[str, torch.Tensor]:
     """
     Convert residues from a structure into a format that SwiftMHC can work with.
@@ -268,6 +357,7 @@ def _read_residue_data(residues: List[Residue]) -> Dict[str, torch.Tensor]:
     amino_acids = [amino_acids_by_code[r.get_resname()] for r in residues]
     sequence_onehot = torch.stack([aa.one_hot_code for aa in amino_acids]).to(device=device)
     aatype = torch.tensor([aa.index for aa in amino_acids], device=device)
+    blosum62 = _get_blosum_encoding(aatype, 62, device)
 
     # get atom positions and mask
     atom14_positions = []
@@ -282,8 +372,6 @@ def _read_residue_data(residues: List[Residue]) -> Dict[str, torch.Tensor]:
     atom14_positions = torch.stack(atom14_positions).to(device=device)
     atom14_mask = torch.stack(atom14_mask).to(device=device)
     residue_numbers = torch.tensor(residue_numbers, device=device)
-
-    blosum62 = _get_blosum_encoding(aatype, 62, device)
 
     # convert to atom 37 format, for the frames and torsion angles
     protein = {
@@ -596,6 +684,119 @@ def _interpret_target(target: Union[str, float]) -> Tuple[Union[float, None], bo
     return affinity, affinity_lt, affinity_gt, class_
 
 
+def _generate_structure_data(
+    model_bytes: bytes,
+    reference_structure_path: str,
+    protein_self_mask_path: str,
+    protein_cross_mask_path: str,
+    allele_name: str,
+
+) -> Tuple[Dict[str, torch.Tensor], Union[Dict[str, torch.Tensor], None]]:
+    """
+    Get all the data from the structure and put it in a hdf5 storable format.
+
+    Args:
+        model_bytes: the pdb model as bytes sequence
+        reference_structure_path: a reference structure, its sequence must match with the masks
+        protein_self_mask_path: a text file that lists the residues that must be set to true in the mask
+        protein_cross_mask_path: a text file that lists the residues that must be set to true in the mask
+        allele_name: name of protein allele
+    Returns:
+        the protein:
+            residue_numbers: [len] numbers of the residue as in the structure
+            aatype: [len] sequence, indices of amino acids
+            sequence_onehot: [len, 22] sequence, one-hot encoded amino acids
+            blosum62: [len, 20] sequence, BLOSUM62 encoded amino acids
+            backbone_rigid_tensor: [len, 4, 4] 4x4 representation of the backbone frames
+            torsion_angles_sin_cos: [len, 7, 2]
+            alt_torsion_angles_sin_cos: [len, 7, 2]
+            torsion_angles_mask: [len, 7]
+            atom14_gt_exists: [len, 14]
+            atom14_gt_positions: [len, 14, 3]
+            atom14_alt_gt_positions: [len, 14, 3]
+            residx_atom14_to_atom37: [len, 14]
+            proximities: [len, len, 1]
+            allele_name: byte sequence 
+
+        the peptide: (optional)
+            residue_numbers: [len] numbers of the residue as in the structure
+            aatype: [len] sequence, indices of amino acids
+            sequence_onehot: [len, 22] sequence, one-hot encoded amino acids
+            blosum62: [len, 20] sequence, BLOSUM62 encoded amino acids
+            backbone_rigid_tensor: [len, 4, 4] 4x4 representation of the backbone frames
+            torsion_angles_sin_cos: [len, 7, 2]
+            alt_torsion_angles_sin_cos: [len, 7, 2]
+            torsion_angles_mask: [len, 7]
+            atom14_gt_exists: [len, 14]
+            atom14_gt_positions: [len, 14, 3]
+            atom14_alt_gt_positions: [len, 14, 3]
+            residx_atom14_to_atom37: [len, 14]
+
+    """
+
+    # parse the mask files
+    protein_residues_self_mask = _read_mask_data(protein_self_mask_path)
+    protein_residues_cross_mask = _read_mask_data(protein_cross_mask_path)
+
+    # apply the masks to the MHC model
+    structure, masked_residues_dict = _get_masked_structure(
+        model_bytes,
+        reference_structure_path,
+        {"self": protein_residues_self_mask, "cross": protein_residues_cross_mask},
+    )
+    self_masked_protein_residues = [(r, m) for r, m in masked_residues_dict["self"] if r.get_parent().get_id() == "M"]
+    cross_masked_protein_residues = [(r, m) for r, m in masked_residues_dict["cross"] if r.get_parent().get_id() == "M"]
+
+    # locate protein (chain M)
+    chains_by_id = {c.id: c for c in structure.get_chains()}
+    if "M" not in chains_by_id:
+        raise ValueError(f"missing protein chain M in {id_}, present are {chains_by_id.keys()}")
+
+    # order by residue number
+    protein_residues = [r for r, m in self_masked_protein_residues]
+
+    # remove the residues that are completely outside of mask range
+    combo_mask = numpy.logical_or([m for r, m in self_masked_protein_residues ],
+                                  [m for r, m in cross_masked_protein_residues])
+    combo_mask_nonzero = combo_mask.nonzero()[0]
+
+    mask_start = combo_mask_nonzero.min()
+    mask_end = combo_mask_nonzero.max() + 1
+
+    # apply the limiting protein range, reducing the size of the data that needs to be generated.
+    self_residues_mask = [m for r, m in self_masked_protein_residues[mask_start: mask_end]]
+    cross_residues_mask = [m for r, m in cross_masked_protein_residues[mask_start: mask_end]]
+    protein_residues = protein_residues[mask_start: mask_end]
+    if len(protein_residues) < 80:
+        raise ValueError(f"got only {len(protein_residues)} protein residues")
+
+    # derive data from protein residues
+    protein_data = _read_residue_data(protein_residues)
+    protein_data["cross_residues_mask"] = cross_residues_mask
+    protein_data["self_residues_mask"] = self_residues_mask
+
+    # proximities within protein
+    protein_proximities = _create_proximities(protein_residues, protein_residues)
+    protein_data["proximities"] = protein_proximities
+
+    # allele
+    protein_data["allele_name"] = numpy.array(allele_name.encode("utf_8"))
+
+    # peptide is optional
+    peptide_data = None
+    if "P" in chains_by_id:
+
+        # get residues from the peptide chain P
+        peptide_chain = chains_by_id["P"]
+        peptide_residues = list(peptide_chain.get_residues())
+        if len(peptide_residues) < 3:
+            raise ValueError(f"got only {len(peptide_residues)} peptide residues")
+
+        peptide_data = _read_residue_data(peptide_residues)
+
+    return protein_data, peptide_data
+
+
 def preprocess(
     table_path: str,
     models_path: str,
@@ -626,10 +827,6 @@ def preprocess(
 
     _log.debug(f"{len(entries_present)} entries already present in {output_path}")
 
-    # parse the mask files
-    protein_residues_self_mask = _read_mask_data(protein_self_mask_path)
-    protein_residues_cross_mask = _read_mask_data(protein_cross_mask_path)
-
     table = pandas.read_csv(table_path)
 
     # iterate through the table
@@ -648,80 +845,58 @@ def preprocess(
         if "measurement_value" in row:
             affinity, affinity_lt, affinity_gt, class_ = _interpret_target(row["measurement_value"])
 
-        if "allele" in row:
-            allele = row["allele"]
-        else:
-            allele = None
+        if "affinity" in row:
+            affinity = row["affinity"]
+
+        if "class" in row:
+            class_ = row["class"]
+
+        allele = row["allele"]
+        peptide_sequence = row["peptide"]
 
         # find the pdb file
+        # for binders a target structure is needed, that contains both MHC and peptide
+        # for nonbinders, the MHC structure is sufficient
         _log.debug(f"finding model for {id_}")
+        include_peptide_structure = True
         try:
             model_bytes = _find_model_as_bytes(models_path, id_)
         except (KeyError, FileNotFoundError):
-            _log.exception(f"cannot get structure for {id_}")
-            continue
 
-        try:
-            _log.debug(f"processing model for {id_}")
-            # apply the masks to the MHC model
-            structure, masked_residues_dict = _get_masked_structure(
-                model_bytes,
-                reference_structure_path,
-                {"self": protein_residues_self_mask, "cross": protein_residues_cross_mask},
-            )
-            self_masked_protein_residues = [(r, m) for r, m in masked_residues_dict["self"] if r.get_parent().get_id() == "M"]
-            cross_masked_protein_residues = [(r, m) for r, m in masked_residues_dict["cross"] if r.get_parent().get_id() == "M"]
+            if class_ == ComplexClass.BINDING:
 
-            # locate protein (chain M)
-            chains_by_id = {c.id: c for c in structure.get_chains()}
-            if "M" not in chains_by_id:
-                raise ValueError(f"missing protein chain M in {id_}, present are {chains_by_id.keys()}")
-
-            # order by residue number
-            protein_residues = [r for r, m in self_masked_protein_residues]
-
-            # remove the residues that are completely outside of mask range
-            combo_mask = numpy.logical_or([m for r, m in self_masked_protein_residues ],
-                                          [m for r, m in cross_masked_protein_residues])
-            combo_mask_nonzero = combo_mask.nonzero()[0]
-            _log.debug(f"nonzero: {combo_mask_nonzero}")
-
-            mask_start = combo_mask_nonzero.min()
-            mask_end = combo_mask_nonzero.max() + 1
-
-            _log.debug(f"{id_}: taking protein residues {mask_start} - {mask_end}")
-
-            # apply the limiting protein range, reducing the size of the data that needs to be generated.
-            self_residues_mask = [m for r, m in self_masked_protein_residues[mask_start: mask_end]]
-            cross_residues_mask = [m for r, m in cross_masked_protein_residues[mask_start: mask_end]]
-            protein_residues = protein_residues[mask_start: mask_end]
-            if len(protein_residues) < 80:
-                raise ValueError(f"{id_}: got only {len(protein_residues)} protein residues")
-
-            # derive data from protein residues
-            protein_data = _read_residue_data(protein_residues)
-            protein_data["cross_residues_mask"] = cross_residues_mask
-            protein_data["self_residues_mask"] = self_residues_mask
-
-            # proximities within protein
-            protein_proximities = _create_proximities(protein_residues, protein_residues)
-            protein_data["proximities"] = protein_proximities
-
-            # SwiftMHC doesn't need the allele name to function.
-            # We store it for administrative purposes.
-            if allele is not None:
-                protein_data["allele_name"] = numpy.array(allele.encode("utf_8"))
-
-            # get residues from the peptide (chain P, optional)
-            if "P" in chains_by_id:
-                peptide_chain = chains_by_id["P"]
-                peptide_residues = list(peptide_chain.get_residues())
-                if len(peptide_residues) < 3:
-                    raise ValueError(f"{id_}: got only {len(peptide_residues)} peptide residues")
-
-                peptide_data = _read_residue_data(peptide_residues)
+                _log.exception(f"cannot get structure for {id_}")
+                continue
             else:
-                peptide_data = None
+                include_peptide_structure = False
+        try:
+            if include_peptide_structure:
+
+                protein_data, peptide_data = _generate_structure_data(
+                    model_bytes,
+                    reference_structure_path,
+                    protein_self_mask_path,
+                    protein_cross_mask_path,
+                    allele,
+                )
+            else:
+                # not including the peptide structure,
+                # check whether the protein structure was already preprocessed
+                if _has_protein_data(output_path, allele):
+
+                    protein_data = _load_protein_data(output_path, allele)
+                else:
+                    model_bytes = _find_model_as_bytes(models_path, allele)
+                    protein_data, _ = _generate_structure_data(
+                        model_bytes,
+                        reference_structure_path,
+                        protein_self_mask_path,
+                        protein_cross_mask_path,
+                        allele,
+                    )
+                    _save_protein_data(output_path, allele, protein_data)
+
+                peptide_data = _make_sequence_data(peptide_sequence)
 
             # write the data that we found
             _write_preprocessed_data(
