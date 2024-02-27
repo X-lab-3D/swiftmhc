@@ -24,8 +24,8 @@ from .domain.amino_acid import amino_acids_by_letter, amino_acids_by_one_hot_ind
 from .tools.pdb import get_selected_residues, get_residue_transformations, get_residue_proximities
 from .preprocess import (
     PREPROCESS_AFFINITY_NAME,
-    PREPROCESS_AFFINITY_LOWERBOUND_MASK_NAME,
-    PREPROCESS_AFFINITY_UPPERBOUND_MASK_NAME,
+    PREPROCESS_AFFINITY_LT_MASK_NAME,
+    PREPROCESS_AFFINITY_GT_MASK_NAME,
     PREPROCESS_CLASS_NAME,
     PREPROCESS_PROTEIN_NAME,
     PREPROCESS_PEPTIDE_NAME,
@@ -313,11 +313,11 @@ class ProteinLoopDataset(Dataset):
             if PREPROCESS_AFFINITY_NAME in entry_group:
                 result["affinity"] = torch.tensor(entry_group[PREPROCESS_AFFINITY_NAME][()], device=self._device, dtype=torch.float)
 
-                if PREPROCESS_AFFINITY_LOWERBOUND_MASK_NAME in entry_group:
-                    result["affinity_lt"] = torch.tensor(entry_group[PREPROCESS_AFFINITY_LOWERBOUND_MASK_NAME][()], device=self._device, dtype=torch.bool)
+                if PREPROCESS_AFFINITY_LT_MASK_NAME in entry_group:
+                    result["affinity_lt"] = torch.tensor(entry_group[PREPROCESS_AFFINITY_LT_MASK_NAME][()], device=self._device, dtype=torch.bool)
 
-                if PREPROCESS_AFFINITY_UPPERBOUND_MASK_NAME in entry_group:
-                    result["affinity_gt"] = torch.tensor(entry_group[PREPROCESS_AFFINITY_UPPERBOUND_MASK_NAME][()], device=self._device, dtype=torch.bool)
+                if PREPROCESS_AFFINITY_GT_MASK_NAME in entry_group:
+                    result["affinity_gt"] = torch.tensor(entry_group[PREPROCESS_AFFINITY_GT_MASK_NAME][()], device=self._device, dtype=torch.bool)
 
                 result["class"] = (result["affinity"] > affinity_binding_threshold)
 

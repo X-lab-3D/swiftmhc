@@ -40,8 +40,8 @@ from .models.complex import ComplexClass
 _log = logging.getLogger(__name__)
 
 
-PREPROCESS_AFFINITY_LOWERBOUND_MASK_NAME = "affinity_lowerbound_mask"
-PREPROCESS_AFFINITY_UPPERBOUND_MASK_NAME = "affinity_upperbound_mask"
+PREPROCESS_AFFINITY_LT_MASK_NAME = "affinity_lt_mask"
+PREPROCESS_AFFINITY_GT_MASK_NAME = "affinity_gt_mask"
 PREPROCESS_AFFINITY_NAME = "affinity"
 PREPROCESS_CLASS_NAME = "class"
 PREPROCESS_PROTEIN_NAME = "protein"
@@ -82,8 +82,8 @@ def _write_preprocessed_data(
         if affinity is not None:
             storage_group.create_dataset(PREPROCESS_AFFINITY_NAME, data=affinity)
 
-        storage_group.create_dataset(PREPROCESS_AFFINITY_LOWERBOUND_MASK_NAME, data=affinity_lt)
-        storage_group.create_dataset(PREPROCESS_AFFINITY_UPPERBOUND_MASK_NAME, data=affinity_gt)
+        storage_group.create_dataset(PREPROCESS_AFFINITY_LT_MASK_NAME, data=affinity_lt)
+        storage_group.create_dataset(PREPROCESS_AFFINITY_GT_MASK_NAME, data=affinity_gt)
 
         if class_ is not None:
             storage_group.create_dataset(PREPROCESS_CLASS_NAME, data=int(class_))
@@ -648,8 +648,8 @@ def _interpret_target(target: Union[str, float]) -> Tuple[Union[float, None], bo
 
     Returns:
         affinity
-        does affinity have a lower bound y/n
-        does affinity have an upper bound y/n
+        does affinity have a less-than inequality y/n
+        does affinity have a greater-than inequality y/n
         class BINDING/NONBINDING
     """
 
