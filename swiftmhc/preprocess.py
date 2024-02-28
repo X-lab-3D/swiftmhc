@@ -4,6 +4,7 @@ import logging
 from math import isinf, floor, ceil, log
 import tarfile
 from uuid import uuid4
+from tempfile import gettempdir
 
 import h5py
 import pandas
@@ -831,6 +832,8 @@ def preprocess(
 
     table = pandas.read_csv(table_path)
 
+    tmp_hdf5_path = os.path.join(gettempdir(), f"preprocess-tmp-{uuid4()}.hdf5")
+
     # iterate through the table
     for table_index, row in table.iterrows():
 
@@ -884,9 +887,9 @@ def preprocess(
             else:
                 # not including the peptide structure,
                 # check whether the protein structure was already preprocessed
-                if _has_protein_data(output_path, allele):
+                if _has_protein_data(tmp_hdf5_path, allele):
 
-                    protein_data = _load_protein_data(output_path, allele)
+                    protein_data = _load_protein_data(tmp_hdf5_path, allele)
                 else:
                     model_bytes = _find_model_as_bytes(models_path, allele)
                     protein_data, _ = _generate_structure_data(
@@ -896,7 +899,7 @@ def preprocess(
                         protein_cross_mask_path,
                         allele,
                     )
-                    _save_protein_data(output_path, allele, protein_data)
+                    _save_protein_data(tmp_hdf5_path, allele, protein_data)
 
                 peptide_data = _make_sequence_data(peptide_sequence)
 
@@ -914,3 +917,6 @@ def preprocess(
         except:
             _log.exception(f"on {id_}")
             continue
+
+    if os.path.isfile(tmp_hdf5_path):
+        os.remove(tmp_hdf5_path)
