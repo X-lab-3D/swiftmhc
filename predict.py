@@ -34,7 +34,7 @@ arg_parser.add_argument("hdf5_path", help="an hdf5 file containing the preproces
 arg_parser.add_argument("output_directory", help="directory for the output files: *.pdb and *.csv")
 arg_parser.add_argument("--batch-size", "-b", type=int, default=64, help="number of simultaneous complexes to predict in one batch")
 arg_parser.add_argument("--num-workers", "-w", type=int, default=5, help="number of simulteneous data readers")
-arg_parser.add_argument("--num-builders", "-B", type=int, default=64, help="number of simultaneous structure builders, set to 0 to disable structure prediction")
+arg_parser.add_argument("--num-builders", "-B", type=int, default=0, help="number of simultaneous structure builders, set to 0 to disable structure prediction")
 
 
 def create_dataset(table_path: str, hdf5_path: str, device: torch.device) -> ProteinLoopDataset:
@@ -106,11 +106,11 @@ def store_output(
         "peptide": batch["peptide"],
     }
     if "affinity" in output:
-        data_dict["affinity"] = output["affinity"]
-        data_dict["class"] = (data_dict["affinity"] > affinity_binding_threshold).to(dtype=torch.int)
+        data_dict["affinity"] = output["affinity"].cpu()
+        data_dict["class"] = (data_dict["affinity"].cpu() > affinity_binding_threshold).to(dtype=torch.int)
 
     elif "class" in output:
-        data_dict["class"] = output["class"]
+        data_dict["class"] = output["class"].cpu()
 
     if os.path.isfile(table_path):
         data = pandas.read_csv(table_path)
@@ -118,7 +118,6 @@ def store_output(
     else:
         data = pandas.DataFrame(data_dict)
     data.to_csv(table_path, index=False)
-
 
 
 if __name__ == "__main__":
@@ -138,6 +137,9 @@ if __name__ == "__main__":
         shuffle=False,
         num_workers=args.num_workers
     )
+
+    # required for CUDA & multiprocessing
+    torch.multiprocessing.set_start_method('spawn')
 
     # Set up the model
     model = Predictor(PEPTIDE_MAXLEN, PROTEIN_MAXLEN, ModelType.REGRESSION, openfold_config.model)
