@@ -303,6 +303,8 @@ class ProteinLoopDataset(Dataset):
         Gets the data entry (case) with the given name(ID)
         """
 
+        result = {}
+
         with h5py.File(self._hdf5_path, 'r') as hdf5_file:
             entry_group = hdf5_file[entry_name]
 
