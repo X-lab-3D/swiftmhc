@@ -41,6 +41,8 @@ from .models.complex import ComplexClass
 _log = logging.getLogger(__name__)
 
 
+# These strings represent the names under which data will be stored in the hdf5 file.
+# They don't include everything, because some names are defined in the openfold code.
 PREPROCESS_AFFINITY_LT_MASK_NAME = "affinity_lt_mask"
 PREPROCESS_AFFINITY_GT_MASK_NAME = "affinity_gt_mask"
 PREPROCESS_AFFINITY_NAME = "affinity"
@@ -111,6 +113,13 @@ def _has_protein_data(
     hdf5_path: str,
     name: str,
 ) -> bool:
+    """
+    Check whether the preprocessed protein data is present.
+
+    Args:
+        hdf5_path: where it's stored
+        name: the name in the hdf5, that it should be stored under
+    """
 
     if not os.path.isfile(hdf5_path):
         return False
@@ -122,6 +131,15 @@ def _load_protein_data(
     hdf5_path: str,
     name: str,
 ) -> Dict[str, torch.Tensor]:
+    """
+    Load preprocessed protein data.
+
+    Args:
+        hdf5_path: where it's stored
+        name: the name in the hdf5, that it's stored under
+    Returns:
+        the stored data
+    """
 
     data = {}
 
@@ -140,6 +158,15 @@ def _save_protein_data(
     name: str,
     data: Dict[str, torch.Tensor]
 ):
+    """
+    Save preprocessed protein data.
+
+    Args:
+        hdf5_path: where to store it
+        name: name to store it under in the hdf5
+        data: to be stored
+    """
+
     with h5py.File(hdf5_path, 'a') as hdf5_file:
         entry = hdf5_file.require_group(name)
         protein = entry.require_group(PREPROCESS_PROTEIN_NAME)
@@ -148,6 +175,8 @@ def _save_protein_data(
             protein.create_dataset(key, data=data[key].cpu())
 
 
+# Representation of a line in the mask file:
+# chain id, residue number, amino acid
 ResidueMaskType = Tuple[str, int, AminoAcid]
 
 def _read_mask_data(path: str) -> List[ResidueMaskType]:
@@ -161,7 +190,7 @@ def _read_mask_data(path: str) -> List[ResidueMaskType]:
     Args:
         path: input TSV file
     Returns:
-        list of residues to be selected
+        list of residues, present in the mask file
     """
 
     mask_data = []
@@ -187,6 +216,7 @@ def _get_blosum_encoding(amino_acid_indexes: List[int], blosum_index: int, devic
     Arguments:
         amino_acid_indexes: order of numbers 0 to 19, coding for the amino acids
         blosum_index: identifies the type of BLOSUM matrix to use
+        device: to store the result on
     Returns:
         [len, 20] the amino acids encoded by their BLOSUM rows
     """
@@ -292,9 +322,8 @@ def _make_sequence_data(sequence: str) -> Dict[str, torch.Tensor]:
         aatype: [len] sequence, indices of amino acids
         sequence_onehot: [len, 22] sequence, one-hot encoded amino acids
         blosum62: [len, 20] sequence, BLOSUM62 encoded amino acids
-        torsion_angles_mask: [len, 7]
-        atom14_gt_exists: [len, 14]
-        residx_atom14_to_atom37: [len, 14]
+        torsion_angles_mask: [len, 7] which torsion angles each residue should have (openfold format)
+        atom14_gt_exists: [len, 14] which atom each residue should have (openfold 14 format)
     """
 
     if torch.cuda.is_available():
@@ -342,13 +371,13 @@ def _read_residue_data(residues: List[Residue]) -> Dict[str, torch.Tensor]:
         sequence_onehot: [len, 22] sequence, one-hot encoded amino acids
         blosum62: [len, 20] sequence, BLOSUM62 encoded amino acids
         backbone_rigid_tensor: [len, 4, 4] 4x4 representation of the backbone frames
-        torsion_angles_sin_cos: [len, 7, 2]
-        alt_torsion_angles_sin_cos: [len, 7, 2]
-        torsion_angles_mask: [len, 7]
-        atom14_gt_exists: [len, 14]
-        atom14_gt_positions: [len, 14, 3]
-        atom14_alt_gt_positions: [len, 14, 3]
-        residx_atom14_to_atom37: [len, 14]
+        torsion_angles_sin_cos: [len, 7, 2] representations of the torsion angles (one sin & cos per angle)
+        alt_torsion_angles_sin_cos: [len, 7, 2] representations of the alternative torsion angles (one sin & cos per angle)
+        torsion_angles_mask: [len, 7] which torsion angles each residue has (openfold format)
+        atom14_gt_exists: [len, 14] which atoms each residue has (openfold 14 format)
+        atom14_gt_positions: [len, 14, 3] atom positions (openfold 14 format)
+        atom14_alt_gt_positions: [len, 14, 3] alternative atom positions (openfold 14 format)
+        residx_atom14_to_atom37: [len, 14] per residue, conversion table from openfold 14 to openfold 37 atom format
     """
 
     if torch.cuda.is_available():
@@ -554,7 +583,8 @@ def _get_masked_structure(
         reference_structure_path: structure, to which the mask applies, the model will be aligned to this
         reference_masks: masks that apply to the reference structure, these will be used to mask the given model
     Returns:
-        a dictionary, that contains a list of masked residues per structure
+        the biopython structure, resulting from the model bytes
+        and a dictionary, that contains a list of masked residues per structure
     """
 
     # need a pdb parser
@@ -634,18 +664,26 @@ def _get_masked_structure(
 
 
 def _k_to_affinity(k: float) -> float:
+    """
+    The formula used to comvert Kd / IC50 to affinity.
+    """
+
     if k == 0.0:
         raise ValueError(f"k is zero")
 
     return 1.0 - log(k) / log(50000)
 
 
-affinity_binding_threshold = 1.0 - log(500) / log(50000)
+# < 500 nM means BINDING, otherwise not
+affinity_binding_threshold = _k_to_affinity(500.0)
 
 
 def _interpret_target(target: Union[str, float]) -> Tuple[Union[float, None], bool, bool, Union[ComplexClass, None]]:
     """
     target can be anything, decide that here.
+
+    Args:
+        target: the target value in the data
 
     Returns:
         affinity
@@ -677,6 +715,8 @@ def _interpret_target(target: Union[str, float]) -> Tuple[Union[float, None], bo
     else:
         class_ = ComplexClass.from_string(target)
 
+    # we can derive the class from the affinity
+    # < 500 nM means BINDING, otherwise not
     if affinity is not None:
         if affinity > affinity_binding_threshold and not affinity_lt:
             class_ = ComplexClass.BINDING
@@ -830,53 +870,66 @@ def preprocess(
 
     _log.debug(f"{len(entries_present)} entries already present in {output_path}")
 
+    # the table with non-structural data:
+    # - peptide sequence
+    # - affinity / class
+    # - allele name
     table = pandas.read_csv(table_path)
 
+    # here we store temporary data, to be removed after preprocessing:
     tmp_hdf5_path = os.path.join(gettempdir(), f"preprocess-tmp-{uuid4()}.hdf5")
 
     # iterate through the table
     for table_index, row in table.iterrows():
 
+        # retrieve ID from table
         id_ = row["ID"]
         if id_ in entries_present:
-            continue
+            _log.error(f"duplicate ID in table: '{id_}'")
 
-        _log.debug(f"preprocessing {id_}")
-
+        # read the affinity data from the table
         affinity_lt = False
         affinity_gt = False
         affinity = None
         class_ = None
-        if "measurement_value" in row:
-            affinity, affinity_lt, affinity_gt, class_ = _interpret_target(row["measurement_value"])
+        try:
+            if "measurement_value" in row:
+                affinity, affinity_lt, affinity_gt, class_ = _interpret_target(row["measurement_value"])
 
-        if "affinity" in row:
-            affinity = row["affinity"]
+            if "affinity" in row:
+                affinity = row["affinity"]
 
-        if "class" in row:
-            class_ = row["class"]
+            if "class" in row:
+                class_ = row["class"]
+        except:
+            _log.exception(f"on {id_}")
 
+        # this information is mandatory
         allele = row["allele"]
         peptide_sequence = row["peptide"]
 
         # find the pdb file
         # for binders a target structure is needed, that contains both MHC and peptide
-        # for nonbinders, the MHC structure is sufficient
+        # for nonbinders, the MHC structure is sufficient for prediction
         _log.debug(f"finding model for {id_}")
         include_peptide_structure = True
         try:
             model_bytes = _find_model_as_bytes(models_path, id_)
         except (KeyError, FileNotFoundError):
 
+            # at this point, assume that the model is not available
             if class_ == ComplexClass.BINDING:
 
                 _log.exception(f"cannot get structure for {id_}")
                 continue
             else:
+                # peptide structure is not needed, as NONBINDING
                 include_peptide_structure = False
+
         try:
             if include_peptide_structure:
 
+                # peptide structure is needed, thus load the entire model
                 protein_data, peptide_data = _generate_structure_data(
                     model_bytes,
                     reference_structure_path,
@@ -891,6 +944,7 @@ def preprocess(
 
                     protein_data = _load_protein_data(tmp_hdf5_path, allele)
                 else:
+                    # if not, preprocess the protein once, reuse the data later from the temporary file
                     model_bytes = _find_model_as_bytes(models_path, allele)
                     protein_data, _ = _generate_structure_data(
                         model_bytes,
@@ -901,9 +955,10 @@ def preprocess(
                     )
                     _save_protein_data(tmp_hdf5_path, allele, protein_data)
 
+                # generate the peptide sequence data, even if the structural data is not used
                 peptide_data = _make_sequence_data(peptide_sequence)
 
-            # write the data that we found
+            # write the data that we found, to the hdf5 file
             _write_preprocessed_data(
                 output_path,
                 id_,
@@ -915,8 +970,10 @@ def preprocess(
                 class_,
             )
         except:
+            # this case will be skipped
             _log.exception(f"on {id_}")
             continue
 
+    # clean up temporary files after the loop is done and everything is preprocessed:
     if os.path.isfile(tmp_hdf5_path):
         os.remove(tmp_hdf5_path)
