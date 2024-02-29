@@ -87,7 +87,7 @@ arg_parser.add_argument("--animate", "-m", help="id of a data point to generate 
 arg_parser.add_argument("--lr", help="learning rate setting", type=float, default=0.001)
 arg_parser.add_argument("--classification", "-c", help="do classification instead of regression", action="store_const", const=True, default=False)
 arg_parser.add_argument("--test-only", "-t", help="do not train, only run tests", const=True, default=False, action='store_const')
-arg_parser.add_argument("--test-subset-path", help="path to list of entry ids that should be excluded for testing", nargs="+")
+arg_parser.add_argument("--test-subset-path", help="path to list of entry ids that should be excluded for testing")
 arg_parser.add_argument("--disable-ba-loss", help="whether or not to include the BA loss term with training", action="store_const", const=True, default=False)
 arg_parser.add_argument("--disable-struct-loss", help="whether or not to include the structural loss terms with training", action="store_const", const=True, default=False)
 arg_parser.add_argument("data_path", help="path to a hdf5 file", nargs="+")
