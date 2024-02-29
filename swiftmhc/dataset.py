@@ -111,7 +111,7 @@ class ProteinLoopDataset(Dataset):
 
             try:
                 result = self._get_structural_data(allele, False)
-                result = self._add_sequence_data(result, peptide)
+                result.update(self._get_sequence_data(peptide))
                 result["peptide"] = peptide
                 result["allele"] = allele
                 result["ids"] = f"{allele}-{peptide}"
@@ -145,7 +145,9 @@ class ProteinLoopDataset(Dataset):
 
             return sequence
 
-    def _add_sequence_data(self, result: Dict[str, torch.Tensor], sequence: str):
+    def _get_sequence_data(self, sequence: str):
+
+        result = {}
 
         max_length = self._peptide_maxlen
         prefix = PREPROCESS_PEPTIDE_NAME
@@ -281,7 +283,7 @@ class ProteinLoopDataset(Dataset):
 
         return result
 
-    def _set_zero_peptide_structure(result: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+    def _set_zero_peptide_structure(self, result: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
         """
         all frames, atom positions and angles set to zero
         """
@@ -297,6 +299,8 @@ class ProteinLoopDataset(Dataset):
         result["peptide_atom14_alt_gt_positions"] = torch.zeros((max_length, 14, 3), device=self._device, dtype=torch.float)
 
         result["peptide_all_atom_positions"] = torch.zeros((max_length, 37, 3), device=self._device, dtype=torch.float)
+
+        return result
 
     def get_entry(self, entry_name: str) -> Dict[str, torch.Tensor]:
         """
@@ -327,14 +331,14 @@ class ProteinLoopDataset(Dataset):
                 result["class"] = torch.tensor(entry_group[PREPROCESS_CLASS_NAME][()], device=self._device, dtype=torch.long)
 
         if "class" in result and result["class"] > 0:
-            result = self._get_structural_data(entry_name, True)
+            result.update(self._get_structural_data(entry_name, True))
         else:
             # nonbinders need no structural truth data for the peptide
             # only structural dtaa for the protein
-            result = self._get_structural_data(entry_name, False)
+            result.update(self._get_structural_data(entry_name, False))
 
             peptide_sequence = self._get_peptide_sequence(entry_name)
-            result = self._add_sequence_data(result, peptide_sequence)
+            result.update(self._get_sequence_data(peptide_sequence))
             result = self._set_zero_peptide_structure(result)
 
         return result

@@ -148,7 +148,14 @@ def _load_protein_data(
         protein = entry[PREPROCESS_PROTEIN_NAME]
 
         for key in protein:
-            data[key] = torch.tensor(protein[key][()])
+            _log.debug(f"{name}: loading {key} ..")
+
+            value = protein[key][()]
+            if isinstance(value, numpy.ndarray):
+
+                data[key] = torch.tensor(value)
+            else:
+                data[key] = value
 
     return data
 
@@ -172,7 +179,12 @@ def _save_protein_data(
         protein = entry.require_group(PREPROCESS_PROTEIN_NAME)
 
         for key in data:
-            protein.create_dataset(key, data=data[key].cpu())
+            _log.debug(f"{name}: saving {key} ..")
+
+            if isinstance(data[key], torch.Tensor):
+                protein.create_dataset(key, data=data[key].cpu())
+            else:
+                protein.create_dataset(key, data=data[key])
 
 
 # Representation of a line in the mask file:

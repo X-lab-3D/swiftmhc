@@ -41,6 +41,7 @@ def test_predictor():
         "peptide_aatype": torch.tensor([[random.randrange(20) for _ in range(peptide_maxlen)] for __ in range(n_complexes)]),
         "peptide_torsion_angles_mask": torch.tensor([[[bool(random.randrange(2)) for ___ in range(7) ] for _ in range(peptide_maxlen)] for __ in range(n_complexes)]),
         "peptide_torsion_angles_sin_cos": torch.rand(n_complexes, peptide_maxlen, 7, 2),
+        "peptide_alt_torsion_angles_sin_cos": torch.rand(n_complexes, peptide_maxlen, 7, 2),
         "peptide_backbone_rigid_tensor": torch.rand(n_complexes, peptide_maxlen, 4, 4),
         "peptide_atom14_gt_positions": torch.rand(n_complexes, peptide_maxlen, 14, 3),
         "peptide_atom14_alt_gt_positions": torch.rand(n_complexes, peptide_maxlen, 14, 3),
@@ -71,10 +72,11 @@ def test_predictor():
     data["peptide_residx_atom14_to_atom37"] = torch.tensor(restype_atom14_to_atom37)[data["peptide_aatype"]]
     data["protein_residx_atom14_to_atom37"] = torch.tensor(restype_atom14_to_atom37)[data["protein_aatype"]]
 
-    model = Predictor(peptide_maxlen, protein_maxlen, ModelType.CLASSIFICATION, openfold_config.model)
+    model_type = ModelType.CLASSIFICATION
+    model = Predictor(peptide_maxlen, protein_maxlen, model_type, openfold_config.model)
 
     output = model(data)
 
-    losses = get_loss(output, data, True, True, True, True)
+    losses = get_loss(model_type, output, data, True, True, True, True)
 
     assert "total" in losses
