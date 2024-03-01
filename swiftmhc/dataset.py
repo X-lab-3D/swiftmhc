@@ -12,6 +12,7 @@ from torch.utils.data import Dataset
 from torch.nn.functional import pad
 from sklearn.decomposition import PCA
 
+from openfold.data.data_transforms import make_atom14_masks
 from openfold.utils.rigid_utils import Rigid
 from openfold.np import residue_constants
 
@@ -181,7 +182,7 @@ class ProteinLoopDataset(Dataset):
         result[f"{prefix}_residue_numbers"][:length] = torch.arange(1, length + 1, 1, device=self._device)
 
         # atoms mask
-        result[f"{prefix}_atom14_exists"] = torch.zeros((max_length, 14), dtype=torch.float, device=self._device)
+        result[f"{prefix}_atom14_gt_exists"] = torch.zeros((max_length, 14), dtype=torch.float, device=self._device)
         result[f"{prefix}_torsion_angles_mask"] = torch.zeros((max_length, 7), dtype=torch.float, device=self._device)
         result[f"{prefix}_all_atom_mask"] = torch.zeros((max_length, 37), dtype=torch.float, device=self._device)
         for i, amino_acid in enumerate(amino_acids):
@@ -190,8 +191,11 @@ class ProteinLoopDataset(Dataset):
             for k, mask in enumerate(residue_constants.chi_angles_mask[amino_acid.index]):
                 result[f"{prefix}_torsion_angles_mask"][i, 3 + k] = mask
 
-            result[f"{prefix}_atom14_exists"][i] = torch.tensor(residue_constants.restype_atom14_mask[amino_acid.index], device=self._device)
+            result[f"{prefix}_atom14_gt_exists"][i] = torch.tensor(residue_constants.restype_atom14_mask[amino_acid.index], device=self._device)
             result[f"{prefix}_all_atom_mask"][i] = torch.tensor(residue_constants.restype_atom37_mask[amino_acid.index], device=self._device)
+
+        for key, value in make_atom14_masks({"aatype": result[f"{prefix}_aatype"]}).items():
+            result[f"{prefix}_{key}"] = value
 
         return result
 
