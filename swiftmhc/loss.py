@@ -433,12 +433,14 @@ def get_loss(model_type: ModelType,
 
             affinity_loss = _regression_loss_function(output["affinity"], batch["affinity"])
 
+            # handle inequalities
+            # if truth is t < 0.5 and prediction is t = 0.49, then the loss must be zero
             affinity_loss[torch.logical_and(output["affinity"] < batch["affinity"], batch["affinity_lt"])] = 0.0
             affinity_loss[torch.logical_and(output["affinity"] > batch["affinity"], batch["affinity_gt"])] = 0.0
 
             non_binders_index = batch["affinity"] < AFFINITY_BINDING_TRESHOLD
 
-        elif "class" in batch:
+        elif "class" in batch and not affinity_tune:
 
             # needed for structural loss
             non_binders_index = torch.logical_not(batch["class"])
