@@ -23,9 +23,12 @@ if __name__ == "__main__":
 
     with h5py.File(args.dataset_file, 'r') as f5:
         data = f5[args.structure_id]
-        structure = recreate_structure(args.structure_id,
-                                       [("P", torch.tensor(data["loop/residue_numbers"]), torch.tensor(data["loop/sequence_onehot"]), torch.tensor(data["loop/atom14_gt_positions"])),
-                                        ("M", torch.tensor(data["protein/residue_numbers"]), torch.tensor(data["protein/sequence_onehot"]), torch.tensor(data["protein/atom14_gt_positions"]))])
+
+        selection = [("M", torch.tensor(data["protein/residue_numbers"]), torch.tensor(data["protein/sequence_onehot"]), torch.tensor(data["protein/atom14_gt_positions"]))]
+        if "atom14_gt_positions" in data["peptide"]:
+            selection.append(("P", torch.tensor(data["peptide/residue_numbers"]), torch.tensor(data["peptide/sequence_onehot"]), torch.tensor(data["peptide/atom14_gt_positions"])))
+
+        structure = recreate_structure(args.structure_id, selection)
 
         pdbio = PDBIO()
         pdbio.set_structure(structure)
