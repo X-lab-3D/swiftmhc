@@ -338,7 +338,7 @@ class ProteinLoopDataset(Dataset):
             result.update(self._get_structural_data(entry_name, True))
         else:
             # nonbinders need no structural truth data for the peptide
-            # only structural dtaa for the protein
+            # only structural data for the protein
             result.update(self._get_structural_data(entry_name, False))
 
             peptide_sequence = self._get_peptide_sequence(entry_name)
