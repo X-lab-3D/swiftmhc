@@ -908,6 +908,13 @@ def preprocess(
             if "measurement_value" in row:
                 affinity, affinity_lt, affinity_gt, class_ = _interpret_target(row["measurement_value"])
 
+            if "measurement_inequality" in row:
+                if row["measurement_inequality"] == "<":
+                    affinity_lt = True
+
+                elif row["measurement_inequality"] == ">":
+                    affinity_gt = True
+
             if "affinity" in row:
                 affinity = row["affinity"]
 
