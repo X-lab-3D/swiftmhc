@@ -32,6 +32,10 @@ _log = logging.getLogger(__name__)
 
 
 class Predictor(torch.nn.Module):
+    """
+    main module, calls all other modules
+    """
+
     def __init__(self,
                  peptide_maxlen: int,
                  protein_maxlen: int,
@@ -39,6 +43,7 @@ class Predictor(torch.nn.Module):
                  config: ml_collections.ConfigDict):
         super(Predictor, self).__init__()
 
+        # general settings
         self.eps = 1e-6
 
         structure_module_config = copy(config.structure_module)
@@ -51,7 +56,9 @@ class Predictor(torch.nn.Module):
         self.protein_maxlen = protein_maxlen
 
         self.n_head = structure_module_config.no_heads_ipa
+        self.n_ipa_repeat = structure_module_config.no_blocks
 
+        # modules for self attention on peptide, updating {s_i}
         self.transform = torch.nn.ModuleList([
             RelativePositionEncoder(self.n_head, self.peptide_maxlen, structure_module_config.c_s)
             for _ in range(structure_module_config.no_blocks)
@@ -62,8 +69,7 @@ class Predictor(torch.nn.Module):
             LayerNorm(structure_module_config.c_s)
         )
 
-        self.n_ipa_repeat = structure_module_config.no_blocks
-
+        # modules for self attention on protein, updating {s_j}
         self.protein_dist_norm = torch.nn.LayerNorm((self.protein_maxlen, self.protein_maxlen, 1))
 
         self.protein_ipa = IPA(
@@ -81,8 +87,10 @@ class Predictor(torch.nn.Module):
             LayerNorm(structure_module_config.c_s)
         )
 
+        # module for structure prediction and cross updating {s_i}
         self.cross = CrossStructureModule(**structure_module_config)
 
+        # decide here what output shape to generate: regression or classification
         self.model_type = model_type
         if model_type == ModelType.REGRESSION:
             output_size = 1
@@ -91,6 +99,7 @@ class Predictor(torch.nn.Module):
         else:
             raise TypeError(str(model_type))
 
+        # module for predicting affinity from updated {s_i}
         c_transition = 128
         self.affinity_transition = torch.nn.Sequential(
             torch.nn.Linear(structure_module_config.c_s, c_transition),
@@ -112,7 +121,7 @@ class Predictor(torch.nn.Module):
             protein_proximities:            [*, protein_maxlen, protein_maxlen, 1]
 
         Returns:
-            single:                     [*, peptide_maxlen, c_s]
+            single:                     [*, peptide_maxlen, c_s] (updated {s_i})
             final_frames:               [*, peptide_maxlen, 7]
             final_sidechain_frames:     [*, peptide_maxlen, 7, 4, 4]
             final_angles:               [*, peptide_maxlen, 7, 2] (cos(a), sin(a))
