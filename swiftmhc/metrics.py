@@ -201,6 +201,16 @@ class MetricsRecord:
             if key in self._output_data:
                 table_dict[f"output {key}"] = self._output_data[key]
 
+        if "affinity" in self._output_data:
+
+            if "affinity_lt" in self._truth_data and self._truth_data["affinity_lt"]:
+                table_dict["inequality"] = ["<"] * len(self._truth_data["affinity"])
+
+            elif "affinity_gt" in self._truth_data and self._truth_data["affinity_gt"]:
+                table_dict["inequality"] = [">"] * len(self._truth_data["affinity"])
+            else:
+                table_dict["inequality"] = ["="] * len(self._truth_data["affinity"])
+
         if "logits" in self._output_data:
             for i in range(2):
                 table_dict[f"output logit {i}"] = [l[i] for l in self._output_data["logits"]]
