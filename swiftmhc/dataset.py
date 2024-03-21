@@ -289,7 +289,15 @@ class ProteinLoopDataset(Dataset):
 
     def _set_zero_peptide_structure(self, result: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
         """
-        all frames, atom positions and angles set to zero
+        Make sure that for the peptide,
+        all frames, atom positions and angles are set to zero.
+        This is just to assure that the variables aren't missing during a run and
+        can still be included in loss term calculation. Even though that loss term doesn't count.
+
+        Args:
+            result: a dictionary, to which variables are to be added.
+        Returns:
+            the resulting dictionary with the variables added.
         """
 
         max_length = self._peptide_maxlen
