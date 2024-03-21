@@ -908,14 +908,16 @@ def preprocess(
             if "measurement_value" in row:
                 affinity, affinity_lt, affinity_gt, class_ = _interpret_target(row["measurement_value"])
 
-            if "measurement_inequality" in row:
-                if row["measurement_inequality"] == "<":
-                    affinity_lt = True
+                # keep in mind that we do 1 - 50000log(IC50),
+                # thus the inequality must be flipped
+                if "measurement_inequality" in row:
+                    if row["measurement_inequality"] == "<":
+                        affinity_gt = True
 
-                elif row["measurement_inequality"] == ">":
-                    affinity_gt = True
+                    elif row["measurement_inequality"] == ">":
+                        affinity_lt = True
 
-            if "affinity" in row:
+            elif "affinity" in row:
                 affinity = row["affinity"]
 
             if "class" in row:
