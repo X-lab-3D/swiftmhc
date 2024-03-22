@@ -1,4 +1,4 @@
-from typing import Dict, List
+from typing import Dict, List, Union
 import os
 import csv
 
@@ -226,6 +226,50 @@ class MetricsRecord:
         # save to file
         table.to_csv(affinities_path, sep=',', encoding='utf-8', index=False, quoting=csv.QUOTE_NONNUMERIC)
 
+    @staticmethod
+    def _has_distribution(values: List[Union[float, int]]) -> bool:
+        """
+        if the values are all the same, returns False
+        if there's at least one value different from the others, returns True
+        """
+
+        return len(set(values)) > 1
+
+    def _store_regression(self, table: pandas.DataFrame, row_index: int, pass_name: str):
+        """
+        store all metrics related to regression
+        """
+
+        r = pearsonr(self._output_data["affinity"], self._truth_data["affinity"]).statistic
+        table.loc[row_index, f"{pass_name} pearson correlation"] = round(r, 3)
+
+        output_class = (numpy.array(self._output_data["affinity"]) > AFFINITY_BINDING_TRESHOLD)
+
+        acc = get_accuracy(self._truth_data["class"], output_class)
+        table.loc[row_index, f"{pass_name} accuracy"] = round(acc, 3)
+
+        auc = roc_auc_score(self._truth_data["class"], self._output_data["affinity"])
+        table.loc[row_index, f"{pass_name} ROC AUC"] = round(auc, 3)
+
+        mcc = matthews_corrcoef(self._truth_data["class"], output_class)
+        table.loc[row_index, f"{pass_name} matthews correlation"] = round(mcc, 3)
+
+    def _store_classification(self, table: pandas.DataFrame, row_index: int, pass_name: str):
+        """
+        store all metrics related to classification
+        """
+
+        p = torch.nn.functional.softmax(torch.tensor(self._output_data["logits"]), dim=-1)
+
+        auc = roc_auc_score(self._truth_data["class"], p[:, 1])
+        table.loc[row_index, f"{pass_name} ROC AUC"] = round(auc, 3)
+
+        acc = get_accuracy(self._truth_data["class"], self._output_data["class"])
+        table.loc[row_index, f"{pass_name} accuracy"] = round(acc, 3)
+
+        mcc = matthews_corrcoef(self._truth_data["class"], self._output_data["class"])
+        table.loc[row_index, f"{pass_name} matthews correlation"] = round(mcc, 3)
+
     def _store_metrics_table(self, epoch_number: int, pass_name: str, directory_path: str):
 
         # store to this file
@@ -258,36 +302,13 @@ class MetricsRecord:
         table.loc[row_index, f"{pass_name} mean binders C-alpha RMSD(Å)"] = mean
 
         # write affinity-related metrics
-        if "logits" in self._output_data and "class" in self._truth_data and len(set(self._truth_data["class"])) > 1:
+        if "class" in self._output_data and "class" in self._truth_data and self._has_distribution(self._truth_data["class"]):
 
-            p = torch.nn.functional.softmax(torch.tensor(self._output_data["logits"]), dim=-1)
+            self._store_classification(table, row_index, pass_name)
 
-            if len(set(self._truth_data["class"])) > 1:
-                auc = roc_auc_score(self._truth_data["class"], p[:, 1])
-                table.loc[row_index, f"{pass_name} ROC AUC"] = round(auc, 3)
+        if "affinity" in self._output_data and "affinity" in self._truth_data and self._has_distribution(self._truth_data["class"]):
 
-        if "class" in self._output_data and "class" in self._truth_data:
-            acc = get_accuracy(self._truth_data["class"], self._output_data["class"])
-            table.loc[row_index, f"{pass_name} accuracy"] = round(acc, 3)
-
-            mcc = matthews_corrcoef(self._truth_data["class"], self._output_data["class"])
-            table.loc[row_index, f"{pass_name} matthews correlation"] = round(mcc, 3)
-
-        if "affinity" in self._output_data and "affinity" in self._truth_data:
-            r = pearsonr(self._output_data["affinity"], self._truth_data["affinity"]).statistic
-            table.loc[row_index, f"{pass_name} pearson correlation"] = round(r, 3)
-
-            output_class = (numpy.array(self._output_data["affinity"]) > AFFINITY_BINDING_TRESHOLD)
-
-            acc = get_accuracy(self._truth_data["class"], output_class)
-            table.loc[row_index, f"{pass_name} accuracy"] = round(acc, 3)
-
-            if len(set(self._truth_data["class"])) > 1:
-                auc = roc_auc_score(self._truth_data["class"], self._output_data["affinity"])
-                table.loc[row_index, f"{pass_name} ROC AUC"] = round(auc, 3)
-
-            mcc = matthews_corrcoef(self._truth_data["class"], output_class)
-            table.loc[row_index, f"{pass_name} matthews correlation"] = round(mcc, 3)
+            self._store_regression(table, row_index, pass_name)
 
         # store metrics
         table.to_csv(metrics_path, sep=',', encoding='utf-8', index=False, quoting=csv.QUOTE_NONNUMERIC)
