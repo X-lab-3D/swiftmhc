@@ -262,8 +262,9 @@ class MetricsRecord:
 
             p = torch.nn.functional.softmax(torch.tensor(self._output_data["logits"]), dim=-1)
 
-            auc = roc_auc_score(self._truth_data["class"], p[:, 1])
-            table.loc[row_index, f"{pass_name} ROC AUC"] = round(auc, 3)
+            if len(set(self._truth_data["class"])) > 1:
+                auc = roc_auc_score(self._truth_data["class"], p[:, 1])
+                table.loc[row_index, f"{pass_name} ROC AUC"] = round(auc, 3)
 
         if "class" in self._output_data and "class" in self._truth_data:
             acc = get_accuracy(self._truth_data["class"], self._output_data["class"])
@@ -281,8 +282,9 @@ class MetricsRecord:
             acc = get_accuracy(self._truth_data["class"], output_class)
             table.loc[row_index, f"{pass_name} accuracy"] = round(acc, 3)
 
-            auc = roc_auc_score(self._truth_data["class"], self._output_data["affinity"])
-            table.loc[row_index, f"{pass_name} ROC AUC"] = round(auc, 3)
+            if len(set(self._truth_data["class"])) > 1:
+                auc = roc_auc_score(self._truth_data["class"], self._output_data["affinity"])
+                table.loc[row_index, f"{pass_name} ROC AUC"] = round(auc, 3)
 
             mcc = matthews_corrcoef(self._truth_data["class"], output_class)
             table.loc[row_index, f"{pass_name} matthews correlation"] = round(mcc, 3)
