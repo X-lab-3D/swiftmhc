@@ -894,7 +894,7 @@ if __name__ == "__main__":
                 train_entry_names, valid_entry_names = random_subdivision(train_valid_entry_names, 0.1)
             else:
                 # Otherwise, make only a train and validation set
-                train_entry_names, valid_entry_names = random_subdivision(get_entry_names(args.data_path[0]), 0.2)
+                train_entry_names, valid_entry_names = random_subdivision(get_entry_names(args.data_path[0]), 0.1)
                 test_entry_names = []
 
             _log.debug(f"training, validating & testing on {args.data_path[0]} subsets")
