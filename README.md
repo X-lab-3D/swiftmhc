@@ -32,6 +32,8 @@ To preprocess just the MHC allele structures, for predicting unlabeled data, run
 swiftmhc_preprocess allele_table.csv ref_mhc.pdb mhc_models/ mhc_self_attention.mask mhc_cross_attention.mask preprocessed_mhcs.hdf5
 ```
 
+Run `swiftmhc_preprocess --help` for details.
+
 
 ## TRAINING
 
@@ -40,7 +42,7 @@ Run
 swiftmhc_run train.hdf5 valid.hdf5 test.hdf5
 ```
 
-Run `swiftmhc_run --help for details`
+Run `swiftmhc_run --help` for details.
 
 
 This will save the model to `best-predictor.pth`
@@ -51,3 +53,5 @@ Run
 ```
 swiftmhc_predict best-predictor.pth table.csv preprocessed_mhcs.hdf5 results/
 ```
+
+Run `swiftmhc_predict --help` for details.
