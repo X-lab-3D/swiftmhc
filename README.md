@@ -1,0 +1,53 @@
+# SwiftMHC
+
+A deep learning algorithm for predicting MHC-p structure and binding affinity at the same time.
+
+## DEPENDENCIES
+
+ - python >= 3.11.5
+ - openfold >= 1.0.0
+ - pytorch >= 2.0.1
+ - pandas >= 1.5.3
+ - numpy >= 1.26.4
+ - h5py >= 3.10.0
+ - ml-collections >= 0.1.1
+ - scikit-learn >= 1.4.1
+
+## INSTALL
+
+Run:
+```
+python setup.py install
+```
+
+## PREPROCESSING DATA
+
+To create training, validation, test sets, run:
+```
+swiftmhc_preprocess IEdb_table.csv ref_mhc.pdb mhcp_binder_models/ mhc_self_attention.mask mhc_cross_attention.mask preprocessed_data.hdf5
+```
+
+To preprocess just the MHC allele structures, for predicting unlabeled data, run:
+```
+swiftmhc_preprocess allele_table.csv ref_mhc.pdb mhc_models/ mhc_self_attention.mask mhc_cross_attention.mask preprocessed_mhcs.hdf5
+```
+
+
+## TRAINING
+
+Run
+```
+swiftmhc_run train.hdf5 valid.hdf5 test.hdf5
+```
+
+Run `swiftmhc_run --help for details`
+
+
+This will save the model to `best-predictor.pth`
+
+## PREDICTING UNLABELED DATA
+
+Run
+```
+swiftmhc_predict best-predictor.pth table.csv preprocessed_mhcs.hdf5 results/
+```

@@ -72,7 +72,7 @@ from swiftmhc.models.types import ModelType
 from swiftmhc.metrics import MetricsRecord
 
 
-arg_parser = ArgumentParser(description="run a SwiftMHC network model")
+arg_parser = ArgumentParser(description="train/test a SwiftMHC network model")
 arg_parser.add_argument("--run-id", "-r", help="name of the run and the directory to store it")
 arg_parser.add_argument("--debug", "-d", help="generate debug files", action='store_const', const=True, default=False)
 arg_parser.add_argument("--log-stdout", "-l", help="log to stdout", action='store_const', const=True, default=False)
