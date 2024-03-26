@@ -862,26 +862,28 @@ if __name__ == "__main__":
         if len(args.data_path) >= 3:
             # the sets are separate HDF5 files
             train_path, valid_path = args.data_path[:2]
+            test_paths = args.data_path[2:]
 
             _log.debug(f"training on {train_path}")
             _log.debug(f"validating on {valid_path}")
-            _log.debug(f"testing on {args.data_path[2:]}")
+            _log.debug(f"testing on {test_paths}")
 
             train_loader = trainer.get_data_loader(train_path, args.batch_size, device, shuffle=True)
             valid_loader = trainer.get_data_loader(valid_path, args.batch_size, device, shuffle=False)
             test_loaders = [trainer.get_data_loader(test_path, args.batch_size, device, shuffle=False)
-                            for test_path in args.data_path[2:]]
+                            for test_path in test_paths]
 
         elif len(args.data_path) == 2:
 
             # assume that the two files are train and validation set, no test set
+            train_path, valid_path = args.data_path
 
-            train_loader = trainer.get_data_loader(args.data_path[0], args.batch_size, device, shuffle=True)
-            valid_loader = trainer.get_data_loader(args.data_path[1], args.batch_size, device, shuffle=False)
+            train_loader = trainer.get_data_loader(train_path, args.batch_size, device, shuffle=True)
+            valid_loader = trainer.get_data_loader(valid_path, args.batch_size, device, shuffle=False)
             test_loaders = []
 
-            _log.debug(f"training on {args.data_path[0]}")
-            _log.debug(f"validating on {args.data_path[1]}")
+            _log.debug(f"training on {train_path}")
+            _log.debug(f"validating on {valid_path}")
 
         else:
             # only one hdf5 file for train, validation and optionally test.
