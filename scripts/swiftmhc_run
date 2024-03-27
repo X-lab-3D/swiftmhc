@@ -247,7 +247,7 @@ class Trainer:
 
         self._device = device
 
-        self._early_stop_epsilon = 0.005
+        self._early_stop_epsilon = 0.001
 
         # for snapshots: every 20 batches
         self._snap_period = 20
