@@ -22,6 +22,13 @@ python setup.py install
 
 ## PREPROCESSING DATA
 
+Preprocessing means to create a file in HDF5 format, containing info in the peptide and MHC protein.
+It requires the following:
+ - structures of the MHC molecules and optionally peptides for training
+ - a reference structure, to align all MHC molecules to
+ - two residue masks, compatible to the reference structure, one for self-attention (G-domain) and one for cross attention (pocket)
+ - optionally, binding affinity data or classification (BINDING/NONBINDING), for training
+
 To create training, validation, test sets, run:
 ```
 swiftmhc_preprocess IEdb_table.csv ref_mhc.pdb mhcp_binder_models/ mhc_self_attention.mask mhc_cross_attention.mask preprocessed_data.hdf5
@@ -37,6 +44,8 @@ Run `swiftmhc_preprocess --help` for details.
 
 ## TRAINING
 
+This requires preprocessed HDF5 files, containing structures of the MHC protein, peptide and binding affinity or classification data.
+
 Run
 ```
 swiftmhc_run train.hdf5 valid.hdf5 test.hdf5
@@ -48,6 +57,9 @@ Run `swiftmhc_run --help` for details.
 This will save the model to `best-predictor.pth`
 
 ## PREDICTING UNLABELED DATA
+
+This requires preprocessed HDF5 files, containing structures of the MHC protein, for every allele.
+It also requires a table, linking the peptides to MHC alleles.
 
 Run
 ```
