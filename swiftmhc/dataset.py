@@ -20,7 +20,6 @@ from blosum import BLOSUM
 
 from .models.types import ModelType
 from .models.data import TensorDict
-from .models.residue import Residue
 from .domain.amino_acid import amino_acids_by_letter, amino_acids_by_one_hot_index, AMINO_ACID_DIMENSION, canonical_amino_acids
 from .preprocess import (
     PREPROCESS_AFFINITY_NAME,
