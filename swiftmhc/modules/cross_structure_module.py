@@ -62,6 +62,16 @@ class BackboneUpdate(torch.nn.Module):
 
 
 class CrossStructureModule(torch.nn.Module):
+    """
+    This is like algorithm 20 in AlphaFold2, but with some modifications:
+
+     - omega angles are calculated from predicted frames. They are not predicted directly.
+     - The backbone frames are predicted from s_i, but not by a single linear layer, rather a transitional block.
+     - It does not predict frames for a complete sequence. It takes a protein structure and peptide sequence as input. The peptide structure is predicted.
+
+    The code was copied from OpenFold and then modified.
+    """
+
     def __init__(
         self,
         c_s,
@@ -110,6 +120,7 @@ class CrossStructureModule(torch.nn.Module):
         """
         super(CrossStructureModule, self).__init__()
 
+        # constants
         self.c_s = c_s
         self.c_ipa = c_ipa
         self.c_resnet = c_resnet
@@ -130,12 +141,14 @@ class CrossStructureModule(torch.nn.Module):
         # self.atom_mask
         # self.lit_positions
 
+        # initial modules, to run on s_i
         self.layer_norm_s_peptide = LayerNorm(self.c_s)
         self.layer_norm_s_protein = LayerNorm(self.c_s)
 
         self.linear_in_peptide = Linear(self.c_s, self.c_s)
         self.linear_in_protein = Linear(self.c_s, self.c_s)
 
+        # modules for updating s_i (peptide), from the protein structure
         self.peptide_ipa = CrossInvariantPointAttention(
             self.c_s,
             self.c_ipa,
@@ -150,8 +163,10 @@ class CrossStructureModule(torch.nn.Module):
                                                             self.n_transition_layers,
                                                             self.dropout_rate)
 
+        # for predicting backbone frames from s_i
         self.bb_update = BackboneUpdate(self.c_s)
 
+        # for predicting torsion angles
         self.angle_resnet = AngleResnet(
             self.c_s,
             self.c_resnet,
@@ -214,6 +229,7 @@ class CrossStructureModule(torch.nn.Module):
             fmt="quat",
         )
 
+        # update s_i repeatedly
         outputs = []
         for i in range(self.n_blocks):
 
@@ -451,7 +467,7 @@ class CrossStructureModule(torch.nn.Module):
 
         # [*, N_res - 1]
         omega_sin = (axis * newmann1).sum(dim=-1)
-        
+
         # masked areas get 180 degrees omega
         omega_cos = torch.where(mask, omega_cos,-1.0)
         omega_sin = torch.where(mask, omega_sin, 0.0)

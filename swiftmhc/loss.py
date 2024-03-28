@@ -276,10 +276,22 @@ def _compute_cross_violation_loss(output: Dict[str, torch.Tensor],
 
 def _torsion_angle_loss(
     a: torch.Tensor,
-    a_mask: torch.Tensor, 
+    a_mask: torch.Tensor,
     a_gt: torch.Tensor,
     a_alt_gt: torch.Tensor,
 ) -> torch.Tensor:
+    """
+    Torsion angle loss, according to alphafold Algorithm 27
+
+    Args:
+        a:          [*, N, 7, 2] predicted torsion angles sin, cos
+        a_mask:     [*, N, 7] (bool) torsion angles mask
+        a_gt:       [*, N, 7, 2] true torsion angles sin, cos
+        a_alt_gt:   [*, N, 7, 2] true alternative torsion angles sin, cos
+
+    Returns:
+        [*] losses per case
+    """
 
     # [*, N, 7]
     norm = torch.norm(a, dim=-1)
@@ -298,90 +310,6 @@ def _torsion_angle_loss(
 
     an_weight = 0.02
     return l_torsion + an_weight * l_angle_norm
-
-
-def _supervised_chi_loss(angles_sin_cos: torch.Tensor,
-                         unnormalized_angles_sin_cos: torch.Tensor,
-                         aatype: torch.Tensor,
-                         seq_mask: torch.Tensor,
-                         chi_mask: torch.Tensor,
-                         chi_angles_sin_cos: torch.Tensor,
-                         chi_weight: float,
-                         angle_norm_weight: float,
-                         eps=1e-6,
-                         **kwargs,
-) -> torch.Tensor:
-    """
-        Implements Algorithm 27, (torsionAngleLoss)
-        but unlike the version in openfold. we do not take the average over the batch.
-        Instead, this function returns a tensor that returns the loss per peptide.
-
-        Args:
-            angles_sin_cos:
-                [*, N, 7, 2] predicted angles
-            unnormalized_angles_sin_cos:
-                [*, N, 7, 2] The same angles, but unnormalized
-            aatype:
-                [*, N] residue indices
-            seq_mask:
-                [*, N] sequence mask
-            chi_mask:
-                [*, N, 7] angle mask
-            chi_angles_sin_cos:
-                [*, N, 7, 2] ground truth angles
-            chi_weight:
-                Weight for the angle component of the loss
-            angle_norm_weight:
-                Weight for the normalization component of the loss
-        Returns:
-            [*] loss tensor
-    """
-    pred_angles = angles_sin_cos
-    residue_type_one_hot = torch.nn.functional.one_hot(
-        aatype,
-        openfold_restype_num + 1,
-    )
-    chi_pi_periodic = torch.einsum(
-        "...ij,jk->ik",
-        residue_type_one_hot.type(angles_sin_cos.dtype),
-        angles_sin_cos.new_tensor(openfold_chi_pi_periodic),
-    )
-
-    true_chi = chi_angles_sin_cos[None]
-
-    shifted_mask = (1 - 2 * chi_pi_periodic).unsqueeze(-1)
-    true_chi_shifted = shifted_mask * true_chi
-    sq_chi_error = torch.sum((true_chi - pred_angles) ** 2, dim=-1)
-    sq_chi_error_shifted = torch.sum(
-        (true_chi_shifted - pred_angles) ** 2, dim=-1
-    )
-    sq_chi_error = torch.minimum(sq_chi_error, sq_chi_error_shifted)
-
-    # The ol' switcheroo
-    sq_chi_error = sq_chi_error.permute(
-        *range(len(sq_chi_error.shape))[1:-2], 0, -2, -1
-    )
-
-    sq_chi_loss = openfold_masked_mean(
-        chi_mask[..., None, :, :], sq_chi_error, dim=(-1, -2, -3)
-    )
-
-    loss = chi_weight * sq_chi_loss
-
-    angle_norm = torch.sqrt(
-        torch.sum(unnormalized_angles_sin_cos ** 2, dim=-1) + eps
-    )
-    norm_error = torch.abs(angle_norm - 1.0)
-    norm_error = norm_error.permute(
-        *range(len(norm_error.shape))[1:-2], 0, -2, -1
-    )
-    angle_norm_loss = openfold_masked_mean(
-        seq_mask[..., :, None], norm_error, dim=(-1, -2, -3)
-    )
-
-    loss = loss + angle_norm_weight * angle_norm_loss
-
-    return loss
 
 
 AFFINITY_BINDING_TRESHOLD = 1.0 - log(500) / log(50000)

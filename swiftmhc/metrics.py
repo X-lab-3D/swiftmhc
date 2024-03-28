@@ -11,10 +11,13 @@ from scipy.stats import pearsonr
 
 from .domain.amino_acid import amino_acids_by_one_hot_index
 from .models.data import TensorDict
-from .loss import get_calpha_rmsd, sum_within_peptide_clashes_between_residues, AFFINITY_BINDING_TRESHOLD
+from .loss import get_calpha_rmsd, AFFINITY_BINDING_TRESHOLD
 
 
 def get_sequence(aatype: List[int], mask: List[bool]) -> str:
+    """
+    Converts aatype tensor to a one letter encoded sequence string.
+    """
 
     s = ""
     for i, b in enumerate(mask):
@@ -56,7 +59,6 @@ class MetricsRecord:
         self._data_len = 0
         self._losses_sum = {}
         self._rmsds = {}
-        self._within_peptide_clashes = {}
         self._peptide_sequences = {}
 
         self._id_order = []
@@ -94,9 +96,6 @@ class MetricsRecord:
         # store the rmsd per data point
         self._rmsds.update(get_calpha_rmsd(output, truth))
 
-        # store the clashes per data point
-        self._within_peptide_clashes.update(sum_within_peptide_clashes_between_residues(output, truth))
-
         # store the affinity predictions and truth values per data point
         for key in ["affinity", "logits", "class"]:
             if key in output:
@@ -130,7 +129,6 @@ class MetricsRecord:
         self._batches_passed += 1
         if self._batches_passed % self.batch_write_interval == 0:
 
-            self._store_individual_clashes(self._pass_name, self._directory_path)
             self._store_individual_rmsds(self._pass_name, self._directory_path)
             self._store_inidividual_affinities(self._pass_name, self._directory_path)
 
@@ -139,32 +137,14 @@ class MetricsRecord:
         Call this when all batches have passed, to save the resulting metrics.
         """
 
-        self._store_individual_clashes(self._pass_name, self._directory_path)
         self._store_individual_rmsds(self._pass_name, self._directory_path)
         self._store_inidividual_affinities(self._pass_name, self._directory_path)
         self._store_metrics_table(self._epoch_number, self._pass_name, self._directory_path)
 
-    def _store_individual_clashes(self, pass_name: str, directory_path: str):
-
-        # store to this file
-        clashes_path = os.path.join(directory_path, f"{pass_name}-clashes.csv")
-
-        sequence_order = []
-        values = []
-        ids = []
-        for id_, value in self._within_peptide_clashes.items():
-            sequence_order.append(self._peptide_sequences[id_])
-            values.append(value)
-            ids.append(id_)
-
-        # create table
-        table_dict = {"ID": ids, "peptide": sequence_order, "clashes within peptide": values}
-        table = pandas.DataFrame(table_dict)
-
-        # save to file
-        table.to_csv(clashes_path, sep=',', encoding='utf-8', index=False, quoting=csv.QUOTE_NONNUMERIC)
-
     def _store_individual_rmsds(self, pass_name: str, directory_path: str):
+        """
+        Store the C-alpha RMSD file per binder peptide.
+        """
 
         # store to this file
         rmsds_path = os.path.join(directory_path, f"{pass_name}-rmsds.csv")
@@ -185,6 +165,9 @@ class MetricsRecord:
         table.to_csv(rmsds_path, sep=',', encoding='utf-8', index=False, quoting=csv.QUOTE_NONNUMERIC)
 
     def _store_inidividual_affinities(self, pass_name: str, directory_path: str):
+        """
+        Store the binding affinity (true and/or predicted) per peptide.
+        """
 
         affinities_path = os.path.join(directory_path, f"{pass_name}-affinities.csv")
 
@@ -271,6 +254,9 @@ class MetricsRecord:
         table.loc[row_index, f"{pass_name} matthews correlation"] = round(mcc, 3)
 
     def _store_metrics_table(self, epoch_number: int, pass_name: str, directory_path: str):
+        """
+        Store the data of one epoch in the metrics table.
+        """
 
         # store to this file
         metrics_path = os.path.join(directory_path, "metrics.csv")

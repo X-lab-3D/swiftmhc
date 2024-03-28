@@ -10,6 +10,10 @@ _log = logging.getLogger(__name__)
 
 
 class TensorDict:
+    """
+    This is like a Dictionary of tensors, but it can undergo math operations.
+    """
+
     def __init__(self, data: Optional[Dict[str, Union[torch.Tensor, Rigid, List[str]]]] = None):
 
         if data is None:

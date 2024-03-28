@@ -8,7 +8,7 @@ from ..models.amino_acid import AminoAcid
 
 AMINO_ACID_DIMENSION = 22
 
-
+# data for the known amino acids
 alanine = AminoAcid("alanine", "ALA", "A")
 cysteine = AminoAcid("cysteine", "CYS", "C")
 aspartate = AminoAcid("aspartate", "ASP", "D")
@@ -35,6 +35,7 @@ proline = AminoAcid("proline", "PRO", "P")
 unknown_amino_acid = AminoAcid("unknown", "UNK", "X")
 
 
+# lists, referrring to amino acid objects
 canonical_amino_acids = [alanine, cysteine, aspartate, glutamate, phenylalanine,
                          glycine, histidine, isoleucine, leucine, methionine,
                          asparagine, glutamine, arginine, serine, threonine,
@@ -45,6 +46,7 @@ all_amino_acids = [alanine, cysteine, aspartate, glutamate, phenylalanine,
                    asparagine, pyrolysine, glutamine, arginine, serine, threonine,
                    selenocysteine, valine, tyrosine, tryptophan, lysine, proline]
 
+# dictionaries, for fast lookup
 amino_acids_by_name = {amino_acid.name: amino_acid for amino_acid in all_amino_acids}
 amino_acids_by_code = {amino_acid.three_letter_code: amino_acid for amino_acid in all_amino_acids}
 amino_acids_by_letter = {amino_acid.one_letter_code: amino_acid for amino_acid in all_amino_acids}

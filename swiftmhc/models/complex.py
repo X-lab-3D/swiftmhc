@@ -7,6 +7,10 @@ from sklearn.decomposition import PCA
 
 
 class ComplexClass(Enum):
+    """
+    A value to be assigned in classification prediction
+    """
+
     NONBINDING = 0
     BINDING = 1
 

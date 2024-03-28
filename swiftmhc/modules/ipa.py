@@ -26,6 +26,10 @@ class DebuggableInvariantPointAttention(torch.nn.Module):
         eps: float = 1e-8,
     ):
         """
+        This is like Algorithm 22 in AlphaFold2, but without the third attention weight term.
+        Also, the second attention weight term is made from a proximity matrix.
+        The code was taken from OpenFold and then modified.
+
         Args:
             c_s:
                 Single representation channel dimension
@@ -42,14 +46,14 @@ class DebuggableInvariantPointAttention(torch.nn.Module):
         """
         super(DebuggableInvariantPointAttention, self).__init__()
 
-        self.c_s = c_s 
-        self.c_z = c_z 
+        self.c_s = c_s
+        self.c_z = c_z
         self.c_hidden = c_hidden
         self.no_heads = no_heads
         self.no_qk_points = no_qk_points
         self.no_v_points = no_v_points
-        self.inf = inf 
-        self.eps = eps 
+        self.inf = inf
+        self.eps = eps
 
         # These linear layers differ from their specifications in the
         # supplement. There, they lack bias and use Glorot initialization.

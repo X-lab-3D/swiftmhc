@@ -26,6 +26,11 @@ class CrossInvariantPointAttention(torch.nn.Module):
         inf: float = 1e5,
     ):
         """
+        This is like Algorithm 22 in AlphaFold2, but between two different sequences: a source and destination.
+        The idea is that the source is used to update the destination sequence.
+        The second term was removed from the attention weight formula.
+        The code was taken from OpenFold and then modified.
+
         Args:
             c_s:
                 Single representation channel dimension

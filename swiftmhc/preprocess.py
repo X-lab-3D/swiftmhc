@@ -29,10 +29,7 @@ from openfold.data.data_transforms import (atom37_to_frames,
                                            make_atom14_positions)
 from openfold.utils.feats import atom14_to_atom37
 
-from .tools.pdb import (get_residue_transformations,
-                        get_atom14_positions,
-                        generate_symmetry_alternative,
-                        get_residue_proximities)
+from .tools.pdb import get_atom14_positions,
 from .domain.amino_acid import amino_acids_by_letter, amino_acids_by_code, canonical_amino_acids
 from .models.amino_acid import AminoAcid
 from .models.complex import ComplexClass

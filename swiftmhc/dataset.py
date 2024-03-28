@@ -22,7 +22,6 @@ from .models.types import ModelType
 from .models.data import TensorDict
 from .models.residue import Residue
 from .domain.amino_acid import amino_acids_by_letter, amino_acids_by_one_hot_index, AMINO_ACID_DIMENSION, canonical_amino_acids
-from .tools.pdb import get_selected_residues, get_residue_transformations, get_residue_proximities
 from .preprocess import (
     PREPROCESS_AFFINITY_NAME,
     PREPROCESS_AFFINITY_LT_MASK_NAME,
@@ -70,7 +69,9 @@ class ProteinLoopDataset(Dataset):
         pairs: Optional[List[Tuple[str, str]]] = None,
     ):
         """
-        Agrs:
+        This class provides access to preprocessed data stored in HDF5 format.
+
+        Args:
             hdf5_path: hdf5 file with structural data and optionally binding affinity
             device: cpu or cuda, must match with model
             peptide_maxlen: maximum length for storage of peptide data (in amino acids)
@@ -99,15 +100,18 @@ class ProteinLoopDataset(Dataset):
 
     def __len__(self) -> int:
         if self._pairs is not None:
+            # a set of requested MHC-peptide pairs, with unknown peptide structure or BA
             return len(self._pairs)
         else:
+            # a set of preprocessed MHC-peptide structures
             return len(self._entry_names)
 
     def __getitem__(self, index: int) -> Dict[str, torch.Tensor]:
 
         if self._pairs is not None:
 
-            # must make the combination
+            # Pairs have been requested to be predicted, BA or peptide structure is unknown.
+            # We must make the combination.
             peptide, allele = self._pairs[index]
 
             try:
@@ -121,8 +125,7 @@ class ProteinLoopDataset(Dataset):
             except Exception as e:
                 raise RuntimeError(f"for pair {peptide},{allele}: {str(e)}")
         else:
-            # preprocessed combination from hdf5
-
+            # This is a preprocessed combination from the hdf5.
             entry_name = self._entry_names[index]
 
             try:
@@ -131,6 +134,8 @@ class ProteinLoopDataset(Dataset):
                 raise RuntimeError(f"in entry {entry_name}: {str(e)}")
 
     def has_entry(self,  entry_name: str) -> bool:
+        "whether the requested entry is in this dataset or not"
+
         return entry_name in self._entry_names
 
     def _get_peptide_sequence(self, entry_name: str) -> str:
@@ -146,7 +151,10 @@ class ProteinLoopDataset(Dataset):
 
             return sequence
 
-    def _get_sequence_data(self, sequence: str):
+    def _get_sequence_data(self, sequence: str) -> Dict[str, torch.Tensor]:
+        """
+        Converts a peptide sequence into a SwiftMHC-compatible format
+        """
 
         result = {}
 
@@ -181,7 +189,7 @@ class ProteinLoopDataset(Dataset):
         result[f"{prefix}_residue_numbers"] = torch.zeros(max_length, dtype=torch.long, device=self._device)
         result[f"{prefix}_residue_numbers"][:length] = torch.arange(1, length + 1, 1, device=self._device)
 
-        # atoms mask
+        # atoms masks
         result[f"{prefix}_atom14_gt_exists"] = torch.zeros((max_length, 14), dtype=torch.float, device=self._device)
         result[f"{prefix}_torsion_angles_mask"] = torch.zeros((max_length, 7), dtype=torch.float, device=self._device)
         result[f"{prefix}_all_atom_mask"] = torch.zeros((max_length, 37), dtype=torch.float, device=self._device)
@@ -200,6 +208,16 @@ class ProteinLoopDataset(Dataset):
         return result
 
     def _get_structural_data(self, entry_name: str, take_peptide: bool) -> Dict[str, torch.Tensor]:
+        """
+        Takes structural data from the HDF5 file.
+
+        Args:
+            entry_name:     name of the entry (case) to which the structure belongs
+            take_peptide:   whether or not to take the peptide structure also, if not then it takes only the MHC protein.
+
+        Returns:
+            a dictionary, containing all data taken from the HDF5.
+        """
 
         result = {}
 
@@ -365,6 +383,7 @@ class ProteinLoopDataset(Dataset):
         Collation function, to pack data of multiple entries in one batch.
         """
 
+        # only take data that both entries have
         keys = None
         for e in data_entries:
             if keys is None:
@@ -376,8 +395,10 @@ class ProteinLoopDataset(Dataset):
         for key in keys:
             try:
                 if isinstance(e[key], torch.Tensor) or isinstance(e[key], float) or isinstance(e[key], int):
+                    # tensors can be stacked
                     result[key] = torch.stack([e[key] for e in data_entries])
                 else:
+                    # probably a string, put this in a list
                     result[key] = [e[key] for e in data_entries]
 
             except RuntimeError as e:

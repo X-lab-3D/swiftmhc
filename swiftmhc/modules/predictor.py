@@ -22,7 +22,6 @@ from .cross_structure_module import CrossStructureModule
 from ..domain.amino_acid import AMINO_ACID_DIMENSION
 from ..models.data import TensorDict
 from ..tools.amino_acid import one_hot_decode_sequence
-from .transform import DebuggableTransformerEncoderLayer
 from .ipa import DebuggableInvariantPointAttention as IPA
 from .cross_ipa import CrossInvariantPointAttention as CrossIPA
 from ..models.types import ModelType
@@ -176,7 +175,7 @@ class Predictor(torch.nn.Module):
 
         output["protein_self_attention"] = protein_as
 
-        # amino acid sequence: [1, 0, 2, ... ] meaning : Ala, Met, Cys
+        # amino acid sequence: [1, 0, 2, ... ] meaning : Arg, Ala, Asn
         # [*, peptide_maxlen]
         output["aatype"] = batch["peptide_aatype"]
 
@@ -220,9 +219,3 @@ class Predictor(torch.nn.Module):
 
         return output
 
-    def get_storage_size(self):
-        total_size = 0
-        for parameter in self.parameters():
-            total_size += sys.getsizeof(parameter.storage().cpu())
-
-        return total_size
