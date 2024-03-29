@@ -227,6 +227,31 @@ def output_structures_to_directory(
         pool.join()
 
 
+class EarlyStopper:
+    def __init__(self, patience: int = 2, epsilon: float = 0.001):
+
+        self._patience = patience
+        self._epsilon = epsilon
+
+        self._counter = 0
+        self._lowest_validation_loss = float('inf')
+
+    def __call__(self, validation_loss: float):
+
+        if validation_loss < self._lowest_validation_loss:
+
+            self._lowest_validation_loss = validation_loss
+            self._counter = 0
+
+        elif abs(validation_loss - self._lowest_validation_loss) < self._epsilon:
+
+            self._counter += 1
+            if self._counter >= self._patience:
+                return True
+
+        return False
+
+
 class Trainer:
     def __init__(self,
                  device: torch.device,
@@ -247,7 +272,7 @@ class Trainer:
 
         self._device = device
 
-        self._early_stop_epsilon = 0.001
+        self._early_stop = EarlyStopper()
 
         # for snapshots: every 20 batches
         self._snap_period = 20
@@ -680,7 +705,8 @@ class Trainer:
                     t.add_to_title(f"on {len(test_loader.dataset)} data points")
 
             # early stopping, if no more improvement
-            if abs(valid_loss - lowest_loss) < self._early_stop_epsilon:
+            if self._early_stop(valid_loss):
+                self._early_stop.__init__()
 
                 if fine_tune:
                     # end training
