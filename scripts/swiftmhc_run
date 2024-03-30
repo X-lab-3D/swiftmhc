@@ -709,17 +709,19 @@ class Trainer:
                 self._early_stop.__init__()
 
                 if fine_tune:
+                    _log.info(f"early stop after epoch {epoch_index}")
+
                     # end training
                     break
 
                 elif affinity_tune:
-                    _log.info(f"starting fine tune at epoch {epoch_index + 1}")
+                    _log.info(f"starting fine tune early at epoch {epoch_index + 1}")
 
                     # end affinity tune here
                     affinity_tune_count = epoch_index - epoch_count
 
                 else:
-                    _log.info(f"starting affinity tune at epoch {epoch_index + 1}")
+                    _log.info(f"starting affinity tune early at epoch {epoch_index + 1}")
 
                     # end normal epochs here
                     epoch_count = epoch_index
