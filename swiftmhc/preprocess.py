@@ -419,12 +419,18 @@ def _read_residue_data(residues: List[Residue]) -> Dict[str, torch.Tensor]:
         "residue_numbers": residue_numbers,
         "aatype": aatype,
         "sequence_onehot": sequence_onehot,
-        "blosum62": blosum62
+        "blosum62": blosum62,
     }
+
     protein = make_atom14_masks(protein)
 
     atom37_positions = atom14_to_atom37(atom14_positions, protein)
-    protein["all_atom_mask"] = protein["atom37_atom_exists"]
+    atom37_mask = atom14_to_atom37(atom14_mask.unsqueeze(-1), protein)[..., 0]
+
+    protein["atom14_atom_exists"] = atom14_mask
+    protein["atom37_atom_exists"] = atom37_mask
+
+    protein["all_atom_mask"] = atom37_mask
     protein["all_atom_positions"] = atom37_positions
 
     # get frames, torsion angles and alternative positions

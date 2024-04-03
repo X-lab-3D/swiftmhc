@@ -74,7 +74,7 @@ def get_atom14_positions(residue: Residue) -> Tuple[torch.Tensor, torch.Tensor]:
 
 
 def recreate_structure(structure_id: str,
-                       data_by_chain: List[Tuple[str, torch.Tensor, torch.Tensor, torch.Tensor]]) -> Structure:
+                       data_by_chain: List[Tuple[str, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]]) -> Structure:
     """
         Recreate a PDB structure from swiftmhc model output data.
 
@@ -85,6 +85,7 @@ def recreate_structure(structure_id: str,
                 [1] residue numbers
                 [2] amino acids per residue, one-hot encoded
                 [3] positions of atoms: [n_residues, n_atoms, 3]
+                [4] whether the atoms exist or not [n_residues, n_atoms]
         Returns:
             the resulting structure
     """
@@ -97,7 +98,7 @@ def recreate_structure(structure_id: str,
     atom_count = 0
 
     # iter chains
-    for chain_id, residue_numbers, sequence, atom_positions in data_by_chain:
+    for chain_id, residue_numbers, sequence, atom_positions, atom_exists in data_by_chain:
 
         chain = Chain(chain_id)
         model.add(chain)
@@ -119,7 +120,7 @@ def recreate_structure(structure_id: str,
             # iter atoms in residue
             for atom_index, atom_name in enumerate(openfold_residue_atom14_names[residue_name]):
 
-                if len(atom_name) == 0:
+                if not atom_exists[residue_index][atom_index].item():
                     continue
 
                 position = atom_positions[residue_index][atom_index]

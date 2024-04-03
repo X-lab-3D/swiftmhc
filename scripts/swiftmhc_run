@@ -189,12 +189,14 @@ def output_structures_to_directory(
         peptide_residue_numbers = data["peptide_residue_numbers"].cpu()
         peptide_sequence_onehot = data["peptide_sequence_onehot"].cpu()
         peptide_atom14_gt_positions = data["peptide_atom14_gt_positions"].cpu()
+        peptide_atom14_exists = data["peptide_atom14_gt_exists"].cpu()
 
         peptide_atom14_positions = output["final_positions"].cpu()
 
         protein_residue_numbers = data["protein_residue_numbers"].cpu()
         protein_sequence_onehot = data["protein_sequence_onehot"].cpu()
         protein_atom14_gt_positions = data["protein_atom14_gt_positions"].cpu()
+        protein_atom14_exists = data["protein_atom14_gt_exists"].cpu()
 
         for index, id_ in enumerate(data["ids"]):
 
@@ -207,8 +209,8 @@ def output_structures_to_directory(
                 recreate_structure_to_hdf5,
                 (
                     truth_path, id_,
-                    [("P", peptide_residue_numbers[index], peptide_sequence_onehot[index], peptide_atom14_gt_positions[index]),
-                     ("M", protein_residue_numbers[index], protein_sequence_onehot[index], protein_atom14_gt_positions[index])]
+                    [("P", peptide_residue_numbers[index], peptide_sequence_onehot[index], peptide_atom14_gt_positions[index], peptide_atom14_exists[index]),
+                     ("M", protein_residue_numbers[index], protein_sequence_onehot[index], protein_atom14_gt_positions[index], protein_atom14_exists[index])]
                 ),
                 error_callback=on_error,
             )
@@ -218,8 +220,8 @@ def output_structures_to_directory(
                 recreate_structure_to_hdf5,
                 (
                     pred_path, id_,
-                    [("P", peptide_residue_numbers[index], peptide_sequence_onehot[index], peptide_atom14_positions[index]),
-                     ("M", protein_residue_numbers[index], protein_sequence_onehot[index], protein_atom14_gt_positions[index])]
+                    [("P", peptide_residue_numbers[index], peptide_sequence_onehot[index], peptide_atom14_positions[index], peptide_atom14_exists[index]),
+                     ("M", protein_residue_numbers[index], protein_sequence_onehot[index], protein_atom14_gt_positions[index], protein_atom14_exists[index])]
                 ),
                 error_callback=on_error,
             )
