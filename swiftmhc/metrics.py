@@ -184,7 +184,7 @@ class MetricsRecord:
             if key in self._output_data:
                 table_dict[f"output {key}"] = self._output_data[key]
 
-        if "affinity" in self._output_data:
+        if "affinity" in self._output_data and "affinity" in self._truth_data:
 
             if "affinity_lt" in self._truth_data and self._truth_data["affinity_lt"]:
                 table_dict["inequality"] = ["<"] * len(self._truth_data["affinity"])
