@@ -319,6 +319,10 @@ class ProteinLoopDataset(Dataset):
 
         max_length = self._peptide_maxlen
 
+        # Important!
+        # Must make sure that only ground truth values are set here.
+        # Otherwise, the model can cheat.
+
         result["peptide_backbone_rigid_tensor"] = torch.zeros((max_length, 4, 4), device=self._device, dtype=torch.float)
 
         result["peptide_torsion_angles_sin_cos"] = torch.zeros((max_length, 7, 2), device=self._device, dtype=torch.float)
