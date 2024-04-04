@@ -9,7 +9,7 @@ from multiprocessing import Pool
 
 from openmm.app import PDBFile, NoCutoff, Simulation, PDBReporter, StateDataReporter, ForceField, HBonds
 from openmm.unit import picosecond, femtosecond, kelvin, nanometer, md_unit_system
-from openmm import LangevinIntegrator
+from openmm import LangevinIntegrator, Platform
 
 
 arg_parser = ArgumentParser()
@@ -25,6 +25,9 @@ def minimize(input_path: str):
     directory_path = os.path.dirname(input_path)
     name = os.path.splitext(os.path.basename(input_path))[0]
 
+    platform = Platform.getPlatformByName("CUDA")
+
+    t0 = time()
     pdb = PDBFile(input_path)
 
     forcefield = ForceField('amber99sb.xml', 'tip3p.xml')
@@ -32,30 +35,29 @@ def minimize(input_path: str):
 
     integrator = LangevinIntegrator(300 * kelvin, 1.0 / picosecond, 2.0 * femtosecond)
 
-    simulation = Simulation(pdb.topology, system, integrator)
+    simulation = Simulation(pdb.topology, system, integrator, platform)
 
     simulation.context.setPositions(pdb.positions)
 
     state = simulation.context.getState(getEnergy=True, getPositions=True)
     energy = state.getPotentialEnergy().value_in_unit_system(md_unit_system)
-    _log.info(f"{input_path} initial potential energy: {energy:10.3f}")
+    _log.info(f"{input_path} initial potential energy: {energy:10.3f} {md_unit_system}")
 
-    t0 = time()
     simulation.minimizeEnergy()
-    t1 = time()
-    _log.info(f"{input_path} minimized in {t1 - t0} seconds")
 
     state = simulation.context.getState(getEnergy=True, getPositions=True)
     energy = state.getPotentialEnergy().value_in_unit_system(md_unit_system)
-    _log.info(f"{input_path} final potential energy: {energy:10.3f}")
+    _log.info(f"{input_path} final potential energy: {energy:10.3f} {md_unit_system}")
 
     with open(os.path.join(directory_path, f"minimized-{name}.pdb"), 'w') as pdb_file:
         PDBFile.writeFile(pdb.topology, state.getPositions(), pdb_file)
 
+    t1 = time()
+    _log.info(f"{input_path} minimized in {t1 - t0} seconds")
 
 if __name__ == "__main__":
 
-    logging.basicConfig(filename="energy-minimize.log", filemode='a', level=logging.INFO)
+    logging.basicConfig(filename="minimize.log", filemode='a', level=logging.INFO)
 
     args = arg_parser.parse_args()
 
