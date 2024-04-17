@@ -70,6 +70,7 @@ def build_modeller(chain_data: List[Tuple[str,
             residue = topology.addResidue(amino_acid_code, chain, residue_numbers[residue_index])
 
             atoms_by_name = {}
+            positions_by_name = {}
             for atom_index, atom_name in enumerate(restype_name_to_atom14_names[amino_acid_code]):
                 if atom14_mask[residue_index, atom_index]:
                     positions.append(atom14_positions[residue_index, atom_index])
@@ -77,14 +78,43 @@ def build_modeller(chain_data: List[Tuple[str,
                     atom = topology.addAtom(atom_name, atom_name[0], residue)
 
                     atoms_by_name[atom_name] = atom
+                    positions_by_name[atom_name] = atom14_positions[residue_index, atom_index]
 
             for atom1_name, atom2_name in bonds:
                 topology.addBond(atoms_by_name[atom1_name], atoms_by_name[atom2_name])
 
+            # N-terminus
             if residue_index > 0:
                 topology.addBond(atoms_by_name['N'], prev_c)
 
             prev_c = atoms_by_name['C']
+
+            # C-terminus:
+            if (residue_index + 1) >= len(aatype):
+
+                # compute terminal oxygen, from other oxygen
+                ca_pos = positions_by_name['CA']
+                c_pos = positions_by_name['C']
+                o_pos = positions_by_name['O']
+
+                ca_c = c_pos - ca_pos
+                c_o = o_pos - c_pos
+
+                c_o_norm = torch.linalg.vector_norm(c_o)
+                c_o_unit = c_o / c_o_norm
+                ca_c_unit = ca_c / torch.linalg.vector_norm(ca_c)
+
+                # projection
+                t = c_o_norm * ca_c_unit * torch.linalg.vecdot(ca_c_unit, c_o_unit)
+
+                # mirror the c-o bond
+                c_oxt = 2 * t - c_o
+                oxt_pos = c_pos + c_oxt
+
+                # tell OpenMM
+                oxt = topology.addAtom("OXT", "O", residue)
+                positions.append(oxt_pos)
+                topology.addBond(atoms_by_name['C'], oxt)
 
     return Modeller(topology, positions)
 
@@ -100,6 +130,9 @@ def minimize(modeller: Modeller):
         platform = Platform.getPlatformByName("CPU")
 
     forcefield = ForceField('amber99sb.xml', 'tip3p.xml')
+
+    modeller.addHydrogens(forcefield, pH=7.0)
+
     system = forcefield.createSystem(modeller.topology, nonbondedMethod=NoCutoff, nonbondedCutoff=1.0 * nanometer)
 
     integrator = LangevinIntegrator(300 * kelvin, 1.0 / picosecond, 2.0 * femtosecond)
