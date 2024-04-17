@@ -12,6 +12,9 @@ amino_acid_order = [restype_1to3[letter] for letter in restypes]
 
 
 def _load_bond_definitions() -> Dict[str, Tuple[str, str]]:
+    """
+    Load the interatomic bond definitions from the file.
+    """
 
     stereo_chemical_props = resources.read_text("openfold.resources", "stereo_chemical_props.txt")
 
@@ -38,13 +41,24 @@ def _load_bond_definitions() -> Dict[str, Tuple[str, str]]:
 bonds_per_amino_acid = _load_bond_definitions()
 
 
-def build_modeller(chain_data: List[Tuple[str, torch.Tensor, torch.Tensor, torch.Tensor]]) -> Modeller:
+def build_modeller(chain_data: List[Tuple[str,
+                                          torch.Tensor,
+                                          torch.Tensor,
+                                          torch.Tensor,
+                                          torch.Tensor]]) -> Modeller:
+    """
+    Args:
+        chain_data: list of chains (id, residue numbers, amino acid type index, atom positions, atom mask)
+    Returns:
+        OpenMM Modeller object
+    """
+
 
     topology = Topology()
     positions = []
 
     prev_c = None
-    for chain_id, aatype, atom14_positions, atom14_mask in chain_data:
+    for chain_id, residue_numbers, aatype, atom14_positions, atom14_mask in chain_data:
 
         chain = topology.addChain(chain_id)
 
@@ -53,7 +67,7 @@ def build_modeller(chain_data: List[Tuple[str, torch.Tensor, torch.Tensor, torch
             amino_acid_code = amino_acid_order[amino_acid_index]
             bonds = bonds_per_amino_acid[amino_acid_code]
 
-            residue = topology.addResidue(amino_acid_code, chain, residue_index + 1)
+            residue = topology.addResidue(amino_acid_code, chain, residue_numbers[residue_index])
 
             atoms_by_name = {}
             for atom_index, atom_name in enumerate(restype_name_to_atom14_names[amino_acid_code]):
@@ -73,3 +87,26 @@ def build_modeller(chain_data: List[Tuple[str, torch.Tensor, torch.Tensor, torch
             prev_c = atoms_by_name['C']
 
     return Modeller(topology, positions)
+
+
+def minimize(modeller: Modeller):
+    """
+    Do OpenMM energy minimization on the input structure modeller.
+    """
+
+    if torch.cuda.is_available():
+        platform = Platform.getPlatformByName("CUDA")
+    else:
+        platform = Platform.getPlatformByName("CPU")
+
+    forcefield = ForceField('amber99sb.xml', 'tip3p.xml')
+    system = forcefield.createSystem(modeller.topology, nonbondedMethod=NoCutoff, nonbondedCutoff=1.0 * nanometer)
+
+    integrator = LangevinIntegrator(300 * kelvin, 1.0 / picosecond, 2.0 * femtosecond)
+
+    simulation = Simulation(modeller.topology, system, integrator, platform)
+
+    simulation.context.setPositions(modeller.positions)
+
+    simulation.minimizeEnergy()
+

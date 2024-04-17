@@ -1,6 +1,6 @@
 # SwiftMHC
 
-A deep learning algorithm for predicting MHC-p structure and binding affinity at the same time.
+A deep learning algorithm for predicting pMHC structure and binding affinity at the same time.
 
 ## DEPENDENCIES
 
@@ -12,6 +12,7 @@ A deep learning algorithm for predicting MHC-p structure and binding affinity at
  - h5py >= 3.10.0
  - ml-collections >= 0.1.1
  - scikit-learn >= 1.4.1
+ - openmm >= 8.1.1
 
 ## INSTALL
 
