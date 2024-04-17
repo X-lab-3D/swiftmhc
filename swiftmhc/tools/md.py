@@ -6,7 +6,7 @@ import torch
 from openmm.app.topology import Topology
 from openmm.app.modeller import Modeller
 from openmm.app import PDBFile, NoCutoff, Simulation, PDBReporter, StateDataReporter, ForceField, HBonds
-from openmm.unit import picosecond, femtosecond, kelvin, nanometer, md_unit_system, angstrom, Quantity
+from openmm.unit import picosecond, femtosecond, kelvin, nanometers, md_unit_system, angstrom, Quantity
 from openmm import LangevinIntegrator, Platform, Vec3
 from openmm.app.element import Element
 
@@ -81,8 +81,8 @@ def build_modeller(chain_data: List[Tuple[str,
                 if atom14_mask[residue_index, atom_index]:
 
                     coords = atom14_positions[residue_index, atom_index]
-                    pos = Vec3(coords[0].item(), coords[1].item(), coords[2].item()) * angstrom
-                    positions.append(pos.value_in_unit(nanometer))
+                    pos = 0.1 * Vec3(coords[0].item(), coords[1].item(), coords[2].item())
+                    positions.append(pos)
 
                     atom_nr += 1
                     atom = topology.addAtom(atom_name, Element.getBySymbol(atom_name[0]), residue, str(atom_nr))
@@ -125,8 +125,10 @@ def build_modeller(chain_data: List[Tuple[str,
                 # tell OpenMM
                 atom_nr += 1
                 oxt = topology.addAtom("OXT", Element.getBySymbol("O"), residue, str(atom_nr))
-                pos = Vec3(oxt_pos[0].item(), oxt_pos[1].item(), oxt_pos[2].item()) * angstrom
-                positions.append(pos.value_in_unit(nanometer))
+                pos = 0.1 * Vec3(oxt_pos[0].item(), oxt_pos[1].item(), oxt_pos[2].item())
+                positions.append(pos)
+
+        positions = positions * nanometers
 
         topology.createStandardBonds()
         topology.createDisulfideBonds(positions)
