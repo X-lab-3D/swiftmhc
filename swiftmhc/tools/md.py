@@ -6,8 +6,8 @@ import torch
 from openmm.app.topology import Topology
 from openmm.app.modeller import Modeller
 from openmm.app import PDBFile, NoCutoff, Simulation, PDBReporter, StateDataReporter, ForceField, HBonds
-from openmm.unit import picosecond, femtosecond, kelvin, nanometer, md_unit_system
-from openmm import LangevinIntegrator, Platform
+from openmm.unit import picosecond, femtosecond, kelvin, nanometer, md_unit_system, angstrom, Quantity
+from openmm import LangevinIntegrator, Platform, Vec3
 from openmm.app.element import Element
 
 from openfold.np.residue_constants import restype_name_to_atom14_names, restypes, restype_1to3
@@ -63,6 +63,7 @@ def build_modeller(chain_data: List[Tuple[str,
     positions = []
 
     prev_c = None
+    atom_nr = 0
     for chain_id, residue_numbers, aatype, atom14_positions, atom14_mask in chain_data:
 
         chain = topology.addChain(chain_id)
@@ -78,16 +79,15 @@ def build_modeller(chain_data: List[Tuple[str,
             positions_by_name = {}
             for atom_index, atom_name in enumerate(restype_name_to_atom14_names[amino_acid_code]):
                 if atom14_mask[residue_index, atom_index]:
-                    positions.append(atom14_positions[residue_index, atom_index])
 
-                    atom = topology.addAtom(atom_name, Element.getBySymbol(atom_name[0]), residue)
+                    coords = atom14_positions[residue_index, atom_index]
+                    positions.append(Quantity(Vec3(coords[0].item(), coords[1].item(), coords[2].item()), angstrom))
+
+                    atom_nr += 1
+                    atom = topology.addAtom(atom_name, Element.getBySymbol(atom_name[0]), residue, str(atom_nr))
 
                     atoms_by_name[atom_name] = atom
                     positions_by_name[atom_name] = atom14_positions[residue_index, atom_index]
-
-            for atom1_name, atom2_name in bonds:
-                if atom1_name in atoms_by_name and atom2_name in atoms_by_name:
-                    topology.addBond(atoms_by_name[atom1_name], atoms_by_name[atom2_name])
 
             # peptide bond
             if prev_c is not None and 'N' in atoms_by_name:
@@ -122,9 +122,12 @@ def build_modeller(chain_data: List[Tuple[str,
                 oxt_pos = c_pos + c_oxt
 
                 # tell OpenMM
-                oxt = topology.addAtom("OXT", Element.getBySymbol("O"), residue)
-                positions.append(oxt_pos)
-                topology.addBond(atoms_by_name['C'], oxt)
+                atom_nr += 1
+                oxt = topology.addAtom("OXT", Element.getBySymbol("O"), residue, str(atom_nr))
+                positions.append(Quantity(Vec3(oxt_pos[0].item(), oxt_pos[1].item(), oxt_pos[2].item()), angstrom))
+
+        topology.createStandardBonds()
+        topology.createDisulfideBonds(positions)
 
     return Modeller(topology, positions)
 
