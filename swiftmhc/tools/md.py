@@ -122,7 +122,7 @@ def build_modeller(chain_data: List[Tuple[str,
                 oxt_pos = c_pos + c_oxt
 
                 # tell OpenMM
-                oxt = topology.addAtom("OXT", "O", residue)
+                oxt = topology.addAtom("OXT", Element.getBySymbol("O"), residue)
                 positions.append(oxt_pos)
                 topology.addBond(atoms_by_name['C'], oxt)
 
