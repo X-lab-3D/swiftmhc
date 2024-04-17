@@ -70,6 +70,8 @@ from swiftmhc.tools.pdb import recreate_structure
 from swiftmhc.domain.amino_acid import amino_acids_by_one_hot_index
 from swiftmhc.models.types import ModelType
 from swiftmhc.metrics import MetricsRecord
+from swiftmhc.tools.md import build_modeller, minimize
+import openmm.app
 
 
 arg_parser = ArgumentParser(description="train/test a SwiftMHC network model")
@@ -124,7 +126,7 @@ def save_structure_to_hdf5(
                              compression="lzf")
 
 
-def recreate_structure_to_hdf5(hdf5_path: str, name: str, data: List[Tuple[str, torch.Tensor, torch.Tensor, torch.Tensor]]):
+def recreate_structure_to_hdf5(hdf5_path: str, name: str, data: List[Tuple[str, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]]):
     """
     Builds a structure from the atom coordinates and saves it to a hdf5 file
 
@@ -143,6 +145,40 @@ def recreate_structure_to_hdf5(hdf5_path: str, name: str, data: List[Tuple[str, 
             with h5py.File(hdf5_path, 'a') as hdf5_file:
                 name_group = hdf5_file.require_group(name)
                 save_structure_to_hdf5(structure, name_group)
+    except:
+        _log.exception("on recreating structure")
+
+
+def minimize_structure_to_hdf5(hdf5_path: str, name: str, data: List[Tuple[str, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]]):
+    """
+    Builds a structure from the atom coordinates, minimizes it using OpenMM and saves it to a hdf5 file
+
+    Args:
+        hdf5_path: output file
+        name: hdf5 group name to store under
+        data: structure data, to create structure from
+    """
+
+    _log.debug(f"minimizing {name}")
+
+    try:
+        modeller = build_modeller(data)
+        minimize(modeller)
+
+        io = StringIO()
+
+        openmm.app.PDBFile.writeFile(modeller.topology, modeller.getPositions(), io)
+
+        structure_data = numpy.array([bytes(line + "\n", encoding="utf-8")
+                                      for line in io.getvalue().split('\n')
+                                      if len(line.strip()) > 0],
+                                     dtype=numpy.dtype("bytes"))
+
+        with h5py.File(hdf5_path, 'a') as hdf5_file:
+            group = hdf5_file.require_group(name)
+            group.create_dataset("structure",
+                                 data=structure_data,
+                                 compression="lzf")
     except:
         _log.exception("on recreating structure")
 
