@@ -5,6 +5,10 @@ from typing import Dict, Tuple, List
 import torch
 from openmm.app.topology import Topology
 from openmm.app.modeller import Modeller
+from openmm.app import PDBFile, NoCutoff, Simulation, PDBReporter, StateDataReporter, ForceField, HBonds
+from openmm.unit import picosecond, femtosecond, kelvin, nanometer, md_unit_system
+from openmm import LangevinIntegrator, Platform
+
 from openfold.np.residue_constants import restype_name_to_atom14_names, restypes, restype_1to3
 
 
@@ -81,18 +85,23 @@ def build_modeller(chain_data: List[Tuple[str,
                     positions_by_name[atom_name] = atom14_positions[residue_index, atom_index]
 
             for atom1_name, atom2_name in bonds:
-                topology.addBond(atoms_by_name[atom1_name], atoms_by_name[atom2_name])
+                if atom1_name in atoms_by_name and atom2_name in atoms_by_name:
+                    topology.addBond(atoms_by_name[atom1_name], atoms_by_name[atom2_name])
 
-            # N-terminus
-            if residue_index > 0:
+            # peptide bond
+            if prev_c is not None and 'N' in atoms_by_name:
                 topology.addBond(atoms_by_name['N'], prev_c)
 
-            prev_c = atoms_by_name['C']
+            if 'C' in atoms_by_name:
+                prev_c = atoms_by_name['C']
+            else:
+                prev_c = None
 
             # C-terminus:
-            if (residue_index + 1) >= len(aatype):
+            if 'CA' in positions_by_name and 'C' in positions_by_name and 'O' in positions_by_name and \
+               ((residue_index + 1) >= len(aatype) or not atom14_mask[residue_index + 1][0]):
 
-                # compute terminal oxygen, from other oxygen
+                # compute the terminal oxygen, from the other oxygen
                 ca_pos = positions_by_name['CA']
                 c_pos = positions_by_name['C']
                 o_pos = positions_by_name['O']
