@@ -6,11 +6,11 @@ import torch
 from openmm.app.topology import Topology
 from openmm.app.modeller import Modeller
 from openmm.app import PDBFile, NoCutoff, Simulation, PDBReporter, StateDataReporter, ForceField, HBonds
-from openmm.unit import picosecond, femtosecond, kelvin, nanometers, md_unit_system, angstrom, Quantity
+from openmm.unit import *
 from openmm import LangevinIntegrator, Platform, Vec3
 from openmm.app.element import Element
 
-from openfold.np.residue_constants import restype_name_to_atom14_names, restypes, restype_1to3
+from openfold.np.residue_constants import restype_name_to_atom14_names, restypes, restype_1to3, residue_atoms, rigid_group_atom_positions
 
 
 amino_acid_order = [restype_1to3[letter] for letter in restypes]
@@ -70,6 +70,11 @@ def build_modeller(chain_data: List[Tuple[str,
 
         for residue_index, amino_acid_index in enumerate(aatype):
 
+            # check for at least a C alpha
+            if not atom14_mask[residue_index, 1]:
+                prev_c = None
+                continue
+
             amino_acid_code = amino_acid_order[amino_acid_index]
             bonds = bonds_per_amino_acid[amino_acid_code]
 
@@ -89,10 +94,6 @@ def build_modeller(chain_data: List[Tuple[str,
 
                     atoms_by_name[atom_name] = atom
                     positions_by_name[atom_name] = atom14_positions[residue_index, atom_index]
-
-            # peptide bond
-            if prev_c is not None and 'N' in atoms_by_name:
-                topology.addBond(atoms_by_name['N'], prev_c)
 
             if 'C' in atoms_by_name:
                 prev_c = atoms_by_name['C']
@@ -117,10 +118,10 @@ def build_modeller(chain_data: List[Tuple[str,
 
                 # projection
                 t = c_o_norm * ca_c_unit * torch.linalg.vecdot(ca_c_unit, c_o_unit)
+                n = c_o - t
 
                 # mirror the c-o bond
-                c_oxt = 2 * t - c_o
-                oxt_pos = c_pos + c_oxt
+                oxt_pos = o_pos - 2 * n
 
                 # tell OpenMM
                 atom_nr += 1
@@ -141,6 +142,8 @@ def minimize(modeller: Modeller):
     Do OpenMM energy minimization on the input structure modeller.
     """
 
+    chain_ids = [chain.id for chain in modeller.topology.chains()]
+
     if torch.cuda.is_available():
         platform = Platform.getPlatformByName("CUDA")
     else:
@@ -159,4 +162,8 @@ def minimize(modeller: Modeller):
     simulation.context.setPositions(modeller.positions)
 
     simulation.minimizeEnergy()
+
+    # preserve chain ids
+    for chain, id_ in zip(modeller.topology.chains(), chain_ids):
+        chain.id = id_
 
