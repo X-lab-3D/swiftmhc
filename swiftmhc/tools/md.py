@@ -128,10 +128,10 @@ def build_modeller(chain_data: List[Tuple[str,
                 pos = 0.1 * Vec3(oxt_pos[0].item(), oxt_pos[1].item(), oxt_pos[2].item())
                 positions.append(pos)
 
-        positions = positions * nanometers
+    positions = positions * nanometers
 
-        topology.createStandardBonds()
-        topology.createDisulfideBonds(positions)
+    topology.createStandardBonds()
+    topology.createDisulfideBonds(positions)
 
     return Modeller(topology, positions)
 
