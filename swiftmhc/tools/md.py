@@ -8,6 +8,7 @@ from openmm.app.modeller import Modeller
 from openmm.app import PDBFile, NoCutoff, Simulation, PDBReporter, StateDataReporter, ForceField, HBonds
 from openmm.unit import picosecond, femtosecond, kelvin, nanometer, md_unit_system
 from openmm import LangevinIntegrator, Platform
+from openmm.app.element import Element
 
 from openfold.np.residue_constants import restype_name_to_atom14_names, restypes, restype_1to3
 
@@ -79,7 +80,7 @@ def build_modeller(chain_data: List[Tuple[str,
                 if atom14_mask[residue_index, atom_index]:
                     positions.append(atom14_positions[residue_index, atom_index])
 
-                    atom = topology.addAtom(atom_name, atom_name[0], residue)
+                    atom = topology.addAtom(atom_name, Element.getBySymbol(atom_name[0]), residue)
 
                     atoms_by_name[atom_name] = atom
                     positions_by_name[atom_name] = atom14_positions[residue_index, atom_index]
