@@ -81,7 +81,8 @@ def build_modeller(chain_data: List[Tuple[str,
                 if atom14_mask[residue_index, atom_index]:
 
                     coords = atom14_positions[residue_index, atom_index]
-                    positions.append(Quantity(Vec3(coords[0].item(), coords[1].item(), coords[2].item()), angstrom))
+                    pos = 0.1 * Vec3(coords[0].item(), coords[1].item(), coords[2].item())
+                    positions.append(pos)  # in nanometer
 
                     atom_nr += 1
                     atom = topology.addAtom(atom_name, Element.getBySymbol(atom_name[0]), residue, str(atom_nr))
@@ -124,7 +125,8 @@ def build_modeller(chain_data: List[Tuple[str,
                 # tell OpenMM
                 atom_nr += 1
                 oxt = topology.addAtom("OXT", Element.getBySymbol("O"), residue, str(atom_nr))
-                positions.append(Quantity(Vec3(oxt_pos[0].item(), oxt_pos[1].item(), oxt_pos[2].item()), angstrom))
+                pos = 0.1 * Vec3(oxt_pos[0].item(), oxt_pos[1].item(), oxt_pos[2].item())
+                positions.append(pos)  # in nanometer
 
         topology.createStandardBonds()
         topology.createDisulfideBonds(positions)
