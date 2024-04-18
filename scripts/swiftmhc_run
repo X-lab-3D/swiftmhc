@@ -174,11 +174,12 @@ def minimize_structure_to_hdf5(hdf5_path: str, name: str, data: List[Tuple[str, 
                                       if len(line.strip()) > 0],
                                      dtype=numpy.dtype("bytes"))
 
-        with h5py.File(hdf5_path, 'a') as hdf5_file:
-            group = hdf5_file.require_group(name)
-            group.create_dataset("structure",
-                                 data=structure_data,
-                                 compression="lzf")
+        with FileLock(f"{hdf5_path}.lock"):
+            with h5py.File(hdf5_path, 'a') as hdf5_file:
+                group = hdf5_file.require_group(name)
+                group.create_dataset("structure",
+                                     data=structure_data,
+                                     compression="lzf")
     except:
         _log.exception("on recreating structure")
 
@@ -223,14 +224,14 @@ def output_structures_to_directory(
         classes = data["class"].cpu()
 
         peptide_residue_numbers = data["peptide_residue_numbers"].cpu()
-        peptide_sequence_onehot = data["peptide_sequence_onehot"].cpu()
+        peptide_aatype = data["peptide_aatype"].cpu()
         peptide_atom14_gt_positions = data["peptide_atom14_gt_positions"].cpu()
         peptide_atom14_exists = data["peptide_atom14_gt_exists"].cpu()
 
         peptide_atom14_positions = output["final_positions"].cpu()
 
         protein_residue_numbers = data["protein_residue_numbers"].cpu()
-        protein_sequence_onehot = data["protein_sequence_onehot"].cpu()
+        protein_aatype = data["protein_aatype"].cpu()
         protein_atom14_gt_positions = data["protein_atom14_gt_positions"].cpu()
         protein_atom14_exists = data["protein_atom14_gt_exists"].cpu()
 
@@ -240,24 +241,24 @@ def output_structures_to_directory(
             if classes[index].item() == 0:
                 continue
 
+            # submit job for truth structure
+            #pool.apply_async(
+            #    minimize_structure_to_hdf5,
+            #    (
+            #        truth_path, id_,
+            #        [("P", peptide_residue_numbers[index], peptide_aatype[index], peptide_atom14_gt_positions[index], peptide_atom14_exists[index]),
+            #         ("M", protein_residue_numbers[index], protein_aatype[index], protein_atom14_gt_positions[index], protein_atom14_exists[index])]
+            #    ),
+            #    error_callback=on_error,
+            #)
+
             # submit job for output structure
             pool.apply_async(
-                recreate_structure_to_hdf5,
-                (
-                    truth_path, id_,
-                    [("P", peptide_residue_numbers[index], peptide_sequence_onehot[index], peptide_atom14_gt_positions[index], peptide_atom14_exists[index]),
-                     ("M", protein_residue_numbers[index], protein_sequence_onehot[index], protein_atom14_gt_positions[index], protein_atom14_exists[index])]
-                ),
-                error_callback=on_error,
-            )
-
-            # submit job for true structure
-            pool.apply_async(
-                recreate_structure_to_hdf5,
+                minimize_structure_to_hdf5,
                 (
                     pred_path, id_,
-                    [("P", peptide_residue_numbers[index], peptide_sequence_onehot[index], peptide_atom14_positions[index], peptide_atom14_exists[index]),
-                     ("M", protein_residue_numbers[index], protein_sequence_onehot[index], protein_atom14_gt_positions[index], protein_atom14_exists[index])]
+                    [("P", peptide_residue_numbers[index], peptide_aatype[index], peptide_atom14_positions[index], peptide_atom14_exists[index]),
+                     ("M", protein_residue_numbers[index], protein_aatype[index], protein_atom14_gt_positions[index], protein_atom14_exists[index])]
                 ),
                 error_callback=on_error,
             )
