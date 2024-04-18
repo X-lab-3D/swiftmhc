@@ -147,7 +147,7 @@ class MetricsRecord:
         """
 
         # store to this file
-        rmsds_path = os.path.join(directory_path, f"{pass_name}-rmsds.csv")
+        rmsds_path = os.path.join(directory_path, f"{pass_name}-intermediary-rmsds.csv")
 
         sequence_order = []
         rmsds = []
