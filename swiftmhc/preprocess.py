@@ -316,6 +316,12 @@ def _map_alignment(
     # zip the residues of the two structures
     results = [(maps[0][i], maps[1][i]) for i in range(len(maps[0]))]
 
+    aligned_length = len([True for x,y in results if x is not None and y is not None])
+    shortest_length = min([len(list(s.get_residues())) for s in aligned_structures])
+
+    if aligned_length > shortest_length:
+        raise RuntimeError(f"alignment ({aligned_length}) longer than shortest structure ({shortest_length})")
+
     return results
 
 
@@ -610,7 +616,7 @@ def _get_masked_structure(
     with open(model_path, 'wb') as f:
         f.write(model_bytes)
 
-    if len(list(pdb_parser.get_structure("model",model_path).get_residues())) == 0:
+    if len(list(pdb_parser.get_structure("model", model_path).get_residues())) == 0:
         os.remove(model_path)
         raise ValueError(f"no residues in {model_path}")
 
@@ -641,7 +647,7 @@ def _get_masked_structure(
     for mask_name, reference_mask in reference_masks.items():
 
         # first, set all to False
-        masked_residues = [[residue, False] for residue in superposed_structure.get_residues()]
+        masked_residues = [[rsup, False] for rsup, rref in alignment if rref is not None and rsup is not None]
 
         # residues, that match with the reference mask, will be set to True
         for chain_id, residue_number, amino_acid in reference_mask:
@@ -802,13 +808,8 @@ def _generate_structure_data(
         reference_structure_path,
         {"self": protein_residues_self_mask, "cross": protein_residues_cross_mask},
     )
-    self_masked_protein_residues = [(r, m) for r, m in masked_residues_dict["self"] if r.get_parent().get_id() == "M"]
-    cross_masked_protein_residues = [(r, m) for r, m in masked_residues_dict["cross"] if r.get_parent().get_id() == "M"]
-
-    # locate protein (chain M)
-    chains_by_id = {c.id: c for c in structure.get_chains()}
-    if "M" not in chains_by_id:
-        raise ValueError(f"missing protein chain M in {id_}, present are {chains_by_id.keys()}")
+    self_masked_protein_residues = [(r, m) for r, m in masked_residues_dict["self"] if len(list(r.get_parent().get_residues())) > 80]
+    cross_masked_protein_residues = [(r, m) for r, m in masked_residues_dict["cross"] if len(list(r.get_parent().get_residues())) > 80]
 
     # order by residue number
     protein_residues = [r for r, m in self_masked_protein_residues]
@@ -842,15 +843,23 @@ def _generate_structure_data(
 
     # peptide is optional
     peptide_data = None
-    if "P" in chains_by_id:
+    if len(list(structure.get_chains())) > 2:
 
-        # get residues from the peptide chain P
-        peptide_chain = chains_by_id["P"]
-        peptide_residues = list(peptide_chain.get_residues())
-        if len(peptide_residues) < 3:
-            raise ValueError(f"got only {len(peptide_residues)} peptide residues")
+        shortest_length = 1000000
+        shortest_chain = None
+        for chain in structure.get_chains():
+            l = len(list(chain.get_residues()))
 
-        peptide_data = _read_residue_data(peptide_residues)
+            if l < shortest_length:
+                shortest_length = l
+                shortest_chain = chain
+
+        if shortest_length < 20:
+            peptide_residues = list(shortest_chain.get_residues())
+            if len(peptide_residues) < 3:
+                raise ValueError(f"got only {len(peptide_residues)} peptide residues")
+
+            peptide_data = _read_residue_data(peptide_residues)
 
     return protein_data, peptide_data
 
