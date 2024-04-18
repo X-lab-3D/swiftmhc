@@ -167,7 +167,7 @@ def minimize_structure_to_hdf5(hdf5_path: str, name: str, data: List[Tuple[str, 
 
         io = StringIO()
 
-        openmm.app.PDBFile.writeFile(modeller.topology, modeller.getPositions(), io)
+        openmm.app.PDBFile.writeFile(modeller.topology, modeller.getPositions(), io, keepIds=True)
 
         structure_data = numpy.array([bytes(line + "\n", encoding="utf-8")
                                       for line in io.getvalue().split('\n')

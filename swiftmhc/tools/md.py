@@ -78,7 +78,7 @@ def build_modeller(chain_data: List[Tuple[str,
             amino_acid_code = amino_acid_order[amino_acid_index]
             bonds = bonds_per_amino_acid[amino_acid_code]
 
-            residue = topology.addResidue(amino_acid_code, chain, residue_numbers[residue_index])
+            residue = topology.addResidue(amino_acid_code, chain, str(residue_numbers[residue_index]))
 
             atoms_by_name = {}
             positions_by_name = {}
@@ -142,8 +142,6 @@ def minimize(modeller: Modeller):
     Do OpenMM energy minimization on the input structure modeller.
     """
 
-    chain_ids = [chain.id for chain in modeller.topology.chains()]
-
     if torch.cuda.is_available():
         platform = Platform.getPlatformByName("CUDA")
     else:
@@ -162,8 +160,4 @@ def minimize(modeller: Modeller):
     simulation.context.setPositions(modeller.positions)
 
     simulation.minimizeEnergy()
-
-    # preserve chain ids
-    for chain, id_ in zip(modeller.topology.chains(), chain_ids):
-        chain.id = id_
 
