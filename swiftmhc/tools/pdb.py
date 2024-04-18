@@ -56,16 +56,9 @@ def get_atom14_positions(residue: Residue) -> Tuple[torch.Tensor, torch.Tensor]:
     for atom_name in atom_names:
 
         if len(atom_name) > 0:
-            try:
-                atom = _get_atom(residue, atom_name)
-                positions.append(atom.coord)
-                masks.append(True)
-
-            except Exception as e:
-                masks.append(False)
-                positions.append((0.0, 0.0, 0.0))
-
-                _log.warning(f"{residue.get_full_id()} not adding 14-formatted position for atom: {str(e)}")
+            atom = _get_atom(residue, atom_name)
+            positions.append(atom.coord)
+            masks.append(True)
         else:
             masks.append(False)
             positions.append((0.0, 0.0, 0.0))
