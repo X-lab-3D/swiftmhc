@@ -163,7 +163,7 @@ def minimize_structure_to_hdf5(hdf5_path: str, name: str, data: List[Tuple[str, 
 
     try:
         modeller = build_modeller(data)
-        minimize(modeller)
+        modeller = minimize(modeller)
 
         io = StringIO()
 

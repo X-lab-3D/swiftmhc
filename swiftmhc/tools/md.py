@@ -1,5 +1,5 @@
 from importlib import resources
-
+import logging
 from typing import Dict, Tuple, List
 
 import torch
@@ -11,6 +11,9 @@ from openmm import LangevinIntegrator, Platform, Vec3
 from openmm.app.element import Element
 
 from openfold.np.residue_constants import restype_name_to_atom14_names, restypes, restype_1to3, residue_atoms, rigid_group_atom_positions
+
+
+_log = logging.getLogger(__name__)
 
 
 amino_acid_order = [restype_1to3[letter] for letter in restypes]
@@ -137,7 +140,7 @@ def build_modeller(chain_data: List[Tuple[str,
     return Modeller(topology, positions)
 
 
-def minimize(modeller: Modeller):
+def minimize(modeller: Modeller) -> Modeller:
     """
     Do OpenMM energy minimization on the input structure modeller.
     """
@@ -159,5 +162,14 @@ def minimize(modeller: Modeller):
 
     simulation.context.setPositions(modeller.positions)
 
+    state = simulation.context.getState(getEnergy=True)
+    energy_start = state.getPotentialEnergy().value_in_unit_system(md_unit_system)
+    _log.debug(f"initial potential energy: {energy_start:10.3f} {md_unit_system}")
+
     simulation.minimizeEnergy()
 
+    state = simulation.context.getState(getEnergy=True, getPositions=True)
+    energy_final = state.getPotentialEnergy().value_in_unit_system(md_unit_system)
+    _log.debug(f"final potential energy: {energy_final:10.3f} {md_unit_system}")
+
+    return Modeller(modeller.topology, state.getPositions())
