@@ -463,10 +463,11 @@ class CrossStructureModule(torch.nn.Module):
         omega_cos = (newmann0 * newmann1).sum(dim=-1)
 
         # [*, N_res - 1, 3]
-        axis = newmann1 + omega_cos.unsqueeze(-1) * newmann1
+        cross01 = torch.linalg.cross(newmann0, newmann1, dim=-1)
 
         # [*, N_res - 1]
-        omega_sin = (axis * newmann1).sum(dim=-1)
+        omega_sin = torch.norm(cross01, dim=-1)
+        omega_sin = torch.where((cross01 * plane_n).sum(dim=-1) < 0.0, -omega_sin, omega_sin)
 
         # masked areas get 180 degrees omega
         omega_cos = torch.where(mask, omega_cos,-1.0)
