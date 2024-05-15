@@ -16,7 +16,7 @@ from Bio.PDB.Chain import Chain
 from Bio.PDB.Residue import Residue
 from Bio.Align import PairwiseAligner
 from Bio import SeqIO
-from Bio.PDB.Polypeptide import is_aa, one_to_three
+from Bio.PDB.Polypeptide import is_aa, protein_letters_1to3
 from blosum import BLOSUM
 
 from pymol import cmd as pymol_cmd
@@ -301,8 +301,8 @@ def _map_alignment(
                     raise ValueError(f"{key} alignment has over {offset} residues, but the structure only has {len(residues)}")
 
                 # match alignment code with amino acid
-                if letter != 'X' and one_to_three(letter) != residues[offset].get_resname():
-                    _log.warning(f"encountered {residues[offset].get_resname()} at {offset}, {one_to_three(letter)} expected")
+                if letter != 'X' and protein_letters_1to3[letter] != residues[offset].get_resname():
+                    _log.warning(f"encountered {residues[offset].get_resname()} at {offset}, {protein_letters_1to3[letter]} expected")
 
                 # store aligned structure residue
                 map_.append(residues[offset])
