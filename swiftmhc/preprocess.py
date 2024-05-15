@@ -16,7 +16,8 @@ from Bio.PDB.Chain import Chain
 from Bio.PDB.Residue import Residue
 from Bio.Align import PairwiseAligner
 from Bio import SeqIO
-from Bio.PDB.Polypeptide import is_aa, protein_letters_1to3
+from Bio.PDB.Polypeptide import is_aa
+from Bio.Data.PDBData import protein_letters_1to3
 from blosum import BLOSUM
 
 from pymol import cmd as pymol_cmd
