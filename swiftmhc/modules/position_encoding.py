@@ -151,8 +151,8 @@ class RelativePositionEncoder(torch.nn.Module):
 
         # [*, H, N_res, depth]
         q = self.linear_q(s).reshape(batch_size, maxlen, self.depth, self.no_heads).transpose(-2, -1).transpose(-3, -2)
-        k = self.linear_q(s).reshape(batch_size, maxlen, self.depth, self.no_heads).transpose(-2, -1).transpose(-3, -2)
-        v = self.linear_q(s).reshape(batch_size, maxlen, self.depth, self.no_heads).transpose(-2, -1).transpose(-3, -2)
+        k = self.linear_k(s).reshape(batch_size, maxlen, self.depth, self.no_heads).transpose(-2, -1).transpose(-3, -2)
+        v = self.linear_v(s).reshape(batch_size, maxlen, self.depth, self.no_heads).transpose(-2, -1).transpose(-3, -2)
 
         # [*, 1, N_res, N_res]
         square_mask = torch.logical_and(masks[:, :, None], masks[:, None, :]).unsqueeze(-3)
