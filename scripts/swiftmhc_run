@@ -92,6 +92,7 @@ arg_parser.add_argument("--test-only", "-t", help="do not train, only run tests"
 arg_parser.add_argument("--test-subset-path", help="path to list of entry ids that should be excluded for testing")
 arg_parser.add_argument("--disable-ba-loss", help="whether or not to include the BA loss term with training", action="store_const", const=True, default=False)
 arg_parser.add_argument("--disable-struct-loss", help="whether or not to include the structural loss terms with training", action="store_const", const=True, default=False)
+arg_parser.add_argument("--blosum", help="whether or not to use blosum62 amino acid encoding, instead of one-hot encoding", action="store_const", const=True, default=False)
 arg_parser.add_argument("data_path", help="path to a hdf5 file", nargs="+")
 
 
@@ -555,6 +556,7 @@ class Trainer:
         animated_complex_ids: List[str],
         model_path: str,
         structure_builders_count: int,
+        blosum: bool,
     ):
         """
         Call this function instead of train, when you just want to test the model.
@@ -566,6 +568,7 @@ class Trainer:
             animated_complex_ids: list of complex names, of which the structures should be saved
             model_path: pretrained model to use
             structure_builders_count: number of simultaneous structure builder processes
+            blosum: whether to use blosum62 encoding (True) or one-hot encoding (False)
         """
 
         _log.info(f"testing {model_path} on {structure_builders_count} structure builders")
@@ -574,7 +577,8 @@ class Trainer:
         model = Predictor(self.peptide_maxlen,
                           self.protein_maxlen,
                           self._model_type,
-                          openfold_config.model)
+                          openfold_config.model,
+                          blosum=blosum)
         model = DataParallel(model)
         model.to(device=self._device)
         model.eval()
@@ -652,6 +656,7 @@ class Trainer:
               animated_complex_ids: List[str],
               disable_struct_loss: bool,
               disable_ba_loss: bool,
+              blosum: bool,
     ):
         """
         Call this method for training a model
@@ -668,13 +673,15 @@ class Trainer:
             animated_complex_ids: names of complexes to animate during the run. their structure snapshots will be stored in an HDF5
             disable_struct_loss: don't include structural loss terms: fape, chi, bond-length violations, bond angle violations, clashes, torsion violations
             disable_ba_loss: don't include the binding affinity loss term
+            blosum: whether to use blosum62 encoding (True) or one-hot encoding (False)
         """
 
         # Set up the model
         model = Predictor(self.peptide_maxlen,
                           self.protein_maxlen,
                           self._model_type,
-                          openfold_config.model)
+                          openfold_config.model,
+                          blosum=blosum)
         model = DataParallel(model)
         model.to(device=self._device)
 
@@ -923,7 +930,7 @@ if __name__ == "__main__":
         # We do a test, no training
         test_loaders = [trainer.get_data_loader(test_path, args.batch_size, device, shuffle=False)
                         for test_path in args.data_path]
-        trainer.test(test_loaders, run_id, args.animate, pretrained_model_path, args.builders)
+        trainer.test(test_loaders, run_id, args.animate, pretrained_model_path, args.builders, args.blosum)
 
     else:  # train, validate, test
         if len(args.data_path) >= 3:
@@ -981,4 +988,5 @@ if __name__ == "__main__":
         trainer.train(train_loader, valid_loader, test_loaders,
                       args.epoch_count, args.affinity_tune_count, args.fine_tune_count,
                       run_id, pretrained_model_path,
-                      args.animate, args.disable_struct_loss, args.disable_ba_loss)
+                      args.animate, args.disable_struct_loss, args.disable_ba_loss,
+                      args.blosum)

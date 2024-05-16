@@ -36,11 +36,15 @@ class Predictor(torch.nn.Module):
     """
 
     def __init__(self,
-                 peptide_maxlen: int,
-                 protein_maxlen: int,
-                 model_type: ModelType,
-                 config: ml_collections.ConfigDict):
+        peptide_maxlen: int,
+        protein_maxlen: int,
+        model_type: ModelType,
+        config: ml_collections.ConfigDict,
+        blosum: bool,
+    ):
         super(Predictor, self).__init__()
+
+        self.blosum = blosum
 
         # general settings
         self.eps = 1e-6
@@ -111,9 +115,11 @@ class Predictor(torch.nn.Module):
         Args:
             peptide_aatype:                 [*, peptide_maxlen] (int, 0 - 19)
             peptide_sequence_onehot:        [*, peptide_maxlen, c_s]
+            peptide_blosum62:               [*, peptide_maxlen, c_s]
             peptide_self_residues_mask:     [*, peptide_maxlen]
             peptide_cross_residue_mask:     [*, peptide_maxlen]
             protein_sequence_onehot:        [*, protein_maxlen, c_s]
+            protein_blosum62:               [*, protein_maxlen, c_s]
             protein_self_residues_mask:     [*, protein_maxlen]
             protein_cross_residues_mask:    [*, protein_maxlen]
             protein_backbone_rigid_tensor:  [*, protein_maxlen, 4, 4]
@@ -135,7 +141,10 @@ class Predictor(torch.nn.Module):
         """
 
         # [*, peptide_maxlen, c_s]
-        peptide_seq = batch["peptide_sequence_onehot"]
+        if self.blosum:
+            peptide_seq = batch["peptide_blosum62"]
+        else:
+            peptide_seq = batch["peptide_sequence_onehot"]
 
         batch_size, peptide_maxlen, peptide_depth = peptide_seq.shape
 
@@ -149,7 +158,10 @@ class Predictor(torch.nn.Module):
         protein_T = Rigid.from_tensor_4x4(batch["protein_backbone_rigid_tensor"])
 
         # [*, protein_maxlen, c_s]
-        protein_embd = batch["protein_sequence_onehot"]
+        if self.blosum:
+            protein_embd = batch["protein_blosum62"]
+        else:
+            protein_embd = batch["protein_sequence_onehot"]
         protein_norm_prox = self.protein_dist_norm(batch["protein_proximities"])
 
         protein_as = []
