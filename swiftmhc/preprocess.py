@@ -844,7 +844,7 @@ def _generate_structure_data(
 
     # peptide is optional
     peptide_data = None
-    if len(list(structure.get_chains())) > 2:
+    if len(list(structure.get_chains())) >= 2:
 
         shortest_length = 1000000
         shortest_chain = None
