@@ -201,10 +201,21 @@ class CrossStructureModule(torch.nn.Module):
             positions:              [*, peptide_maxlen, 18, 3]
             states:                 [*, peptide_maxlen, c_s]
             single:                 [*, peptide_maxlen, c_s]
-            cross_ipa_att:          [*, n_block, H, peptide_maxlen, protein_maxlen]
         """
 
         batch_size, peptide_maxlen, embd_depth = s_peptide_initial.shape
+
+        # Ignore residues that are masked all across the batch.
+        peptide_slice = peptide_mask.sum(dim=0).bool()
+        protein_slice = protein_mask.sum(dim=0).bool()
+
+        # slice out those masked residues, for performance reasons.
+        s_peptide_initial = s_peptide_initial[:, peptide_slice]
+        s_protein_initial = s_protein_initial[:, protein_slice]
+        T_protein = T_protein[:, protein_slice]
+        protein_mask = protein_mask[:, protein_slice]
+        peptide_mask = peptide_mask[:, peptide_slice]
+        peptide_aatype = peptide_aatype[:, peptide_slice]
 
         # [*, peptide_maxlen, c_s]
         s_peptide_initial = self.layer_norm_s_peptide(s_peptide_initial)
@@ -248,16 +259,32 @@ class CrossStructureModule(torch.nn.Module):
 
         outputs = dict_multimap(torch.stack, outputs)
 
-        r = {}
-        r["single"] = outputs["states"][-1]
-        r["cross_ipa_att"] = outputs["cross_ipa_att"].transpose(0, 1)  # flip blocks and batch
-        r["final_frames"] = outputs["frames"][-1]
-        r["final_sidechain_frames"] = outputs["sidechain_frames"][-1]
-        r["final_angles"] = outputs["angles"][-1]
-        r["final_unnormalized_angles"] = outputs["unnormalized_angles"][-1]
-        r["final_positions"] = outputs["positions"][-1]
+        # unslice the output
+        result = {}
+        result["single"] = self._restore_masked(outputs["states"][-1], peptide_slice)
+        result["final_frames"] = self._restore_masked(outputs["frames"][-1], peptide_slice)
+        result["final_sidechain_frames"] = self._restore_masked(outputs["sidechain_frames"][-1], peptide_slice)
+        result["final_angles"] = self._restore_masked(outputs["angles"][-1], peptide_slice)
+        result["final_unnormalized_angles"] = self._restore_masked(outputs["unnormalized_angles"][-1], peptide_slice)
+        result["final_positions"] = self._restore_masked(outputs["positions"][-1], peptide_slice)
+        return result
 
-        return r
+    @staticmethod
+    def _restore_masked(residue_value: torch.Tensor, residue_slice: torch.Tensor) -> torch.Tensor:
+        """
+        Args:
+            residue_value:          [*, length, ...]
+            residue_slice:          [max_length] (bool)
+        Returns:
+            masked_residue_value:   [*, max_length, ...]
+        """
+
+        dimensions = list(residue_value.shape)
+        dimensions[1] = residue_slice.shape[0]
+
+        masked_residue_value = residue_value.new_zeros(dimensions)
+        masked_residue_value[:, residue_slice] = residue_value
+        return masked_residue_value
 
     def _block(self,
                s_peptide_initial: torch.Tensor,
