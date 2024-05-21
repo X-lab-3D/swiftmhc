@@ -170,7 +170,7 @@ class ProteinLoopDataset(Dataset):
         result[f"{prefix}_sequence_onehot"][:length, :AMINO_ACID_DIMENSION] = torch.stack([aa.one_hot_code for aa in amino_acids]).to(device=self._device)
         # blosum62 encoding
         result[f"{prefix}_blosum62"] = torch.zeros((max_length, 32), device=self._device, dtype=torch.float)
-        result[f"{prefix}_blosum62"][:length, :blosum62_depth] = get_blosum_encdoding([aa.index for aa in amino_acids],
+        result[f"{prefix}_blosum62"][:length, :blosum62_depth] = get_blosum_encoding([aa.index for aa in amino_acids],
                                                                                       62,
                                                                                       device=self._device)
 
