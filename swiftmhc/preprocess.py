@@ -219,7 +219,7 @@ def _read_mask_data(path: str) -> List[ResidueMaskType]:
     return mask_data
 
 
-def _get_blosum_encoding(amino_acid_indexes: List[int], blosum_index: int, device: torch.device) -> torch.Tensor:
+def get_blosum_encoding(amino_acid_indexes: List[int], blosum_index: int, device: torch.device) -> torch.Tensor:
     """
     Convert amino acids to BLOSUM encoding
 
@@ -234,16 +234,16 @@ def _get_blosum_encoding(amino_acid_indexes: List[int], blosum_index: int, devic
     matrix = BLOSUM(blosum_index)
     encoding = []
     for amino_acid_index in amino_acid_indexes:
-        amino_acid = canonical_amino_acids[amino_acid_index]
+        amino_acid_one_letter = restypes[amino_acid_index]
 
         row = []
-        for other_amino_acid in canonical_amino_acids:
+        for other_amino_acid_one_letter in restypes:
 
-            if isinf(matrix[amino_acid.one_letter_code][other_amino_acid.one_letter_code]):
-
+            matrix_value = matrix[amino_acid_one_letter][other_amino_acid_one_letter]
+            if isinf(matrix_value):
                 raise ValueError(f"not found in blosum matrix: {amino_acid.one_letter_code} & {other_amino_acid.one_letter_code}")
             else:
-                row.append(matrix[amino_acid.one_letter_code][other_amino_acid.one_letter_code])
+                row.append(matrix_value)
 
         encoding.append(row)
 
@@ -354,7 +354,7 @@ def _make_sequence_data(sequence: str) -> Dict[str, torch.Tensor]:
     amino_acids = [amino_acids_by_letter[a] for a in sequence]
     sequence_onehot = torch.stack([aa.one_hot_code for aa in amino_acids]).to(device=device)
     aatype = torch.tensor([aa.index for aa in amino_acids], device=device)
-    blosum62 = _get_blosum_encoding(aatype, 62, device)
+    blosum62 = get_blosum_encoding(aatype, 62, device)
 
     # torsion angles (used or not in AA)
     torsion_angles_mask = torch.ones((length, 7), device=device)
@@ -405,7 +405,7 @@ def _read_residue_data(residues: List[Residue]) -> Dict[str, torch.Tensor]:
     amino_acids = [amino_acids_by_code[r.get_resname()] for r in residues]
     sequence_onehot = torch.stack([aa.one_hot_code for aa in amino_acids]).to(device=device)
     aatype = torch.tensor([aa.index for aa in amino_acids], device=device)
-    blosum62 = _get_blosum_encoding(aatype, 62, device)
+    blosum62 = get_blosum_encoding(aatype, 62, device)
 
     # get atom positions and mask
     atom14_positions = []

@@ -16,8 +16,6 @@ from openfold.data.data_transforms import make_atom14_masks
 from openfold.utils.rigid_utils import Rigid
 from openfold.np import residue_constants
 
-from blosum import BLOSUM
-
 from .models.types import ModelType
 from .models.data import TensorDict
 from .domain.amino_acid import amino_acids_by_letter, amino_acids_by_one_hot_index, AMINO_ACID_DIMENSION, canonical_amino_acids
@@ -29,13 +27,8 @@ from .preprocess import (
     PREPROCESS_PROTEIN_NAME,
     PREPROCESS_PEPTIDE_NAME,
     affinity_binding_threshold,
+    get_blosum_encoding,
 )
-
-blosum62_matrix = BLOSUM(62)
-blosum62_depth = len(canonical_amino_acids)
-blosum62_codes = {aa1: [blosum62_matrix[aa1.one_letter_code][aa2.one_letter_code]
-                        for aa2 in canonical_amino_acids]
-                  for aa1 in canonical_amino_acids}
 
 
 _log = logging.getLogger(__name__)
@@ -177,8 +170,9 @@ class ProteinLoopDataset(Dataset):
         result[f"{prefix}_sequence_onehot"][:length, :AMINO_ACID_DIMENSION] = torch.stack([aa.one_hot_code for aa in amino_acids]).to(device=self._device)
         # blosum62 encoding
         result[f"{prefix}_blosum62"] = torch.zeros((max_length, 32), device=self._device, dtype=torch.float)
-        result[f"{prefix}_blosum62"][:length, :blosum62_depth] = torch.tensor([blosum62_codes[aa] for aa in amino_acids],
-                                                                            device=self._device)
+        result[f"{prefix}_blosum62"][:length, :blosum62_depth] = get_blosum_encdoding([aa.index for aa in amino_acids],
+                                                                                      62,
+                                                                                      device=self._device)
 
         # openfold needs each connected pair of residues to be one index apart
         result[f"{prefix}_residue_index"] = torch.zeros(max_length, dtype=torch.long, device=self._device)
