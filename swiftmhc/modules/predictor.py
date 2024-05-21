@@ -148,11 +148,17 @@ class Predictor(torch.nn.Module):
 
         batch_size, peptide_maxlen, peptide_depth = peptide_seq.shape
 
-        # transform the peptide
+        # Ignore residues that are masked all over the batch.
+        peptide_slice = batch["peptide_self_residues_mask"].sum(dim=0).bool()
+        protein_slice = batch["protein_self_residues_mask"].sum(dim=0).bool()
+        protein_slice_length = protein_slice.sum()
+        protein_prox_slice = torch.logical_and(protein_slice[None, :], protein_slice[:, None])
+
+        # self attention on the peptide
         peptide_embd = peptide_seq.clone()
         for encoder in self.transform:
-            peptide_upd, peptide_att = encoder(peptide_embd, batch["peptide_self_residues_mask"])
-            peptide_embd = self.peptide_norm(peptide_embd + peptide_upd)
+            peptide_upd, peptide_att = encoder(peptide_embd[:, peptide_slice], batch["peptide_self_residues_mask"][:, peptide_slice])
+            peptide_embd[:, peptide_slice] = self.peptide_norm(peptide_embd[:, peptide_slice] + peptide_upd)
 
         # structure-based self-attention on the protein
         protein_T = Rigid.from_tensor_4x4(batch["protein_backbone_rigid_tensor"])
@@ -163,19 +169,14 @@ class Predictor(torch.nn.Module):
         else:
             protein_embd = batch["protein_sequence_onehot"]
         protein_norm_prox = self.protein_dist_norm(batch["protein_proximities"])
+        sliced_protein_norm_prox = protein_norm_prox[:, protein_prox_slice].reshape(batch_size, protein_slice_length, protein_slice_length, -1)
 
-        protein_as = []
         for _ in range(self.n_ipa_repeat):
-            protein_upd, protein_a = self.protein_ipa(protein_embd,
-                                                      protein_norm_prox,
-                                                      protein_T,
-                                                      batch["protein_self_residues_mask"].float())
-            protein_as.append(protein_a.clone().detach())
-            protein_embd =  self.protein_norm(protein_embd + protein_upd)
-
-        # store the attention weights, for debugging
-        # [*, n_block, H, protein_maxlen, protein_maxlen]
-        protein_as = torch.stack(protein_as).transpose(0, 1)
+            protein_upd, protein_a = self.protein_ipa(protein_embd[:, protein_slice],
+                                                      sliced_protein_norm_prox,
+                                                      protein_T[:, protein_slice],
+                                                      batch["protein_self_residues_mask"][:, protein_slice].float())
+            protein_embd[:, protein_slice] = self.protein_norm(protein_embd[:, protein_slice] + protein_upd)
 
         # cross attention and peptide structure prediction
         output = self.cross(batch["peptide_aatype"],
@@ -184,8 +185,6 @@ class Predictor(torch.nn.Module):
                             protein_embd,
                             batch["protein_cross_residues_mask"],
                             protein_T)
-
-        output["protein_self_attention"] = protein_as
 
         # amino acid sequence: [1, 0, 2, ... ] meaning : Arg, Ala, Asn
         # [*, peptide_maxlen]
