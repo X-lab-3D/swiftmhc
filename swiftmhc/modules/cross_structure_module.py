@@ -260,7 +260,7 @@ class CrossStructureModule(torch.nn.Module):
         outputs = dict_multimap(torch.stack, outputs)
 
         # unslice the output
-        masked_angles = torch.tensor([[1.0, 0.0] for _ in range(7)])
+        masked_angles = torch.tensor([[1.0, 0.0] for _ in range(7)], device=s_peptide.device)
         result = {}
         result["single"] = self._restore_masked(outputs["states"][-1], peptide_slice)
         result["final_frames"] = self._restore_masked(outputs["frames"][-1], peptide_slice)
