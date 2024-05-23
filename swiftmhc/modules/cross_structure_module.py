@@ -1,4 +1,4 @@
-from typing import Dict, Union
+from typing import Dict, Union, Optional
 import logging
 
 import torch
@@ -260,17 +260,22 @@ class CrossStructureModule(torch.nn.Module):
         outputs = dict_multimap(torch.stack, outputs)
 
         # unslice the output
+        masked_angles = torch.tensor([[1.0, 0.0] for _ in range(7)])
         result = {}
         result["single"] = self._restore_masked(outputs["states"][-1], peptide_slice)
         result["final_frames"] = self._restore_masked(outputs["frames"][-1], peptide_slice)
         result["final_sidechain_frames"] = self._restore_masked(outputs["sidechain_frames"][-1], peptide_slice)
-        result["final_angles"] = self._restore_masked(outputs["angles"][-1], peptide_slice)
-        result["final_unnormalized_angles"] = self._restore_masked(outputs["unnormalized_angles"][-1], peptide_slice)
+        result["final_angles"] = self._restore_masked(outputs["angles"][-1], peptide_slice, masked_angles)
+        result["final_unnormalized_angles"] = self._restore_masked(outputs["unnormalized_angles"][-1], peptide_slice, masked_angles)
         result["final_positions"] = self._restore_masked(outputs["positions"][-1], peptide_slice)
         return result
 
     @staticmethod
-    def _restore_masked(residue_value: torch.Tensor, residue_slice: torch.Tensor) -> torch.Tensor:
+    def _restore_masked(
+        residue_value: torch.Tensor,
+        residue_slice: torch.Tensor,
+        masked_value: Optional[torch.Tensor] = None
+    ) -> torch.Tensor:
         """
         Args:
             residue_value:          [*, length, ...]
@@ -282,8 +287,13 @@ class CrossStructureModule(torch.nn.Module):
         dimensions = list(residue_value.shape)
         dimensions[1] = residue_slice.shape[0]
 
-        masked_residue_value = residue_value.new_zeros(dimensions)
+        if masked_value is None:
+            masked_residue_value = residue_value.new_zeros(dimensions)
+        else:
+            masked_residue_value = masked_value.clone().unsqueeze(0).unsqueeze(1).expand(dimensions)
+
         masked_residue_value[:, residue_slice] = residue_value
+
         return masked_residue_value
 
     def _block(self,

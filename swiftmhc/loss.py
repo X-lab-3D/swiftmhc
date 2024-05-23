@@ -55,6 +55,14 @@ from swiftmhc.domain.amino_acid import amino_acids_by_one_hot_index
 
 _log = logging.getLogger(__name__)
 
+
+def _masked_mean(mask: torch.Tensor, value: torch.Tensor, dim: List[int], eps: float = 1e-4) -> torch.Tensor:
+    sum_of_value = torch.where(mask, value, 0.0).sum(dim=dim)
+    sum_of_mask = mask.sum(dim=dim)
+
+    return sum_of_value / (sum_of_mask + eps)
+
+
 def _compute_fape_loss(
     output: Dict[str, torch.Tensor],
     batch: Dict[str, torch.Tensor],
@@ -305,8 +313,8 @@ def _torsion_angle_loss(
     min_diff = torch.minimum(diff_norm_gt ** 2, diff_norm_alt_gt ** 2)
 
     # [*]
-    l_torsion = openfold_masked_mean(a_mask, min_diff, dim=(-2, -1))
-    l_angle_norm = openfold_masked_mean(a_mask, torch.abs(norm - 1), dim=(-1, -2))
+    l_torsion = _masked_mean(a_mask, min_diff, dim=(-2, -1))
+    l_angle_norm = _masked_mean(a_mask, torch.abs(norm - 1), dim=(-2, -1))
 
     an_weight = 0.02
     return l_torsion + an_weight * l_angle_norm
@@ -435,6 +443,10 @@ def get_loss(model_type: ModelType,
 
     for component_id, loss_tensor in violation_losses.items():
         result[f"{component_id} violation"] = loss_tensor.mean(dim=0)
+
+    for key in result:
+        if "total" not in key and result[key].isnan():
+            raise RuntimeError(f"NaN {key} loss")
 
     return result
 

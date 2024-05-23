@@ -182,9 +182,9 @@ class ProteinLoopDataset(Dataset):
         result[f"{prefix}_residue_numbers"][:length] = torch.arange(1, length + 1, 1, device=self._device)
 
         # atoms masks
-        result[f"{prefix}_atom14_gt_exists"] = torch.zeros((max_length, 14), dtype=torch.float, device=self._device)
-        result[f"{prefix}_torsion_angles_mask"] = torch.zeros((max_length, 7), dtype=torch.float, device=self._device)
-        result[f"{prefix}_all_atom_mask"] = torch.zeros((max_length, 37), dtype=torch.float, device=self._device)
+        result[f"{prefix}_atom14_gt_exists"] = torch.zeros((max_length, 14), dtype=torch.bool, device=self._device)
+        result[f"{prefix}_torsion_angles_mask"] = torch.zeros((max_length, 7), dtype=torch.bool, device=self._device)
+        result[f"{prefix}_all_atom_mask"] = torch.zeros((max_length, 37), dtype=torch.bool, device=self._device)
         for i, amino_acid in enumerate(amino_acids):
 
             result[f"{prefix}_torsion_angles_mask"][i, :3] = 1.0
@@ -192,7 +192,7 @@ class ProteinLoopDataset(Dataset):
                 result[f"{prefix}_torsion_angles_mask"][i, 3 + k] = mask
 
             result[f"{prefix}_atom14_gt_exists"][i] = torch.tensor(residue_constants.restype_atom14_mask[amino_acid.index], device=self._device)
-            result[f"{prefix}_all_atom_mask"][i] = torch.tensor(residue_constants.restype_atom37_mask[amino_acid.index], device=self._device)
+            result[f"{prefix}_all_atom_mask"][i] = torch.tensor(residue_constants.restype_atom37_mask[amino_acid.index], device=self._device, dtype=torch.bool)
 
         for key, value in make_atom14_masks({"aatype": result[f"{prefix}_aatype"]}).items():
             result[f"{prefix}_{key}"] = value
@@ -276,15 +276,19 @@ class ProteinLoopDataset(Dataset):
                 t = torch.tensor(entry_group[prefix]["blosum62"][:], device=self._device, dtype=torch.float)
                 result[f"{prefix}_blosum62"][index, :t.shape[1]] = t
 
-                for field_name in ["backbone_rigid_tensor",
-                                   "torsion_angles_sin_cos", "alt_torsion_angles_sin_cos",
-                                   "atom14_gt_positions", "atom14_alt_gt_positions",
-                                   "all_atom_positions",
-                                   "torsion_angles_mask", "atom14_gt_exists", "all_atom_mask"]:
+                for field_name, dtype in [("backbone_rigid_tensor", torch.float),
+                                          ("torsion_angles_sin_cos", torch.float),
+                                          ("alt_torsion_angles_sin_cos", torch.float),
+                                          ("atom14_gt_positions", torch.float),
+                                          ("atom14_alt_gt_positions", torch.float),
+                                          ("all_atom_positions", torch.float),
+                                          ("torsion_angles_mask", torch.bool),
+                                          ("atom14_gt_exists", torch.bool),
+                                          ("all_atom_mask", torch.bool)]:
 
                     data = entry_group[prefix][field_name][:]
-                    t = torch.zeros([max_length] + list(data.shape[1:]), device=self._device, dtype=torch.float)
-                    t[index] = torch.tensor(data, device=self._device, dtype=torch.float)
+                    t = torch.zeros([max_length] + list(data.shape[1:]), device=self._device, dtype=dtype)
+                    t[index] = torch.tensor(data, device=self._device, dtype=dtype)
 
                     result[f"{prefix}_{field_name}"] = t
 
