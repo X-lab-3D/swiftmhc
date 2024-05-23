@@ -157,7 +157,7 @@ class Predictor(torch.nn.Module):
         # self attention on the peptide
         peptide_embd = peptide_seq.clone()
         for encoder in self.transform:
-            peptide_upd, peptide_att = encoder(peptide_embd[:, peptide_slice], batch["peptide_self_residues_mask"][:, peptide_slice])
+            peptide_upd, peptide_a = encoder(peptide_embd[:, peptide_slice], batch["peptide_self_residues_mask"][:, peptide_slice])
             peptide_embd[:, peptide_slice] = self.peptide_norm(peptide_embd[:, peptide_slice] + peptide_upd)
 
         # structure-based self-attention on the protein
@@ -165,9 +165,9 @@ class Predictor(torch.nn.Module):
 
         # [*, protein_maxlen, c_s]
         if self.blosum:
-            protein_embd = batch["protein_blosum62"]
+            protein_embd = batch["protein_blosum62"].clone()
         else:
-            protein_embd = batch["protein_sequence_onehot"]
+            protein_embd = batch["protein_sequence_onehot"].clone()
         protein_norm_prox = self.protein_dist_norm(batch["protein_proximities"])
         sliced_protein_norm_prox = protein_norm_prox[:, protein_prox_slice].reshape(batch_size, protein_slice_length, protein_slice_length, -1)
 
