@@ -290,7 +290,7 @@ class CrossStructureModule(torch.nn.Module):
         if masked_value is None:
             masked_residue_value = residue_value.new_zeros(dimensions)
         else:
-            masked_residue_value = masked_value.clone().unsqueeze(0).unsqueeze(1).expand(dimensions)
+            masked_residue_value = masked_value.unsqueeze(0).unsqueeze(1).expand(dimensions).clone()
 
         masked_residue_value[:, residue_slice] = residue_value
 
