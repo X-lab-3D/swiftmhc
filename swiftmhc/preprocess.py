@@ -910,7 +910,8 @@ def preprocess(
         # retrieve ID from table
         id_ = row["ID"]
         if id_ in entries_present:
-            _log.error(f"duplicate ID in table: '{id_}'")
+            _log.warning(f"'{id_}' is already preprocessed, skipping")
+            continue
 
         # read the affinity data from the table
         affinity_lt = False
