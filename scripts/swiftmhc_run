@@ -809,11 +809,19 @@ class Trainer:
         if name is not None:
             dataset.name = name
 
+        if device.type == 'cuda':
+            pin_memory = True
+            num_workers = 0
+        else:
+            pin_memory False
+            num_workers = self.workers_count
+
         loader = DataLoader(dataset,
                             collate_fn=ProteinLoopDataset.collate,
                             batch_size=batch_size,
                             shuffle=shuffle,
-                            num_workers=self.workers_count)
+                            pin_memory=pin_memory,
+                            num_workers=num_workers)
 
         return loader
 
