@@ -813,7 +813,7 @@ class Trainer:
             pin_memory = True
             num_workers = 0
         else:
-            pin_memory False
+            pin_memory = False
             num_workers = self.workers_count
 
         loader = DataLoader(dataset,
