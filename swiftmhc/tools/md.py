@@ -50,10 +50,10 @@ bonds_per_amino_acid = _load_bond_definitions()
 
 
 def build_modeller(chain_data: List[Tuple[str,
-                                          torch.Tensor,
-                                          torch.Tensor,
-                                          torch.Tensor,
-                                          torch.Tensor]]) -> Modeller:
+                   torch.Tensor,
+                   torch.Tensor,
+                   torch.Tensor,
+                   torch.Tensor]]) -> Modeller:
     """
     Args:
         chain_data: list of chains (id, residue numbers, amino acid type index, atom positions, atom mask)

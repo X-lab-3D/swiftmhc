@@ -86,6 +86,7 @@ arg_parser.add_argument("--epoch-count", "-e", help="how many epochs to run duri
 arg_parser.add_argument("--affinity-tune-count", "-a", help="how many epochs to run during affinity-tuning, after structure training", type=int, default=50)
 arg_parser.add_argument("--fine-tune-count", "-u", help="how many epochs to run during fine-tuning, at the end", type=int, default=50)
 arg_parser.add_argument("--animate", "-m", help="id of a data point to generate intermediary pdb for", nargs="+")
+arg_parser.add_argument("--disable-energy-minimization", help="disable structure OpenMM energy minimization", action="store_const", const=True, default=False)
 arg_parser.add_argument("--lr", help="learning rate setting", type=float, default=0.001)
 arg_parser.add_argument("--classification", "-c", help="do classification instead of regression", action="store_const", const=True, default=False)
 arg_parser.add_argument("--test-only", "-t", help="do not train, only run tests", const=True, default=False, action='store_const')
@@ -195,7 +196,8 @@ def output_structures_to_directory(
     output_directory: str,
     filename_prefix: str,
     data: Dict[str, torch.Tensor],
-    output: Dict[str, torch.Tensor]
+    output: Dict[str, torch.Tensor],
+    minimize_energy: bool,
 ):
     """
     Used to save all models (truth) and (prediction) to two hdf5 files
@@ -206,6 +208,7 @@ def output_structures_to_directory(
         filename_prefix: prefix to put in the hdf5 filename
         data: truth data, from dataset
         output: model output
+        minimize_energy: minimize structure or not
     """
 
     # define paths
@@ -242,27 +245,28 @@ def output_structures_to_directory(
             if classes[index].item() == 0:
                 continue
 
-            # submit job for truth structure
-            #pool.apply_async(
-            #    minimize_structure_to_hdf5,
-            #    (
-            #        truth_path, id_,
-            #        [("P", peptide_residue_numbers[index], peptide_aatype[index], peptide_atom14_gt_positions[index], peptide_atom14_exists[index]),
-            #         ("M", protein_residue_numbers[index], protein_aatype[index], protein_atom14_gt_positions[index], protein_atom14_exists[index])]
-            #    ),
-            #    error_callback=on_error,
-            #)
-
             # submit job for output structure
-            pool.apply_async(
-                minimize_structure_to_hdf5,
-                (
-                    pred_path, id_,
-                    [("P", peptide_residue_numbers[index], peptide_aatype[index], peptide_atom14_positions[index], peptide_atom14_exists[index]),
-                     ("M", protein_residue_numbers[index], protein_aatype[index], protein_atom14_gt_positions[index], protein_atom14_exists[index])]
-                ),
-                error_callback=on_error,
-            )
+            if minimize_energy:
+                pool.apply_async(
+                    minimize_structure_to_hdf5,
+                    (
+                        pred_path, id_,
+                        [("P", peptide_residue_numbers[index], peptide_aatype[index], peptide_atom14_positions[index], peptide_atom14_exists[index]),
+                        ("M", protein_residue_numbers[index], protein_aatype[index], protein_atom14_gt_positions[index], protein_atom14_exists[index])]
+                    ),
+                    error_callback=on_error,
+                )
+            else:
+                pool.apply_async(
+                    recreate_structure_to_hdf5,
+                    (
+                        pred_path, id_,
+                        [("P", peptide_residue_numbers[index], peptide_aatype[index], peptide_atom14_positions[index], peptide_atom14_exists[index]),
+                        ("M", protein_residue_numbers[index], protein_aatype[index], protein_atom14_gt_positions[index], protein_atom14_exists[index])]
+                    ),
+                    error_callback=on_error,
+                )
+
         pool.close()
         pool.join()
 
@@ -490,6 +494,7 @@ class Trainer:
                   fine_tune: bool,
                   output_directory: str,
                   structure_builders_count: Optional[int] = 0,
+                  minimize_energy: Optional[bool] = True,
     ) -> float:
         """
         Run an evaluation of the model, thus no backward propagation.
@@ -505,6 +510,7 @@ class Trainer:
             fine_tune: whether to include fine tuning losses in backward propagation
             output_directory: where to store the results
             structure_builders_count: how many structure builders (pdb writers) to run simultaneously
+            minimize_energy: whether to energy minimize the structures or not
         Returns:
             the mean total loss for all inserted data
         """
@@ -536,7 +542,8 @@ class Trainer:
                     output_structures_to_directory(structure_builders_count,
                                                    output_directory,
                                                    data_loader.dataset.name,
-                                                   batch_data, batch_output)
+                                                   batch_data, batch_output,
+                                                   minimize_energy)
 
                 # Save to metrics
                 record.add_batch(batch_loss, batch_output, batch_data)
@@ -557,6 +564,7 @@ class Trainer:
         model_path: str,
         structure_builders_count: int,
         blosum: bool,
+        minimize_energy: bool,
     ):
         """
         Call this function instead of train, when you just want to test the model.
@@ -569,6 +577,7 @@ class Trainer:
             model_path: pretrained model to use
             structure_builders_count: number of simultaneous structure builder processes
             blosum: whether to use blosum62 encoding (True) or one-hot encoding (False)
+            minimize_energy: whether to do energy minimization on the structure
         """
 
         _log.info(f"testing {model_path} on {structure_builders_count} structure builders")
@@ -609,7 +618,7 @@ class Trainer:
             with Timer(f"test on {test_loader.dataset.name}, {len(test_loader.dataset)} data points"):
                 self._validate(-1, model, test_loader,
                                affinity_tune, structure_tune, structure_tune, structure_tune,
-                               run_id, structure_builders_count)
+                               run_id, structure_builders_count, minimize_energy)
 
     @staticmethod
     def _get_selection_data_batch(datasets: List[ProteinLoopDataset], names: List[str]) -> Dict[str, torch.Tensor]:
@@ -938,7 +947,8 @@ if __name__ == "__main__":
         # We do a test, no training
         test_loaders = [trainer.get_data_loader(test_path, args.batch_size, device, shuffle=False)
                         for test_path in args.data_path]
-        trainer.test(test_loaders, run_id, args.animate, pretrained_model_path, args.builders, args.blosum)
+        trainer.test(test_loaders, run_id, args.animate, pretrained_model_path, args.builders, args.blosum,
+                     not args.disable_energy_minimization)
 
     else:  # train, validate, test
         if len(args.data_path) >= 3:
