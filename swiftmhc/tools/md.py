@@ -103,34 +103,58 @@ def build_modeller(chain_data: List[Tuple[str,
             else:
                 prev_c = None
 
-            # C-terminus:
-            if 'CA' in positions_by_name and 'C' in positions_by_name and 'O' in positions_by_name and \
-               ((residue_index + 1) >= len(aatype) or not atom14_mask[residue_index + 1][0]):
+            if 'CA' in positions_by_name and 'N' in positions_by_name and 'O' in positions_by_name:
 
-                # compute the terminal oxygen, from the other oxygen
                 ca_pos = positions_by_name['CA']
                 c_pos = positions_by_name['C']
                 o_pos = positions_by_name['O']
 
-                ca_c = c_pos - ca_pos
-                c_o = o_pos - c_pos
+                # adding HA, to prevent chirality issues
+                if 'CB' in positions_by_name:
 
-                c_o_norm = torch.linalg.vector_norm(c_o)
-                c_o_unit = c_o / c_o_norm
-                ca_c_unit = ca_c / torch.linalg.vector_norm(ca_c)
+                    # calculate the position of alpha hydrogen from the other bonds around C-alpha
+                    n_pos = positions_by_name['N']
+                    cb_pos = positions_by_name['CB']
 
-                # projection
-                t = c_o_norm * ca_c_unit * torch.linalg.vecdot(ca_c_unit, c_o_unit)
-                n = c_o - t
+                    c_ca = ca_pos - c_pos
+                    n_ca = ca_pos - n_pos
+                    cb_ca = ca_pos - cb_pos
 
-                # mirror the c-o bond
-                oxt_pos = o_pos - 2 * n
+                    h_direction = (torch.nn.functional.normalize(c_ca, dim=-1) +
+                                   torch.nn.functional.normalize(n_ca, dim=-1) +
+                                   torch.nn.functional.normalize(cb_ca, dim=-1)) / 3.0
 
-                # tell OpenMM
-                atom_nr += 1
-                oxt = topology.addAtom("OXT", Element.getBySymbol("O"), residue, str(atom_nr))
-                pos = 0.1 * Vec3(oxt_pos[0].item(), oxt_pos[1].item(), oxt_pos[2].item())
-                positions.append(pos)
+                    ha_pos = ca_pos + 1.09 * h_direction
+
+                    # tell OpenMM
+                    atom_nr += 1
+                    ha = topology.addAtom("HA", Element.getBySymbol("H"), residue, str(atom_nr))
+                    pos = 0.1 * Vec3(ha_pos[0].item(), ha_pos[1].item(), ha_pos[2].item())
+                    positions.append(pos)
+
+                # C-terminus:
+                if ((residue_index + 1) >= len(aatype) or not atom14_mask[residue_index + 1][0]):
+
+                    # compute the terminal oxygen, from the other oxygen
+                    ca_c = c_pos - ca_pos
+                    c_o = o_pos - c_pos
+
+                    c_o_norm = torch.linalg.vector_norm(c_o)
+                    c_o_unit = c_o / c_o_norm
+                    ca_c_unit = ca_c / torch.linalg.vector_norm(ca_c)
+
+                    # projection
+                    t = c_o_norm * ca_c_unit * torch.linalg.vecdot(ca_c_unit, c_o_unit)
+                    n = c_o - t
+
+                    # mirror the c-o bond
+                    oxt_pos = o_pos - 2 * n
+
+                    # tell OpenMM
+                    atom_nr += 1
+                    oxt = topology.addAtom("OXT", Element.getBySymbol("O"), residue, str(atom_nr))
+                    pos = 0.1 * Vec3(oxt_pos[0].item(), oxt_pos[1].item(), oxt_pos[2].item())
+                    positions.append(pos)
 
     positions = positions * nanometers
 
