@@ -761,7 +761,10 @@ class Trainer:
 
             # early stopping, if no more improvement
             if self._early_stop(valid_loss):
+
+                # reset the loop's variables
                 self._early_stop.__init__()
+                lowest_loss = float("inf")
 
                 if fine_tune:
                     _log.info(f"early stop after epoch {epoch_index}")
