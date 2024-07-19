@@ -272,7 +272,7 @@ def output_structures_to_directory(
 
 
 class EarlyStopper:
-    def __init__(self, patience: int = 2, epsilon: float = 0.001):
+    def __init__(self, patience: int = 3, epsilon: float = 0.001):
 
         self._patience = patience
         self._epsilon = epsilon
@@ -292,6 +292,9 @@ class EarlyStopper:
             self._counter += 1
             if self._counter >= self._patience:
                 return True
+
+        else:  # interrupted
+            self._counter = 0
 
         return False
 
@@ -818,19 +821,11 @@ class Trainer:
         if name is not None:
             dataset.name = name
 
-        if device.type == 'cuda':
-            pin_memory = True
-            num_workers = 0
-        else:
-            pin_memory = False
-            num_workers = self.workers_count
-
         loader = DataLoader(dataset,
                             collate_fn=ProteinLoopDataset.collate,
                             batch_size=batch_size,
                             shuffle=shuffle,
-                            pin_memory=pin_memory,
-                            num_workers=num_workers)
+                            num_workers=self.workers_count)
 
         return loader
 
