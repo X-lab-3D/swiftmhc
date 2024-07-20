@@ -602,9 +602,6 @@ class Trainer:
                           openfold_config.model,
                           blosum=blosum)
 
-        if self.get_device_count() > 1:
-            model = DataParallel(model)
-
         model.to(device=self._device)
         model.eval()
 
@@ -707,9 +704,6 @@ class Trainer:
                           self._model_type,
                           openfold_config.model,
                           blosum=blosum)
-        if self.get_device_count() > 1:
-            model = DataParallel(model)
-
         model.to(device=self._device)
 
         # continue on a pretrained model, if provided
