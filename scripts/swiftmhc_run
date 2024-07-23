@@ -28,6 +28,7 @@ from torch.optim.lr_scheduler import StepLR, _LRScheduler, LambdaLR
 from torch.nn import CrossEntropyLoss, MSELoss
 from torch.nn.utils import clip_grad_norm_
 from torch.nn import DataParallel
+from torch.nn.parallel import DistributedDataParallel
 
 from Bio.PDB.PDBIO import PDBIO
 from Bio.PDB.Structure import Structure
@@ -82,8 +83,8 @@ arg_parser.add_argument("--pretrained-model", "-p", help="use a given pretrained
 arg_parser.add_argument("--workers", "-w", help="number of worker processes to load batches", type=int, default=5)
 arg_parser.add_argument("--builders", "-B", help="number of simultaneous structure builder processes, it has no effect setting this higher than the number of models produced per batch", type=int, default=0)
 arg_parser.add_argument("--batch-size", "-b", help="batch size to use during training/validation/testing", type=int, default=8)
-arg_parser.add_argument("--epoch-count", "-e", help="how many epochs to run during structure training", type=int, default=100)
-arg_parser.add_argument("--affinity-tune-count", "-a", help="how many epochs to run during affinity-tuning, after structure training", type=int, default=50)
+arg_parser.add_argument("--epoch-count", "-e", help="how many epochs to run during structure training", type=int, default=300)
+arg_parser.add_argument("--affinity-tune-count", "-a", help="how many epochs to run during affinity-tuning, after structure training", type=int, default=100)
 arg_parser.add_argument("--fine-tune-count", "-u", help="how many epochs to run during fine-tuning, at the end", type=int, default=50)
 arg_parser.add_argument("--animate", "-m", help="id of a data point to generate intermediary pdb for", nargs="+")
 arg_parser.add_argument("--disable-energy-minimization", help="disable structure OpenMM energy minimization", action="store_const", const=True, default=False)
@@ -272,7 +273,7 @@ def output_structures_to_directory(
 
 
 class EarlyStopper:
-    def __init__(self, patience: int = 2, epsilon: float = 0.001):
+    def __init__(self, patience: int = 30, epsilon: float = 0.01):
 
         self._patience = patience
         self._epsilon = epsilon
@@ -292,6 +293,9 @@ class EarlyStopper:
             self._counter += 1
             if self._counter >= self._patience:
                 return True
+
+        else:  # interrupted
+            self._counter = 0
 
         return False
 
@@ -327,6 +331,15 @@ class Trainer:
 
         self.workers_count = workers_count
 
+    def get_device_count(self) -> int:
+        """
+        Counts the number of devices set
+        """
+
+        if self._device.type == 'cuda':
+            return torch.cuda.device_count()
+        else:
+            return torch.cpu.device_count()
 
     def _snapshot(self,
                   frame_id: str,
@@ -588,7 +601,9 @@ class Trainer:
                           self._model_type,
                           openfold_config.model,
                           blosum=blosum)
-        model = DataParallel(model)
+        if self._device.type == "cuda" and torch.cuda.device_count() > 1:
+            model = DataParallel(model)
+
         model.to(device=self._device)
         model.eval()
 
@@ -691,7 +706,9 @@ class Trainer:
                           self._model_type,
                           openfold_config.model,
                           blosum=blosum)
-        model = DataParallel(model)
+        if self._device.type == "cuda" and torch.cuda.device_count() > 1:
+            model = DataParallel(model)
+
         model.to(device=self._device)
 
         # continue on a pretrained model, if provided
@@ -821,19 +838,11 @@ class Trainer:
         if name is not None:
             dataset.name = name
 
-        if device.type == 'cuda':
-            pin_memory = True
-            num_workers = 0
-        else:
-            pin_memory = False
-            num_workers = self.workers_count
-
         loader = DataLoader(dataset,
                             collate_fn=ProteinLoopDataset.collate,
                             batch_size=batch_size,
                             shuffle=shuffle,
-                            pin_memory=pin_memory,
-                            num_workers=num_workers)
+                            num_workers=self.workers_count)
 
         return loader
 
