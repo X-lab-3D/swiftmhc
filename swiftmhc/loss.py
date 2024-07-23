@@ -22,7 +22,8 @@ from openfold.np.residue_constants import (restype_atom14_ambiguous_atoms as ope
                                            restype_num as openfold_restype_num,
                                            chi_pi_periodic as openfold_chi_pi_periodic)
 from openfold.utils.rigid_utils import Rigid
-from openfold.utils.tensor_utils import masked_mean as openfold_masked_mean
+from openfold.utils.tensor_utils import (masked_mean as openfold_masked_mean,
+                                         batched_gather as openfold_batched_gather)
 from openfold.utils.feats import atom14_to_atom37 as openfold_atom14_to_atom37
 from openfold.utils.loss import (violation_loss as openfold_compute_violation_loss,
                                  within_residue_violations as openfold_within_residue_violations,
@@ -111,11 +112,24 @@ def _compute_fape_loss(
                                                           },
                                                           output["final_positions"])
 
+    peptide_residx_atom37_to_atom14 = batch["peptide_residx_atom37_to_atom14"]
+    atom37_positions = openfold_batched_gather(
+        batch["peptide_atom14_gt_positions"],
+        peptide_residx_atom37_to_atom14,
+        dim=-2,
+        no_batch_dims=len(batch["peptide_atom14_gt_positions"].shape[:-2]),
+    )
+    atom37_mask = openfold_batched_gather(
+        batch["peptide_atom14_gt_exists"],
+        peptide_residx_atom37_to_atom14,
+        dim=-1,
+        no_batch_dims=len(batch["peptide_atom14_gt_exists"].shape[:-1]),
+    )
     truth_frames = openfold_atom37_to_frames(
         {
             "aatype": batch["peptide_aatype"],
-            "all_atom_positions": batch["peptide_all_atom_positions"],
-            "all_atom_mask": batch["peptide_all_atom_mask"],
+            "all_atom_positions": atom37_positions,
+            "all_atom_mask": atom37_mask,
         }
     )
 
