@@ -272,6 +272,23 @@ def output_structures_to_directory(
         pool.join()
 
 
+def remove_module_prefix(state: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+    """
+    Paralellisation adds a 'module.' prefix in the state's keys.
+    Remove those prefixes here.
+    """
+
+    d = {}
+    for key, value in state.items():
+        new_key = key.replace("module.", "")
+        if new_key in d:
+            raise ValueError(f"duplicate key: {new_key}")
+
+        d[new_key] = value
+
+    return d
+
+
 class EarlyStopper:
     def __init__(self, patience: int = 30, epsilon: float = 0.01):
 
@@ -608,7 +625,7 @@ class Trainer:
         model.eval()
 
         # load the pretrained model
-        model.load_state_dict(torch.load(model_path,  map_location=self._device))
+        model.load_state_dict(remove_module_prefix(torch.load(model_path,  map_location=self._device)))
 
         # make the snapshots
         if animated_complex_ids is not None:
@@ -713,8 +730,8 @@ class Trainer:
 
         # continue on a pretrained model, if provided
         if pretrained_model_path is not None:
-            model.load_state_dict(torch.load(pretrained_model_path,
-                                             map_location=self._device))
+            model.load_state_dict(remove_module_prefix(torch.load(pretrained_model_path,
+                                                       map_location=self._device)))
 
         optimizer = Adam(model.parameters(), lr=self._lr)
 
