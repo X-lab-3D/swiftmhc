@@ -6,6 +6,7 @@ from typing import Optional, List, Tuple, Dict, Union
 from math import log
 from enum import Enum
 
+import numpy
 import h5py
 import torch
 from torch.utils.data import Dataset
@@ -85,6 +86,8 @@ class ProteinLoopDataset(Dataset):
             self._entry_names = get_entry_names(self._hdf5_path)
 
         self._pairs = pairs
+
+        self._float_dtype = torch.float
 
     @property
     def entry_names(self) -> List[str]:
@@ -166,10 +169,10 @@ class ProteinLoopDataset(Dataset):
         result[f"{prefix}_aatype"][:length] = torch.tensor([aa.index for aa in amino_acids], device=self._device)
 
         # one-hot encoding
-        result[f"{prefix}_sequence_onehot"] = torch.zeros((max_length, 32), device=self._device, dtype=torch.float)
+        result[f"{prefix}_sequence_onehot"] = torch.zeros((max_length, 32), device=self._device, dtype=self._float_dtype)
         result[f"{prefix}_sequence_onehot"][:length, :AMINO_ACID_DIMENSION] = torch.stack([aa.one_hot_code for aa in amino_acids]).to(device=self._device)
         # blosum62 encoding
-        result[f"{prefix}_blosum62"] = torch.zeros((max_length, 32), device=self._device, dtype=torch.float)
+        result[f"{prefix}_blosum62"] = torch.zeros((max_length, 32), device=self._device, dtype=self._float_dtype)
         t = get_blosum_encoding([aa.index for aa in amino_acids], 62, device=self._device)
         result[f"{prefix}_blosum62"][:length, :t.shape[1]] = t
 
@@ -268,23 +271,25 @@ class ProteinLoopDataset(Dataset):
                 result[f"{prefix}_residx_atom14_to_atom37"] = torch.zeros((max_length, residx_atom14_to_atom37_data.shape[1]), device=self._device, dtype=torch.long)
                 result[f"{prefix}_residx_atom14_to_atom37"][index] = torch.tensor(residx_atom14_to_atom37_data, device=self._device, dtype=torch.long)
 
-                result[f"{prefix}_sequence_onehot"] = torch.zeros((max_length, 32), device=self._device, dtype=torch.float)
-                t = torch.tensor(entry_group[prefix]["sequence_onehot"][:], device=self._device, dtype=torch.float)
+                residx_atom37_to_atom14_data = entry_group[prefix]["residx_atom37_to_atom14"][:]
+                result[f"{prefix}_residx_atom37_to_atom14"] = torch.zeros((max_length, residx_atom37_to_atom14_data.shape[1]), device=self._device, dtype=torch.long)
+                result[f"{prefix}_residx_atom37_to_atom14"][index] = torch.tensor(residx_atom37_to_atom14_data, device=self._device, dtype=torch.long)
+
+                result[f"{prefix}_sequence_onehot"] = torch.zeros((max_length, 32), device=self._device, dtype=self._float_dtype)
+                t = torch.tensor(entry_group[prefix]["sequence_onehot"][:], device=self._device, dtype=self._float_dtype)
                 result[f"{prefix}_sequence_onehot"][index, :t.shape[1]] = t
 
-                result[f"{prefix}_blosum62"] = torch.zeros((max_length, 32), device=self._device, dtype=torch.float)
-                t = torch.tensor(entry_group[prefix]["blosum62"][:], device=self._device, dtype=torch.float)
+                result[f"{prefix}_blosum62"] = torch.zeros((max_length, 32), device=self._device, dtype=self._float_dtype)
+                t = torch.tensor(entry_group[prefix]["blosum62"][:], device=self._device, dtype=self._float_dtype)
                 result[f"{prefix}_blosum62"][index, :t.shape[1]] = t
 
-                for field_name, dtype in [("backbone_rigid_tensor", torch.float),
-                                          ("torsion_angles_sin_cos", torch.float),
-                                          ("alt_torsion_angles_sin_cos", torch.float),
-                                          ("atom14_gt_positions", torch.float),
-                                          ("atom14_alt_gt_positions", torch.float),
-                                          ("all_atom_positions", torch.float),
+                for field_name, dtype in [("backbone_rigid_tensor", self._float_dtype),
+                                          ("torsion_angles_sin_cos", self._float_dtype),
+                                          ("alt_torsion_angles_sin_cos", self._float_dtype),
                                           ("torsion_angles_mask", torch.bool),
-                                          ("atom14_gt_exists", torch.bool),
-                                          ("all_atom_mask", torch.bool)]:
+                                          ("atom14_gt_positions", self._float_dtype),
+                                          ("atom14_alt_gt_positions", self._float_dtype),
+                                          ("atom14_gt_exists", torch.bool)]:
 
                     data = entry_group[prefix][field_name][:]
                     t = torch.zeros([max_length] + list(data.shape[1:]), device=self._device, dtype=dtype)
@@ -295,9 +300,9 @@ class ProteinLoopDataset(Dataset):
             # protein residue-residue proximity data
             prox_data = entry_group[PREPROCESS_PROTEIN_NAME]["proximities"][:]
             result["protein_proximities"] = torch.zeros(self._protein_maxlen, self._protein_maxlen, 1,
-                                                        device=self._device, dtype=torch.float)
+                                                        device=self._device, dtype=self._float_dtype)
 
-            result["protein_proximities"][:prox_data.shape[0], :prox_data.shape[1], :] = torch.tensor(prox_data, device=self._device, dtype=torch.float)
+            result["protein_proximities"][:prox_data.shape[0], :prox_data.shape[1], :] = torch.tensor(prox_data, device=self._device, dtype=self._float_dtype)
 
         return result
 
@@ -320,15 +325,15 @@ class ProteinLoopDataset(Dataset):
         # Must make sure that only ground truth values are set here.
         # Otherwise, the model can cheat.
 
-        result["peptide_backbone_rigid_tensor"] = torch.zeros((max_length, 4, 4), device=self._device, dtype=torch.float)
+        result["peptide_backbone_rigid_tensor"] = torch.zeros((max_length, 4, 4), device=self._device, dtype=self._float_dtype)
 
-        result["peptide_torsion_angles_sin_cos"] = torch.zeros((max_length, 7, 2), device=self._device, dtype=torch.float)
-        result["peptide_alt_torsion_angles_sin_cos"] = torch.zeros((max_length, 7, 2), device=self._device, dtype=torch.float)
+        result["peptide_torsion_angles_sin_cos"] = torch.zeros((max_length, 7, 2), device=self._device, dtype=self._float_dtype)
+        result["peptide_alt_torsion_angles_sin_cos"] = torch.zeros((max_length, 7, 2), device=self._device, dtype=self._float_dtype)
 
-        result["peptide_atom14_gt_positions"] = torch.zeros((max_length, 14, 3), device=self._device, dtype=torch.float)
-        result["peptide_atom14_alt_gt_positions"] = torch.zeros((max_length, 14, 3), device=self._device, dtype=torch.float)
+        result["peptide_atom14_gt_positions"] = torch.zeros((max_length, 14, 3), device=self._device, dtype=self._float_dtype)
+        result["peptide_atom14_alt_gt_positions"] = torch.zeros((max_length, 14, 3), device=self._device, dtype=self._float_dtype)
 
-        result["peptide_all_atom_positions"] = torch.zeros((max_length, 37, 3), device=self._device, dtype=torch.float)
+        result["peptide_all_atom_positions"] = torch.zeros((max_length, 37, 3), device=self._device, dtype=self._float_dtype)
 
         return result
 
@@ -347,7 +352,7 @@ class ProteinLoopDataset(Dataset):
 
             # The target affinity value is optional, thus only take it if present
             if PREPROCESS_AFFINITY_NAME in entry_group:
-                result["affinity"] = torch.tensor(entry_group[PREPROCESS_AFFINITY_NAME][()], device=self._device, dtype=torch.float)
+                result["affinity"] = torch.tensor(entry_group[PREPROCESS_AFFINITY_NAME][()], device=self._device, dtype=self._float_dtype)
 
                 if PREPROCESS_AFFINITY_LT_MASK_NAME in entry_group:
                     result["affinity_lt"] = torch.tensor(entry_group[PREPROCESS_AFFINITY_LT_MASK_NAME][()], device=self._device, dtype=torch.bool)
