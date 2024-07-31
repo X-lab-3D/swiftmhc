@@ -355,12 +355,12 @@ class ProteinLoopDataset(Dataset):
                 result["affinity"] = torch.tensor(entry_group[PREPROCESS_AFFINITY_NAME][()], device=self._device, dtype=self._float_dtype)
 
                 if PREPROCESS_AFFINITY_LT_MASK_NAME in entry_group:
-                    result["affinity_lt"] = torch.tensor(entry_group[PREPROCESS_AFFINITY_LT_MASK_NAME][()], device=self._device, dtype=torch.bool)
+                    result["affinity_lt"] = torch.tensor(bool(entry_group[PREPROCESS_AFFINITY_LT_MASK_NAME][()]), device=self._device, dtype=torch.bool)
                 else:
                     result["affinity_lt"] = torch.tensor(False, device=self._device, dtype=torch.bool)
 
                 if PREPROCESS_AFFINITY_GT_MASK_NAME in entry_group:
-                    result["affinity_gt"] = torch.tensor(entry_group[PREPROCESS_AFFINITY_GT_MASK_NAME][()], device=self._device, dtype=torch.bool)
+                    result["affinity_gt"] = torch.tensor(bool(entry_group[PREPROCESS_AFFINITY_GT_MASK_NAME][()]), device=self._device, dtype=torch.bool)
                 else:
                     result["affinity_gt"] = torch.tensor(False, device=self._device, dtype=torch.bool)
 
