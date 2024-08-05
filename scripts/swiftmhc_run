@@ -811,6 +811,7 @@ class Trainer:
 
                     # end affinity tune here
                     affinity_tune_count = epoch_index - epoch_count
+                    total_epochs = epoch_count + affinity_tune_count + fine_tune_count
 
                 else:
                     _log.info(f"starting affinity tune early at epoch {epoch_index + 1}")
