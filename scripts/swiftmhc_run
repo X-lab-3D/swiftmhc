@@ -814,7 +814,7 @@ class Trainer:
 
             # count epochs
             epoch_counter.update()
-            epoch_index = 0
+            epoch_index += 1
 
             # early stopping, if no more improvement or just end of epochs reached
             if self._early_stop(valid_loss) or epoch_counter.end_reached():
