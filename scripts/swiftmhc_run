@@ -317,6 +317,22 @@ class EarlyStopper:
         return False
 
 
+class EpochCounter:
+    def __init__(self, max_: int):
+        self._count = 0
+        self._max = max_
+
+    def end_reached(self) -> bool:
+        return self._count >= self._max
+
+    def update(self):
+        self._count += 1
+
+    @property
+    def count(self) -> int:
+        return self._count
+
+
 class Trainer:
     def __init__(self,
                  device: torch.device,
@@ -752,24 +768,21 @@ class Trainer:
                            model,
                            run_id, animated_data)
 
+        # init tuning flags
         fape_tune = not disable_struct_loss
         torsion_tune = not disable_struct_loss
         fine_tune = False
         affinity_tune = False
 
-        # do the actual learning iteration
-        total_epochs = epoch_count + affinity_tune_count + fine_tune_count
-        epoch_index = 0
-        while epoch_index < total_epochs:
+        # init epoch counter
+        if disable_struct_loss:
+            epoch_counter = EpochCounter(epoch_count)
+        else:
+            epoch_counter = EpochCounter(affinity_tune_count)
 
-            # determine which loss terms to turn on in training
-            if epoch_index >= (epoch_count + affinity_tune_count):
-                fine_tune = True
-            elif epoch_index >= epoch_count:
-                if disable_ba_loss:
-                    fine_tune = True  # skip affinity tune
-                else:
-                    affinity_tune = True
+        # do the actual learning iteration
+        epoch_index = 0
+        while True:
 
             # train during epoch
             with Timer(f"train epoch {epoch_index}") as t:
@@ -793,39 +806,42 @@ class Trainer:
                                    run_id)
                     t.add_to_title(f"on {len(test_loader.dataset)} data points")
 
-            # early stopping, if no more improvement
-            if self._early_stop(valid_loss):
-
-                # reset the loop's variables
-                self._early_stop.__init__()
-                lowest_loss = float("inf")
-
-                if fine_tune:
-                    _log.info(f"early stop after epoch {epoch_index}")
-
-                    # end training
-                    break
-
-                elif affinity_tune:
-                    _log.info(f"starting fine tune early at epoch {epoch_index + 1}")
-
-                    # end affinity tune here
-                    affinity_tune_count = epoch_index - epoch_count
-                    total_epochs = epoch_count + affinity_tune_count + fine_tune_count
-
-                else:
-                    _log.info(f"starting affinity tune early at epoch {epoch_index + 1}")
-
-                    # end normal epochs here
-                    epoch_count = epoch_index
-
             # If the validation loss improves, save the model.
             if valid_loss < lowest_loss:
                 lowest_loss = valid_loss
 
                 torch.save(model.state_dict(), model_path)
 
-            epoch_index += 1
+            # count epochs
+            epoch_counter.update()
+            epoch_index = 0
+
+            # early stopping, if no more improvement or just end of epochs reached
+            if self._early_stop(valid_loss) or epoch_counter.end_reached():
+
+                # reset the loop's variables
+                self._early_stop.__init__()
+                lowest_loss = float("inf")
+
+                if fine_tune:
+                    _log.info(f"training stops after epoch {epoch_index}")
+
+                    # end training after fine tune
+                    break
+
+                elif affinity_tune or disable_ba_loss:
+                    _log.info(f"starting fine tune at epoch {epoch_index + 1}")
+
+                    # start fine tune
+                    epoch_counter = EpochCounter(fine_tune_count)
+                    fine_tune = True
+
+                elif not disable_ba_loss:
+                    _log.info(f"starting affinity tune at epoch {epoch_index + 1}")
+
+                    # start affinity tune
+                    epoch_counter = EpochCounter(affinity_tune_count)
+                    affinity_tune = True
 
     def get_data_loader(
         self,
