@@ -776,9 +776,9 @@ class Trainer:
 
         # init epoch counter
         if disable_struct_loss:
-            epoch_counter = EpochCounter(epoch_count)
-        else:
             epoch_counter = EpochCounter(affinity_tune_count)
+        else:
+            epoch_counter = EpochCounter(epoch_count)
 
         # do the actual learning iteration
         epoch_index = 0
