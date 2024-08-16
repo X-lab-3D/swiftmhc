@@ -771,8 +771,8 @@ class Trainer:
         # init tuning flags
         fape_tune = not disable_struct_loss
         torsion_tune = not disable_struct_loss
-        fine_tune = False
-        affinity_tune = False
+        fine_tune = (epoch_count + affinity_tune_count) <= 0
+        affinity_tune = (epoch_count <= 0)
 
         # init epoch counter
         if disable_struct_loss:
