@@ -775,10 +775,14 @@ class Trainer:
         affinity_tune = (epoch_count <= 0)
 
         # init epoch counter
-        if disable_struct_loss:
+        if disable_struct_loss and affinity_tune_count > 0:
             epoch_counter = EpochCounter(affinity_tune_count)
-        else:
+
+        elif not disable_struct_loss and epoch_count > 0:
             epoch_counter = EpochCounter(epoch_count)
+
+        else:
+            epoch_counter = EpochCounter(fine_tune_count)
 
         # do the actual learning iteration
         epoch_index = 0
