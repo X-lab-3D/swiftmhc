@@ -299,7 +299,7 @@ class ProteinLoopDataset(Dataset):
                 # only add torsion data for the peptide
                 if prefix == PREPROCESS_PEPTIDE_NAME:
                     variable_iteration += [
-                        ("torsion_angles_sin_cos", self._float_dtype))
+                        ("torsion_angles_sin_cos", self._float_dtype),
                         ("alt_torsion_angles_sin_cos", self._float_dtype),
                         ("torsion_angles_mask", torch.bool),
                     ]
