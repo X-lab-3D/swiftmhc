@@ -843,20 +843,20 @@ class Trainer:
                 lowest_loss = float("inf")
 
                 if fine_tune:
-                    _log.info(f"training stops after epoch {total_epoch_count}")
+                    _log.info(f"training stops after epoch {total_epoch_count - 1}")
 
                     # end training after fine tune
                     break
 
                 elif affinity_tune or disable_ba_loss:
-                    _log.info(f"starting fine tune at epoch {total_epoch_count + 1}")
+                    _log.info(f"starting fine tune at epoch {total_epoch_count}")
 
                     # start fine tune
                     epoch_counter = EpochCounter(fine_tune_count)
                     fine_tune = True
 
                 elif not disable_ba_loss:
-                    _log.info(f"starting affinity tune at epoch {total_epoch_count + 1}")
+                    _log.info(f"starting affinity tune at epoch {total_epoch_count}")
 
                     # start affinity tune
                     epoch_counter = EpochCounter(affinity_tune_count)
