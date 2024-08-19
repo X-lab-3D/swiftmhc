@@ -263,10 +263,11 @@ class ProteinLoopDataset(Dataset):
                                                                         start_index + length,
                                                                         1, device=self._device)
 
-                # get the rest of the data from the HDF5 file
+                # identifiers of the residues within the chain: 1, 2, 3, ..
                 result[f"{prefix}_residue_numbers"] = torch.zeros(max_length, dtype=torch.int, device=self._device)
                 result[f"{prefix}_residue_numbers"][index] = torch.tensor(entry_group[prefix]["residue_numbers"][:], dtype=torch.int, device=self._device)
 
+                # back and forth conversion tables for atom 14 to atom 37 format
                 residx_atom14_to_atom37_data = entry_group[prefix]["residx_atom14_to_atom37"][:]
                 result[f"{prefix}_residx_atom14_to_atom37"] = torch.zeros((max_length, residx_atom14_to_atom37_data.shape[1]), device=self._device, dtype=torch.long)
                 result[f"{prefix}_residx_atom14_to_atom37"][index] = torch.tensor(residx_atom14_to_atom37_data, device=self._device, dtype=torch.long)
@@ -275,21 +276,35 @@ class ProteinLoopDataset(Dataset):
                 result[f"{prefix}_residx_atom37_to_atom14"] = torch.zeros((max_length, residx_atom37_to_atom14_data.shape[1]), device=self._device, dtype=torch.long)
                 result[f"{prefix}_residx_atom37_to_atom14"][index] = torch.tensor(residx_atom37_to_atom14_data, device=self._device, dtype=torch.long)
 
+                # one-hot encoded amino acid sequence
                 result[f"{prefix}_sequence_onehot"] = torch.zeros((max_length, 32), device=self._device, dtype=self._float_dtype)
                 t = torch.tensor(entry_group[prefix]["sequence_onehot"][:], device=self._device, dtype=self._float_dtype)
                 result[f"{prefix}_sequence_onehot"][index, :t.shape[1]] = t
 
+                # blosum 62 encoded amino acid sequence
                 result[f"{prefix}_blosum62"] = torch.zeros((max_length, 32), device=self._device, dtype=self._float_dtype)
                 t = torch.tensor(entry_group[prefix]["blosum62"][:], device=self._device, dtype=self._float_dtype)
                 result[f"{prefix}_blosum62"][index, :t.shape[1]] = t
 
-                for field_name, dtype in [("backbone_rigid_tensor", self._float_dtype),
-                                          ("torsion_angles_sin_cos", self._float_dtype),
-                                          ("alt_torsion_angles_sin_cos", self._float_dtype),
-                                          ("torsion_angles_mask", torch.bool),
-                                          ("atom14_gt_positions", self._float_dtype),
-                                          ("atom14_alt_gt_positions", self._float_dtype),
-                                          ("atom14_gt_exists", torch.bool)]:
+                # backbone frames, used in IPA +
+                # atomic data, used in loss function
+                variable_iteration = [
+                    ("backbone_rigid_tensor", self._float_dtype),
+                    ("atom14_gt_positions", self._float_dtype),
+                    ("atom14_alt_gt_positions", self._float_dtype),
+                    ("atom14_gt_exists", torch.bool),
+                ]
+                # to save memory,
+                # don't add what we don't use.
+                # only add torsion data for the peptide
+                if prefix == PREPROCESS_PEPTIDE_NAME:
+                    variable_iteration += [
+                        ("torsion_angles_sin_cos", self._float_dtype))
+                        ("alt_torsion_angles_sin_cos", self._float_dtype),
+                        ("torsion_angles_mask", torch.bool),
+                    ]
+                # put variables in output dictionary
+                for field_name, dtype in variable_iteration:
 
                     data = entry_group[prefix][field_name][:]
                     t = torch.zeros([max_length] + list(data.shape[1:]), device=self._device, dtype=dtype)
