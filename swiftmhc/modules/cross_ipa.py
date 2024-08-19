@@ -10,9 +10,25 @@ from openfold.utils.tensor_utils import (
     permute_final_dims,
     flatten_final_dims,
 )
+from .tools.quat import rotate_vec_by_quat, conjugate_quat
 
 
 _log = logging.getLogger(__name__)
+
+
+def apply(r: Rigid, v: torch.Tensor) -> torch.Tensor:
+    t = r.get_trans()
+    q = r.get_rots().get_quats()
+
+    return t + rotate_vec_by_quat(q, v)
+
+
+def invert_apply(r: Rigid, v: torch.Tensor) -> torch.Tensor:
+    t = r.get_trans()
+    q = r.get_rots().get_quats()
+    inv_q = conjugate_quat(q)
+
+    return rotate_vec_by_quat(inv_q, v - t)
 
 
 class CrossInvariantPointAttention(torch.nn.Module):
@@ -150,7 +166,7 @@ class CrossInvariantPointAttention(torch.nn.Module):
         # [*, len_dst, H * P_q, 3]
         q_pts = torch.split(q_pts, q_pts.shape[-1] // 3, dim=-1)
         q_pts = torch.stack(q_pts, dim=-1)
-        q_pts = T_dst[..., None].apply(q_pts)
+        q_pts = apply(T_dst[..., None], q_pts)
 
         # [*, len_dst, H, P_q, 3]
         q_pts = q_pts.view(
@@ -163,7 +179,7 @@ class CrossInvariantPointAttention(torch.nn.Module):
         # [*, len_src, H * (P_q + P_v), 3]
         kv_pts = torch.split(kv_pts, kv_pts.shape[-1] // 3, dim=-1)
         kv_pts = torch.stack(kv_pts, dim=-1)
-        kv_pts = T_src[..., None].apply(kv_pts)
+        kv_pts = apply(T_src[..., None], kv_pts)
 
         # [*, len_src, H, (P_q + P_v), 3]
         kv_pts = kv_pts.view(kv_pts.shape[:-2] + (self.no_heads, -1, 3))
@@ -269,7 +285,7 @@ class CrossInvariantPointAttention(torch.nn.Module):
 
         # [*, len_dst, H, P_v, 3]
         o_pt = permute_final_dims(o_pt, (2, 0, 3, 1))
-        o_pt = T_dst[..., None, None].invert_apply(o_pt)
+        o_pt = invert_apply(T_dst[..., None, None], o_pt)
 
         # [*, len_dst, H * P_v]
         o_pt_norm = flatten_final_dims(
