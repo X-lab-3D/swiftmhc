@@ -290,34 +290,46 @@ def remove_module_prefix(state: Dict[str, torch.Tensor]) -> Dict[str, torch.Tens
 
 
 class EarlyStopper:
+    """
+    Keeps track of early stopping variables and checks whether the conditions
+    for early stopping are met.
+    """
+
     def __init__(self, patience: int = 30, epsilon: float = 0.01):
 
-        self._patience = patience
-        self._epsilon = epsilon
+        self._patience = patience  # number of successive epochs matching epsilon
+        self._epsilon = epsilon  # max difference between validation loss values
 
-        self._counter = 0
-        self._lowest_validation_loss = float('inf')
+        self._counter = 0  # count number of epochs matching epsilon
+        self._lowest_validation_loss = float('inf')  # lowest value encountered so far
 
     def __call__(self, validation_loss: float):
 
         if validation_loss < self._lowest_validation_loss:
 
-            self._lowest_validation_loss = validation_loss
-            self._counter = 0
+            if abs(validation_loss - self._lowest_validation_loss) > self._epsilon:
+                self._counter = 0
 
-        elif abs(validation_loss - self._lowest_validation_loss) < self._epsilon:
+            self._lowest_validation_loss = validation_loss
+
+        elif abs(validation_loss - self._lowest_validation_loss) <= self._epsilon:
 
             self._counter += 1
             if self._counter >= self._patience:
                 return True
 
-        else:  # interrupted
+        else:  # interrupted, difference is bigger than epsilon
             self._counter = 0
 
         return False
 
 
 class EpochCounter:
+    """
+    Keeps track of the number of epochs passed,
+    before a maximum is reached.
+    """
+
     def __init__(self, max_: int):
         self._count = 0
         self._max = max_
@@ -352,8 +364,6 @@ class Trainer:
         self._model_type = model_type
 
         self._device = device
-
-        self._early_stop = EarlyStopper()
 
         # for snapshots: every 20 batches
         self._snap_period = 20
@@ -784,31 +794,26 @@ class Trainer:
         else:
             epoch_counter = EpochCounter(fine_tune_count)
 
+        # init early stop
+        early_stop = EarlyStopper()
+
         # do the actual learning iteration
-        epoch_index = 0
+        total_epoch_count = 0
         while True:
 
             # train during epoch
-            with Timer(f"train epoch {epoch_index}") as t:
-                self._epoch(epoch_index, optimizer, model, train_loader,
+            with Timer(f"train epoch {total_epoch_count}") as t:
+                self._epoch(total_epoch_count, optimizer, model, train_loader,
                             affinity_tune, fape_tune, torsion_tune, fine_tune,
                             run_id, animated_data)
                 t.add_to_title(f"on {len(train_loader.dataset)} data points")
 
             # validate
-            with Timer(f"valid epoch {epoch_index}") as t:
-                valid_loss = self._validate(epoch_index, model, valid_loader,
+            with Timer(f"valid epoch {total_epoch_count}") as t:
+                valid_loss = self._validate(total_epoch_count, model, valid_loader,
                                             affinity_tune, fape_tune, torsion_tune, fine_tune,
                                             run_id)
                 t.add_to_title(f"on {len(valid_loader.dataset)} data points")
-
-            # test
-            for test_loader in test_loaders:
-                with Timer(f"test epoch {epoch_index}") as t:
-                    self._validate(epoch_index, model, test_loader,
-                                   not disable_ba_loss, fape_tune, torsion_tune, True,
-                                   run_id)
-                    t.add_to_title(f"on {len(test_loader.dataset)} data points")
 
             # If the validation loss improves, save the model.
             if valid_loss < lowest_loss:
@@ -816,32 +821,42 @@ class Trainer:
 
                 torch.save(model.state_dict(), model_path)
 
+            # test
+            for test_loader in test_loaders:
+                with Timer(f"test epoch {total_epoch_count}") as t:
+                    self._validate(total_epoch_count, model, test_loader,
+                                   not disable_ba_loss, fape_tune, torsion_tune, True,
+                                   run_id)
+                    t.add_to_title(f"on {len(test_loader.dataset)} data points")
+
             # count epochs
             epoch_counter.update()
-            epoch_index += 1
+            total_epoch_count += 1
 
             # early stopping, if no more improvement or just end of epochs reached
-            if self._early_stop(valid_loss) or epoch_counter.end_reached():
+            if early_stop(valid_loss) or epoch_counter.end_reached():
 
-                # reset the loop's variables
-                self._early_stop.__init__()
+                # reset early stopping variables
+                early_stop = EarlyStopper()
+
+                # reset lowest loss variable, to be sure that future best models get saved
                 lowest_loss = float("inf")
 
                 if fine_tune:
-                    _log.info(f"training stops after epoch {epoch_index}")
+                    _log.info(f"training stops after epoch {total_epoch_count}")
 
                     # end training after fine tune
                     break
 
                 elif affinity_tune or disable_ba_loss:
-                    _log.info(f"starting fine tune at epoch {epoch_index + 1}")
+                    _log.info(f"starting fine tune at epoch {total_epoch_count + 1}")
 
                     # start fine tune
                     epoch_counter = EpochCounter(fine_tune_count)
                     fine_tune = True
 
                 elif not disable_ba_loss:
-                    _log.info(f"starting affinity tune at epoch {epoch_index + 1}")
+                    _log.info(f"starting affinity tune at epoch {total_epoch_count + 1}")
 
                     # start affinity tune
                     epoch_counter = EpochCounter(affinity_tune_count)
@@ -869,6 +884,7 @@ class Trainer:
             a data loader, providing access to the requested data
         """
 
+        # create dataset as entrypoint to the data hdf5 file
         dataset = ProteinLoopDataset(data_path, device,
                                      peptide_maxlen=self.peptide_maxlen,
                                      protein_maxlen=self.protein_maxlen,
@@ -876,6 +892,7 @@ class Trainer:
         if name is not None:
             dataset.name = name
 
+        # wrap the dataset in a data loader
         loader = DataLoader(dataset,
                             collate_fn=ProteinLoopDataset.collate,
                             batch_size=batch_size,
@@ -957,6 +974,7 @@ if __name__ == "__main__":
             if not os.path.isfile(pretrained_model_path):
                 pretrained_model_path = None
     else:
+        # create a directory to store the results in
         os.mkdir(run_id)
 
     # apply debug settings, if chosen so
