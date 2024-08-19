@@ -21,7 +21,6 @@ from openfold.np.residue_constants import (restype_atom14_ambiguous_atoms as ope
                                            atom_order as openfold_atom_order,
                                            restype_num as openfold_restype_num,
                                            chi_pi_periodic as openfold_chi_pi_periodic)
-from openfold.utils.rigid_utils import Rigid
 from openfold.utils.tensor_utils import (masked_mean as openfold_masked_mean,
                                          batched_gather as openfold_batched_gather)
 from openfold.utils.feats import atom14_to_atom37 as openfold_atom14_to_atom37
@@ -38,20 +37,20 @@ from openfold.utils.loss import (violation_loss as openfold_compute_violation_lo
                                  softmax_cross_entropy as openfold_softmax_cross_entropy)
 from openfold.data.data_transforms import (atom37_to_frames as openfold_atom37_to_frames,
                                            make_atom14_masks as openfold_make_atom14_masks)
-from openfold.utils.rigid_utils import Rigid, Rotation
 from openfold.config import config as openfold_config
 from openfold.utils.tensor_utils import permute_final_dims
 
-from swiftmhc.models.types import ModelType
-from swiftmhc.time import Timer
-from swiftmhc.preprocess import preprocess
-from swiftmhc.dataset import ProteinLoopDataset
-from swiftmhc.modules.predictor import Predictor
-from swiftmhc.models.amino_acid import AminoAcid
-from swiftmhc.tools.amino_acid import one_hot_decode_sequence
-from swiftmhc.models.data import TensorDict
-from swiftmhc.tools.pdb import recreate_structure
-from swiftmhc.domain.amino_acid import amino_acids_by_one_hot_index
+from .models.types import ModelType
+from .time import Timer
+from .preprocess import preprocess
+from .dataset import ProteinLoopDataset
+from .modules.predictor import Predictor
+from .models.amino_acid import AminoAcid
+from .tools.amino_acid import one_hot_decode_sequence
+from .models.data import TensorDict
+from .tools.pdb import recreate_structure
+from .domain.amino_acid import amino_acids_by_one_hot_index
+from .tools.rigid import Rigid
 
 
 _log = logging.getLogger(__name__)

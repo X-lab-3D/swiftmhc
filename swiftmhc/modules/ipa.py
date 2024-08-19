@@ -4,10 +4,11 @@ import math
 import logging
 import torch
 
-from openfold.utils.rigid_utils import Rigid, Rotation
 from openfold.model.primitives import Linear, LayerNorm, ipa_point_weights_init_
 from openfold.utils.precision_utils import is_fp16_enabled
 from openfold.utils.tensor_utils import permute_final_dims, flatten_final_dims, dict_multimap
+
+from ..tools.rigid import Rigid
 
 
 _log = logging.getLogger(__name__)

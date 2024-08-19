@@ -9,7 +9,6 @@ from torch.nn.modules.transformer import TransformerEncoder
 import torch
 import ml_collections
 
-from openfold.utils.rigid_utils import Rigid, Rotation
 from openfold.utils.loss import compute_plddt
 from openfold.data.data_transforms import make_atom14_masks
 from openfold.data.data_pipeline import make_sequence_features
@@ -17,6 +16,7 @@ from openfold.utils.loss import find_structural_violations
 from openfold.utils.feats import atom14_to_atom37
 from openfold.model.primitives import LayerNorm
 
+from ..tools.rigid import Rigid
 from .position_encoding import RelativePositionEncoder
 from .cross_structure_module import CrossStructureModule
 from ..domain.amino_acid import AMINO_ACID_DIMENSION

@@ -3,7 +3,7 @@ import logging
 
 import torch
 
-from openfold.utils.rigid_utils import Rotation, Rigid
+from openfold.utils.rigid_utils import Rotation
 from openfold.model.primitives import Linear, LayerNorm
 from openfold.model.structure_module import AngleResnet, StructureModuleTransition
 from openfold.utils.tensor_utils import dict_multimap
@@ -18,6 +18,7 @@ from openfold.np.residue_constants import (
     restype_atom14_rigid_group_positions,
 )
 
+from ..tools.rigid import Rigid
 from .cross_ipa import CrossInvariantPointAttention
 from ..operate import average_rigid
 

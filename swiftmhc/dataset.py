@@ -14,7 +14,6 @@ from torch.nn.functional import pad
 from sklearn.decomposition import PCA
 
 from openfold.data.data_transforms import make_atom14_masks
-from openfold.utils.rigid_utils import Rigid
 from openfold.np import residue_constants
 
 from .models.types import ModelType

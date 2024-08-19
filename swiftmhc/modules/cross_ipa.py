@@ -4,31 +4,15 @@ import logging
 import torch
 
 from openfold.utils.precision_utils import is_fp16_enabled
-from openfold.utils.rigid_utils import Rigid
 from openfold.model.primitives import Linear, LayerNorm, ipa_point_weights_init_
 from openfold.utils.tensor_utils import (
     permute_final_dims,
     flatten_final_dims,
 )
-from .tools.quat import rotate_vec_by_quat, conjugate_quat
+from ..tools.rigid import Rigid
 
 
 _log = logging.getLogger(__name__)
-
-
-def apply(r: Rigid, v: torch.Tensor) -> torch.Tensor:
-    t = r.get_trans()
-    q = r.get_rots().get_quats()
-
-    return t + rotate_vec_by_quat(q, v)
-
-
-def invert_apply(r: Rigid, v: torch.Tensor) -> torch.Tensor:
-    t = r.get_trans()
-    q = r.get_rots().get_quats()
-    inv_q = conjugate_quat(q)
-
-    return rotate_vec_by_quat(inv_q, v - t)
 
 
 class CrossInvariantPointAttention(torch.nn.Module):
