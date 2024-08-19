@@ -5,7 +5,7 @@ import torch
 
 from openfold.utils.rigid_utils import Rotation
 
-from .tools.rigid import Rigid
+from ..tools.rigid import Rigid
 
 
 _log = logging.getLogger(__name__)

@@ -1,3 +1,5 @@
+import torch
+
 import openfold.utils.rigid_utils
 
 
