@@ -103,8 +103,9 @@ class Predictor(torch.nn.Module):
             raise TypeError(str(model_type))
 
         # module for predicting affinity from updated {s_i}
+        # residue-wise mlp
         c_transition = 128
-        self.affinity_transition = torch.nn.Sequential(
+        self.affinity_module = torch.nn.Sequential(
             torch.nn.Linear(structure_module_config.c_s, c_transition),
             torch.nn.ReLU(),
             torch.nn.Linear(c_transition, output_size),
@@ -201,7 +202,7 @@ class Predictor(torch.nn.Module):
         peptide_embd = output["single"]
 
         # [*, peptide_maxlen, output_size]
-        p = self.affinity_transition(peptide_embd)
+        p = self.affinity_module(peptide_embd)
 
         # [*, peptide_maxlen, 1]
         mask = batch["peptide_cross_residues_mask"].unsqueeze(-1)
@@ -213,7 +214,7 @@ class Predictor(torch.nn.Module):
         masked_p = torch.where(mask, p, 0.0)
 
         # [*, output_size]
-        ba_output = masked_p.sum(dim=-2) / length.unsqueeze(-1)
+        ba_output = masked_p.sum(dim=-2)
 
         # affinity prediction
         if self.model_type == ModelType.REGRESSION:
