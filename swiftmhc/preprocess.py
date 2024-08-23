@@ -470,9 +470,9 @@ def _create_proximities(residues1: List[Residue], residues2: List[Residue]) -> t
     residue_distances = torch.empty((len(residues1), len(residues2), 1), dtype=torch.float32, device=device)
 
     # get atomic coordinates
-    atom_positions1 = [torch.tensor(numpy.array([atom.coord for atom in residue.get_atoms()]), device=device)
+    atom_positions1 = [torch.tensor(numpy.array([atom.coord for atom in residue.get_atoms() if atom.element != "H"]), device=device)
                        for residue in residues1]
-    atom_positions2 = [torch.tensor(numpy.array([atom.coord for atom in residue.get_atoms()]), device=device)
+    atom_positions2 = [torch.tensor(numpy.array([atom.coord for atom in residue.get_atoms() if atom.element != "H"]), device=device)
                        for residue in residues2]
 
     # calculate distance matrix, using the shortest interatomic distance between two residues
