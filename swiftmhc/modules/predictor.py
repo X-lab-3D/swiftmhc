@@ -117,7 +117,7 @@ class Predictor(torch.nn.Module):
         """
 
         # [N, N, c_z]
-        relpos = get_relative_position_encoding_matrix(mask.shape[-1], self.peptide_encoding_dim)
+        relpos = get_relative_position_encoding_matrix(mask.shape[-1], self.peptide_encoding_dim).to(device=features.device)
 
         # [N, N]
         square_mask = mask[..., :, None] * mask[..., None, :]
