@@ -307,8 +307,8 @@ class EarlyStopper:
 
         if validation_loss < self._lowest_validation_loss:
 
-            if abs(validation_loss - self._lowest_validation_loss) > self._epsilon:
-                self._counter = 0
+            # postpone early stopping if validation loss is still going down
+            self._counter = 0
 
             self._lowest_validation_loss = validation_loss
 
