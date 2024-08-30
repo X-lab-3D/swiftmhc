@@ -62,8 +62,11 @@ class Predictor(torch.nn.Module):
         self.n_head = structure_module_config.no_heads_ipa
         self.n_ipa_repeat = structure_module_config.no_blocks
 
-        # modules for self attention on peptide, updating {s_i}
-        self.relpos_encode = torch.nn.Linear(self.peptide_maxlen * (self.peptide_maxlen * 2 - 1), structure_module_config.c_s)
+        # modules for encoding peptide
+        self.peptide_encoding_dim = 32
+        self.peptide_linear_i = torch.nn.Linear(structure_module_config.c_s, self.peptide_encoding_dim)
+        self.peptide_linear_j = torch.nn.Linear(structure_module_config.c_s, self.peptide_encoding_dim)
+        self.peptide_relpos_linear = torch.nn.Linear(self.peptide_encoding_dim, structure_module_config.c_s)
 
         # modules for self attention on protein, updating {s_j}
         self.protein_dist_norm = torch.nn.LayerNorm((self.protein_maxlen, self.protein_maxlen, 1))
@@ -113,20 +116,22 @@ class Predictor(torch.nn.Module):
             [*, N, c_s] position encoded representation of peptide
         """
 
-        # [N, N, 2 * N - 1]
-        relpos = get_relative_position_encoding_matrix(mask.shape[-1])
+        # [N, N, c_z]
+        relpos = get_relative_position_encoding_matrix(mask.shape[-1], self.peptide_encoding_dim)
 
         # [N, N]
         square_mask = mask[..., :, None] * mask[..., None, :]
 
+        # [*, N, c_z]
+        s_i = self.peptide_linear_i(features)
+        s_j = self.peptide_linear_j(features)
+
         # set nonexistent neighbours to zero
-        # [*, N, N, 2 * N - 1]
-        relpos = relpos[None, ...] * square_mask[..., None]
+        # [*, N, N, c_s]
+        outer_sum = self.peptide_relpos_linear(s_i[..., :, None, :] + s_j[..., None, :, :] + relpos[None, ...]) * square_mask[..., None]
 
         # [*, N, c_s]
-        b = self.relpos_encode(relpos.reshape(list(relpos.shape[:-2]) + [-1]).float())
-
-        return b + features
+        return outer_sum.sum(dim=-2)
 
 
     def forward(self, batch: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
@@ -173,7 +178,7 @@ class Predictor(torch.nn.Module):
         protein_slice_length = protein_slice.sum()
         protein_prox_slice = torch.logical_and(protein_slice[None, :], protein_slice[:, None])
 
-        # self attention on the peptide
+        # encode the peptide
         peptide_embd = self._encode_peptide(peptide_seq.clone(), batch["peptide_self_residues_mask"])
 
         # structure-based self-attention on the protein
