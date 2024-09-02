@@ -303,8 +303,7 @@ class EarlyStopper:
         self._counter = 0  # count number of epochs matching epsilon
         self._lowest_validation_loss = float('inf')  # lowest value encountered so far
 
-    def __call__(self, validation_loss: float):
-
+    def update(self, validation_loss: float):
         if validation_loss < self._lowest_validation_loss:
 
             # postpone early stopping if validation loss is still going down
@@ -315,34 +314,60 @@ class EarlyStopper:
         elif abs(validation_loss - self._lowest_validation_loss) <= self._epsilon:
 
             self._counter += 1
-            if self._counter >= self._patience:
-                return True
 
         else:  # interrupted, difference is bigger than epsilon
             self._counter = 0
 
-        return False
+    def stops_early(self) -> bool:
+        return self._counter >= self._patience
 
 
-class EpochCounter:
+class TrainingPhase:
     """
     Keeps track of the number of epochs passed,
     before a maximum is reached.
     """
 
-    def __init__(self, max_: int):
-        self._count = 0
-        self._max = max_
+    def __init__(
+        self,
+        max_epoch_count: int,
+        fape_tune: bool,
+        torsion_tune: bool,
+        affinity_tune: bool,
+        fine_tune: bool,
+    ):
+        self._epoch_count = 0
+        self._max_epoch_count = max_epoch_count
+        self._fape_tune = fape_tune
+        self._torsion_tune = torsion_tune
+        self._affinity_tune = affinity_tune
+        self._fine_tune = fine_tune
 
     def end_reached(self) -> bool:
-        return self._count >= self._max
+        return self._epoch_count >= self._max_epoch_count
 
     def update(self):
-        self._count += 1
+        self._epoch_count += 1
 
     @property
-    def count(self) -> int:
-        return self._count
+    def epoch_count(self) -> int:
+        return self._epoch_count
+
+    @property
+    def fape_tune(self):
+        return self._fape_tune
+
+    @property
+    def torsion_tune(self):
+        return self._torsion_tune
+
+    @property
+    def affinity_tune(self):
+        return self._affinity_tune
+
+    @property
+    def fine_tune(self):
+        return self._fine_tune
 
 
 class Trainer:
@@ -778,21 +803,12 @@ class Trainer:
                            model,
                            run_id, animated_data)
 
-        # init tuning flags
-        fape_tune = not disable_struct_loss
-        torsion_tune = not disable_struct_loss
-        fine_tune = (epoch_count + affinity_tune_count) <= 0
-        affinity_tune = (epoch_count <= 0)
-
-        # init epoch counter
-        if disable_struct_loss and affinity_tune_count > 0:
-            epoch_counter = EpochCounter(affinity_tune_count)
-
-        elif not disable_struct_loss and epoch_count > 0:
-            epoch_counter = EpochCounter(epoch_count)
-
-        else:
-            epoch_counter = EpochCounter(fine_tune_count)
+        # create training phases
+        training_phases = [
+            TrainingPhase(epoch_count, not disable_struct_loss, not disable_struct_loss, False, False),
+            TrainingPhase(affinity_tune_count, not disable_struct_loss, not disable_struct_loss, not disable_ba_loss, False),
+            TrainingPhase(fine_tune_count, not disable_struct_loss, not disable_struct_loss, not disable_ba_loss, not disable_struct_loss),
+        ]
 
         # init early stop
         early_stop = EarlyStopper()
@@ -801,40 +817,8 @@ class Trainer:
         total_epoch_count = 0
         while True:
 
-            # train during epoch
-            with Timer(f"train epoch {total_epoch_count}") as t:
-                self._epoch(total_epoch_count, optimizer, model, train_loader,
-                            affinity_tune, fape_tune, torsion_tune, fine_tune,
-                            run_id, animated_data)
-                t.add_to_title(f"on {len(train_loader.dataset)} data points")
-
-            # validate
-            with Timer(f"valid epoch {total_epoch_count}") as t:
-                valid_loss = self._validate(total_epoch_count, model, valid_loader,
-                                            affinity_tune, fape_tune, torsion_tune, fine_tune,
-                                            run_id)
-                t.add_to_title(f"on {len(valid_loader.dataset)} data points")
-
-            # If the validation loss improves, save the model.
-            if valid_loss < lowest_loss:
-                lowest_loss = valid_loss
-
-                torch.save(model.state_dict(), model_path)
-
-            # test
-            for test_loader in test_loaders:
-                with Timer(f"test epoch {total_epoch_count}") as t:
-                    self._validate(total_epoch_count, model, test_loader,
-                                   not disable_ba_loss, fape_tune, torsion_tune, True,
-                                   run_id)
-                    t.add_to_title(f"on {len(test_loader.dataset)} data points")
-
-            # count epochs
-            epoch_counter.update()
-            total_epoch_count += 1
-
             # early stopping, if no more improvement or just end of epochs reached
-            if early_stop(valid_loss) or epoch_counter.end_reached():
+            if early_stop.stops_early() or training_phases[0].end_reached():
 
                 # reset early stopping variables
                 early_stop = EarlyStopper()
@@ -842,25 +826,58 @@ class Trainer:
                 # reset lowest loss variable, to be sure that future best models get saved
                 lowest_loss = float("inf")
 
-                if fine_tune:
-                    _log.info(f"training stops after epoch {total_epoch_count - 1}")
+                # move on to the next training phase
+                training_phases = training_phases[1:]
+                _log.info(f"end training phase at epoch {total_epoch_count}")
 
-                    # end training after fine tune
-                    break
+                # if no more training phases, end training
+                if len(training_phases) == 0:
+                    return
 
-                elif affinity_tune or disable_ba_loss:
-                    _log.info(f"starting fine tune at epoch {total_epoch_count}")
+            # train during epoch
+            with Timer(f"train epoch {total_epoch_count}") as t:
+                self._epoch(total_epoch_count, optimizer, model, train_loader,
+                            training_phases[0].affinity_tune,
+                            training_phases[0].fape_tune,
+                            training_phases[0].torsion_tune,
+                            training_phases[0].fine_tune,
+                            run_id, animated_data)
+                t.add_to_title(f"on {len(train_loader.dataset)} data points")
 
-                    # start fine tune
-                    epoch_counter = EpochCounter(fine_tune_count)
-                    fine_tune = True
+            # validate
+            with Timer(f"valid epoch {total_epoch_count}") as t:
+                valid_loss = self._validate(total_epoch_count, model, valid_loader,
+                                            training_phases[0].affinity_tune,
+                                            training_phases[0].fape_tune,
+                                            training_phases[0].torsion_tune,
+                                            training_phases[0].fine_tune,
+                                            run_id)
+                t.add_to_title(f"on {len(valid_loader.dataset)} data points")
 
-                elif not disable_ba_loss:
-                    _log.info(f"starting affinity tune at epoch {total_epoch_count}")
+            # update from the validation loss
+            early_stop.update(valid_loss)
 
-                    # start affinity tune
-                    epoch_counter = EpochCounter(affinity_tune_count)
-                    affinity_tune = True
+            # If the validation loss improves, save the model.
+            if valid_loss < lowest_loss:
+                lowest_loss = valid_loss
+
+                _log.info(f"saving model at epoch {total_epoch_count}")
+                torch.save(model.state_dict(), model_path)
+
+            # test
+            for test_loader in test_loaders:
+                with Timer(f"test epoch {total_epoch_count}") as t:
+                    self._validate(total_epoch_count, model, test_loader,
+                                   training_phases[0].affinity_tune,
+                                   training_phases[0].fape_tune,
+                                   training_phases[0].fape_tune,
+                                   training_phases[0].fine_tune,
+                                   run_id)
+                    t.add_to_title(f"on {len(test_loader.dataset)} data points")
+
+            # count epochs
+            training_phases[0].update()
+            total_epoch_count += 1
 
     def get_data_loader(
         self,
