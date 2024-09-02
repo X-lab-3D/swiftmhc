@@ -62,11 +62,19 @@ class Predictor(torch.nn.Module):
         self.n_head = structure_module_config.no_heads_ipa
         self.n_ipa_repeat = structure_module_config.no_blocks
 
+        c_transition = 128
+
         # modules for encoding peptide
+        self.relpos_dim = 32
         self.peptide_encoding_dim = 32
+        self.relpos_linear = torch.nn.Linear(self.relpos_dim, self.peptide_encoding_dim)
         self.peptide_linear_i = torch.nn.Linear(structure_module_config.c_s, self.peptide_encoding_dim)
         self.peptide_linear_j = torch.nn.Linear(structure_module_config.c_s, self.peptide_encoding_dim)
-        self.peptide_relpos_linear = torch.nn.Linear(self.peptide_encoding_dim, structure_module_config.c_s)
+        self.peptide_relpos_trans = torch.nn.Sequential(
+            torch.nn.Linear(self.peptide_encoding_dim, c_transition),
+            torch.nn.ReLU(),
+            torch.nn.Linear(c_transition, structure_module_config.c_s),
+        )
 
         # modules for self attention on protein, updating {s_j}
         self.protein_dist_norm = torch.nn.LayerNorm((self.protein_maxlen, self.protein_maxlen, 1))
@@ -100,7 +108,6 @@ class Predictor(torch.nn.Module):
 
         # module for predicting affinity from updated {s_i}
         # residue-wise mlp
-        c_transition = 128
         self.affinity_module = torch.nn.Sequential(
             torch.nn.Linear(structure_module_config.c_s, c_transition),
             torch.nn.ReLU(),
@@ -117,7 +124,10 @@ class Predictor(torch.nn.Module):
         """
 
         # [N, N, c_z]
-        relpos = get_relative_position_encoding_matrix(mask.shape[-1], self.peptide_encoding_dim).to(device=features.device)
+        relpos = get_relative_position_encoding_matrix(mask.shape[-1], self.relpos_dim).to(device=features.device)
+
+        # [N, N, c_z]
+        r_ij = self.relpos_linear(relpos.float())
 
         # [N, N]
         square_mask = mask[..., :, None] * mask[..., None, :]
@@ -126,9 +136,9 @@ class Predictor(torch.nn.Module):
         s_i = self.peptide_linear_i(features)
         s_j = self.peptide_linear_j(features)
 
-        # set nonexistent neighbours to zero
+        # use the mask to set nonexistent neighbours to zero
         # [*, N, N, c_s]
-        outer_sum = self.peptide_relpos_linear(s_i[..., :, None, :] + s_j[..., None, :, :] + relpos[None, ...]) * square_mask[..., None]
+        outer_sum = self.peptide_relpos_trans(s_i[..., :, None, :] + s_j[..., None, :, :] + r_ij[None, ...]) * square_mask[..., None]
 
         # [*, N, c_s]
         return outer_sum.sum(dim=-2)
