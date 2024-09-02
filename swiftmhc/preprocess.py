@@ -20,8 +20,6 @@ from Bio.PDB.Polypeptide import is_aa
 from Bio.Data.IUPACData import protein_letters_1to3
 from blosum import BLOSUM
 
-from pymol import cmd as pymol_cmd
-
 from openfold.np.residue_constants import restype_atom37_mask, restype_atom14_mask, chi_angles_mask, restypes
 from openfold.data.data_transforms import (atom37_to_frames,
                                            atom37_to_torsion_angles,
@@ -500,6 +498,8 @@ def _pymol_superpose(mobile_path: str, target_path: str) -> Tuple[str, str]:
         a path to the superposed PDB structure
         and a path to the clustal alignment (.aln) file
     """
+
+    from pymol import cmd as pymol_cmd
 
     # define output paths
     name = os.path.basename(mobile_path)
