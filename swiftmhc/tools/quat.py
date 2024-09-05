@@ -18,7 +18,7 @@ def multiply_quat(q1: torch.Tensor, q2: torch.Tensor) -> torch.Tensor:
 
 def rotate_vec_by_quat(q: torch.Tensor, v: torch.Tensor) -> torch.Tensor:
     r = v.new_zeros(list(v.shape[:-1]) + [4])
-    r[..., 1:] = v 
+    r[..., 1:] = v
 
     q_conj = conjugate_quat(q)
     r = multiply_quat(multiply_quat(q, r), q_conj)
