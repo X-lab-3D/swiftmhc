@@ -82,8 +82,6 @@ class Predictor(torch.nn.Module):
 
         # module for predicting affinity from updated {s_i}
         self.affinity_module = torch.nn.Sequential(
-            torch.nn.Dropout(config.dropout_rate),
-            torch.nn.LayerNorm(config.c_s),
             torch.nn.Linear(config.c_s, config.c_transition),
             torch.nn.ReLU(),
             torch.nn.Linear(config.c_transition, output_size),
