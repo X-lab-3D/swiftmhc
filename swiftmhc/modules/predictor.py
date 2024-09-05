@@ -16,9 +16,8 @@ from openfold.utils.loss import find_structural_violations
 from openfold.utils.feats import atom14_to_atom37
 from openfold.model.primitives import LayerNorm
 
-from position_encoding.relative import get_relative_position_encoding_matrix
-
 from ..tools.rigid import Rigid
+from .sequence_attention import SequenceEncoder
 from .cross_structure_module import CrossStructureModule
 from ..domain.amino_acid import AMINO_ACID_DIMENSION
 from ..models.data import TensorDict
@@ -62,18 +61,15 @@ class Predictor(torch.nn.Module):
         self.n_head = structure_module_config.no_heads_ipa
         self.n_ipa_repeat = structure_module_config.no_blocks
 
-        c_transition = 128
+        # modules for self attention on peptide, updating {s_i}
+        self.transform = torch.nn.ModuleList([
+            SequenceEncoder(self.n_head, self.peptide_maxlen, structure_module_config.c_s)
+            for _ in range(structure_module_config.no_blocks)
+        ])
 
-        # modules for encoding peptide
-        self.relpos_dim = 32
-        self.peptide_encoding_dim = 32
-        self.relpos_linear = torch.nn.Linear(self.relpos_dim, self.peptide_encoding_dim)
-        self.peptide_linear_i = torch.nn.Linear(structure_module_config.c_s, self.peptide_encoding_dim)
-        self.peptide_linear_j = torch.nn.Linear(structure_module_config.c_s, self.peptide_encoding_dim)
-        self.peptide_relpos_trans = torch.nn.Sequential(
-            torch.nn.Linear(self.peptide_encoding_dim, c_transition),
-            torch.nn.ReLU(),
-            torch.nn.Linear(c_transition, structure_module_config.c_s),
+        self.peptide_norm = torch.nn.Sequential(
+            torch.nn.Dropout(p=structure_module_config.dropout_rate),
+            LayerNorm(structure_module_config.c_s)
         )
 
         # modules for self attention on protein, updating {s_j}
@@ -107,42 +103,12 @@ class Predictor(torch.nn.Module):
             raise TypeError(str(model_type))
 
         # module for predicting affinity from updated {s_i}
-        # residue-wise mlp
-        self.affinity_module = torch.nn.Sequential(
+        c_transition = 128
+        self.affinity_transition = torch.nn.Sequential(
             torch.nn.Linear(structure_module_config.c_s, c_transition),
             torch.nn.ReLU(),
             torch.nn.Linear(c_transition, output_size),
         )
-
-    def _encode_peptide(self, features: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
-        """
-        Args:
-            features: [*, N, c_s] amino acid representation of peptide
-            mask: [*, N] (bool) which peptide residues exist or not
-        Returns:
-            [*, N, c_s] position encoded representation of peptide
-        """
-
-        # [N, N, c_z]
-        relpos = get_relative_position_encoding_matrix(mask.shape[-1], self.relpos_dim).to(device=features.device)
-
-        # [N, N, c_z]
-        r_ij = self.relpos_linear(relpos.float())
-
-        # [N, N]
-        square_mask = mask[..., :, None] * mask[..., None, :]
-
-        # [*, N, c_z]
-        s_i = self.peptide_linear_i(features)
-        s_j = self.peptide_linear_j(features)
-
-        # use the mask to set nonexistent neighbours to zero
-        # [*, N, N, c_s]
-        outer_sum = self.peptide_relpos_trans(s_i[..., :, None, :] + s_j[..., None, :, :] + r_ij[None, ...]) * square_mask[..., None]
-
-        # [*, N, c_s]
-        return outer_sum.sum(dim=-2)
-
 
     def forward(self, batch: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
         """
@@ -188,8 +154,11 @@ class Predictor(torch.nn.Module):
         protein_slice_length = protein_slice.sum()
         protein_prox_slice = torch.logical_and(protein_slice[None, :], protein_slice[:, None])
 
-        # encode the peptide
-        peptide_embd = self._encode_peptide(peptide_seq.clone(), batch["peptide_self_residues_mask"])
+        # self attention on the peptide
+        peptide_embd = peptide_seq.clone()
+        for encoder in self.transform:
+            peptide_upd, peptide_a = encoder(peptide_embd[:, peptide_slice], batch["peptide_self_residues_mask"][:, peptide_slice])
+            peptide_embd[:, peptide_slice] = self.peptide_norm(peptide_embd[:, peptide_slice] + peptide_upd)
 
         # structure-based self-attention on the protein
         protein_T = Rigid.from_tensor_4x4(batch["protein_backbone_rigid_tensor"])
@@ -232,7 +201,7 @@ class Predictor(torch.nn.Module):
         peptide_embd = output["single"]
 
         # [*, peptide_maxlen, output_size]
-        p = self.affinity_module(peptide_embd)
+        p = self.affinity_transition(peptide_embd)
 
         # [*, peptide_maxlen, 1]
         mask = batch["peptide_cross_residues_mask"].unsqueeze(-1)
@@ -244,7 +213,7 @@ class Predictor(torch.nn.Module):
         masked_p = torch.where(mask, p, 0.0)
 
         # [*, output_size]
-        ba_output = masked_p.sum(dim=-2)
+        ba_output = masked_p.sum(dim=-2) / length.unsqueeze(-1)
 
         # affinity prediction
         if self.model_type == ModelType.REGRESSION:
