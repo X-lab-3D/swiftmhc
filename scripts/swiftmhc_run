@@ -324,11 +324,11 @@ class EarlyStopper:
 
     def stops_early(self) -> bool:
 
-        if len(self._record) > patience:
+        if len(self._record) > self._patience:
 
-            recent = numpy.array(self._record[-patience:])
+            recent = numpy.array(self._record[-self._patience:])
 
-            return numpy.all((recent - recent.mean()).abs() < self._epsilon):
+            return numpy.all((recent - recent.mean()).abs() < self._epsilon)
         else:
             return False
 
@@ -502,7 +502,7 @@ class Trainer:
         output = model(data)
 
         # calculate losses
-        losses = get_loss(self._model_type, output, data, affinity_tune, fape_tune, torsion_tune, fine_tune)
+        losses = get_loss(self.config.model_type, output, data, affinity_tune, fape_tune, torsion_tune, fine_tune)
 
         # backward propagation
         loss = losses["total"]
@@ -621,7 +621,7 @@ class Trainer:
                 batch_output = model(batch_data)
 
                 # calculate the losses, for monitoring only
-                batch_loss = get_loss(self._model_type, batch_output, batch_data, affinity_tune, fape_tune, torsion_tune, fine_tune)
+                batch_loss = get_loss(self.config.model_type, batch_output, batch_data, affinity_tune, fape_tune, torsion_tune, fine_tune)
 
                 # count the number of loss values
                 datapoint_count += batch_data['peptide_aatype'].shape[0]
@@ -696,10 +696,10 @@ class Trainer:
 
             # if we can generate affinity losses, we should
             affinity_tune = False
-            if self._model_type == ModelType.REGRESSION and "affinity" in test_loader.dataset[0]:
+            if self.config.model_type == ModelType.REGRESSION and "affinity" in test_loader.dataset[0]:
                 affinity_tune = True
 
-            elif self._model_type == ModelType.CLASSIFICATION and "class" in test_loader.dataset[0]:
+            elif self.config.model_type == ModelType.CLASSIFICATION and "class" in test_loader.dataset[0]:
                 affinity_tune = True
 
             # if we can generate structure losses, we should
@@ -910,8 +910,8 @@ class Trainer:
 
         # create dataset as entrypoint to the data hdf5 file
         dataset = ProteinLoopDataset(data_path, device,
-                                     peptide_maxlen=self.peptide_maxlen,
-                                     protein_maxlen=self.protein_maxlen,
+                                     peptide_maxlen=self.config.peptide_maxlen,
+                                     protein_maxlen=self.config.protein_maxlen,
                                      entry_names=entry_ids)
         if name is not None:
             dataset.name = name

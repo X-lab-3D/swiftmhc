@@ -47,7 +47,7 @@ class DebuggableInvariantPointAttention(torch.nn.Module):
         self.no_qk_points = config.no_qk_points
         self.no_v_points = config.no_v_points
         self.inf = config.inf
-        self.eps = config.eps
+        self.eps = config.epsilon
 
         # These linear layers differ from their specifications in the
         # supplement. There, they lack bias and use Glorot initialization.

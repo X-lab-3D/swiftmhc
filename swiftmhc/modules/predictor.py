@@ -73,18 +73,18 @@ class Predictor(torch.nn.Module):
 
         # decide here what output shape to generate: regression or classification
         self.model_type = config.model_type
-        if model_type == ModelType.REGRESSION:
+        if self.model_type == ModelType.REGRESSION:
             output_size = 1
-        elif model_type == ModelType.CLASSIFICATION:
+        elif self.model_type == ModelType.CLASSIFICATION:
             output_size = 2
         else:
-            raise TypeError(str(model_type))
+            raise TypeError(str(self.model_type))
 
         # module for predicting affinity from updated {s_i}
         self.affinity_module = torch.nn.Sequential(
-            torch.nn.Dropout(structure_module_config.dropout_rate),
-            LayerNorm(structure_module_config.c_s),
-            torch.nn.Linear(structure_module_config.c_s, config.c_transition),
+            torch.nn.Dropout(config.dropout_rate),
+            torch.nn.LayerNorm(config.c_s),
+            torch.nn.Linear(config.c_s, config.c_transition),
             torch.nn.ReLU(),
             torch.nn.Linear(config.c_transition, output_size),
         )

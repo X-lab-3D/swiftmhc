@@ -7,7 +7,7 @@ import torch.nn
 
 import ml_collections
 
-from position_encoding import get_relative_position_encoding_matrix
+from position_encoding.relative import get_relative_position_encoding_matrix
 
 
 _log = logging.getLogger(__name__)
@@ -23,17 +23,17 @@ class SequenceEncoder(torch.nn.Module):
         in config:
             no_heads:           number of attention heads
             peptide_maxlen(k):  determines the number of distance bins: [-k, -k + 1, ..., 0, ..., k - 1, k]
-            depth:              the depth of the input tensor, at shape -1
+            c_s:                the depth of the input tensor, at shape -1
             dropout_rate:       for the dropouts before normalisation
             transition:         transition depth in feed forward block
         """
 
-        super(RelativePositionEncoder, self).__init__()
+        super(SequenceEncoder, self).__init__()
 
         # constants
         self.no_heads = config.no_heads
         self.relpos_k = config.peptide_maxlen
-        self.no_bins = 2 * relpos_k + 1
+        self.no_bins = 2 * self.relpos_k + 1
         self.c_s = config.c_s
         self.c_hidden = config.c_hidden
         self.inf = config.inf
@@ -42,9 +42,9 @@ class SequenceEncoder(torch.nn.Module):
         self.c_transition = config.c_transition
 
         # scaled dot multi-headed attention: queries, keys, values
-        self.linear_q = torch.nn.Linear(self.c_s, self.c_hidden * no_heads, bias=False)
-        self.linear_k = torch.nn.Linear(self.c_s, self.c_hidden * no_heads, bias=False)
-        self.linear_v = torch.nn.Linear(self.c_s, self.c_hidden * no_heads, bias=False)
+        self.linear_q = torch.nn.Linear(self.c_s, self.c_hidden * self.no_heads, bias=False)
+        self.linear_k = torch.nn.Linear(self.c_s, self.c_hidden * self.no_heads, bias=False)
+        self.linear_v = torch.nn.Linear(self.c_s, self.c_hidden * self.no_heads, bias=False)
 
         # generates the b term in the attention weight
         self.linear_b = torch.nn.Linear(self.no_bins, self.no_heads, bias=False)
@@ -133,11 +133,11 @@ class SequenceEncoder(torch.nn.Module):
 
         Args:
             s:
-                features of shape [*, N_res, depth]
+                features of shape [*, N_res, c_s]
             masks:
                 boolean of shape [*, N_res]
         Returns:
-            embd: [*, N_res, depth]
+            embd: [*, N_res, c_s]
             attention:  [*, H, N_res, N_res]
         """
 
@@ -147,38 +147,38 @@ class SequenceEncoder(torch.nn.Module):
         square_masks = masks[..., :, None] * masks[..., None, :]
 
         # [*, N_res, N_res, no_bins]
-        relpos = get_relative_position_encoding_matrix(maxlen, self.no_bins)
+        relpos = get_relative_position_encoding_matrix(maxlen, self.no_bins).to(device=s.device, dtype=torch.float)
         relpos = relpos[None, ...] * square_masks[..., None]
 
         # [*, H, N_res, N_res]
         b = self.linear_b(relpos).transpose(-2, -1).transpose(-3, -2)
 
-        # [*, H, N_res, depth]
-        q = self.linear_q(s).reshape(batch_size, maxlen, self.depth, self.no_heads).transpose(-2, -1).transpose(-3, -2)
-        k = self.linear_k(s).reshape(batch_size, maxlen, self.depth, self.no_heads).transpose(-2, -1).transpose(-3, -2)
-        v = self.linear_v(s).reshape(batch_size, maxlen, self.depth, self.no_heads).transpose(-2, -1).transpose(-3, -2)
+        # [*, H, N_res, c_hidden]
+        q = self.linear_q(s).reshape(batch_size, maxlen, self.c_hidden, self.no_heads).transpose(-2, -1).transpose(-3, -2)
+        k = self.linear_k(s).reshape(batch_size, maxlen, self.c_hidden, self.no_heads).transpose(-2, -1).transpose(-3, -2)
+        v = self.linear_v(s).reshape(batch_size, maxlen, self.c_hidden, self.no_heads).transpose(-2, -1).transpose(-3, -2)
 
         # [*, 1, N_res, N_res]
         square_mask = torch.logical_and(masks[:, :, None], masks[:, None, :]).unsqueeze(-3)
 
         # [*, H, N_res, N_res]
         a = torch.nn.functional.softmax(
-            self.w_L * (torch.matmul(q, k.transpose(-2, -1)) / sqrt(self.depth) + b) - self.inf * torch.logical_not(square_mask).float(),
+            self.w_L * (torch.matmul(q, k.transpose(-2, -1)) / sqrt(self.c_hidden) + b) - self.inf * torch.logical_not(square_mask).float(),
             -1
         )
 
         # [*, H, N_res, no_bins]
         o_pair = (a.unsqueeze(-1) * relpos.unsqueeze(-4)).sum(-2)
 
-        # [*, H, N_res, depth]
+        # [*, H, N_res, c_hidden]
         o = (a.unsqueeze(-1) * v.unsqueeze(-3)).sum(-2)
 
-        # [*, N_res, depth]
+        # [*, N_res, c_s]
         embd = self.linear_output(
             torch.cat(
                 (
                     o_pair.transpose(-3, -2).reshape(batch_size, maxlen, self.no_heads * self.no_bins),
-                    o.transpose(-3, -2).reshape(batch_size, maxlen, self.no_heads * self.depth),
+                    o.transpose(-3, -2).reshape(batch_size, maxlen, self.no_heads * self.c_hidden),
                 ),
                 dim=-1
             )
