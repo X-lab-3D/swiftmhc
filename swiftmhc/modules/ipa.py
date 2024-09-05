@@ -4,6 +4,8 @@ import math
 import logging
 import torch
 
+import ml_collections
+
 from openfold.model.primitives import Linear, LayerNorm, ipa_point_weights_init_
 from openfold.utils.precision_utils import is_fp16_enabled
 from openfold.utils.tensor_utils import permute_final_dims, flatten_final_dims, dict_multimap
@@ -15,23 +17,14 @@ _log = logging.getLogger(__name__)
 
 
 class DebuggableInvariantPointAttention(torch.nn.Module):
-    def __init__(
-        self,
-        c_s: int,
-        c_z: int,
-        c_hidden: int,
-        no_heads: int,
-        no_qk_points: int,
-        no_v_points: int,
-        inf: float = 1e5,
-        eps: float = 1e-8,
-    ):
+    def __init__(self, config: ml_collections.ConfigDict):
+
         """
         This is like Algorithm 22 in AlphaFold2, but without the third attention weight term.
         Also, the second attention weight term is made from a proximity matrix.
         The code was taken from OpenFold and then modified.
 
-        Args:
+        in config:
             c_s:
                 Single representation channel dimension
             c_z:
@@ -47,14 +40,14 @@ class DebuggableInvariantPointAttention(torch.nn.Module):
         """
         super(DebuggableInvariantPointAttention, self).__init__()
 
-        self.c_s = c_s
-        self.c_z = c_z
-        self.c_hidden = c_hidden
-        self.no_heads = no_heads
-        self.no_qk_points = no_qk_points
-        self.no_v_points = no_v_points
-        self.inf = inf
-        self.eps = eps
+        self.c_s = config.c_s
+        self.c_z = config.c_z
+        self.c_hidden = config.c_hidden
+        self.no_heads = config.no_heads
+        self.no_qk_points = config.no_qk_points
+        self.no_v_points = config.no_v_points
+        self.inf = config.inf
+        self.eps = config.eps
 
         # These linear layers differ from their specifications in the
         # supplement. There, they lack bias and use Glorot initialization.

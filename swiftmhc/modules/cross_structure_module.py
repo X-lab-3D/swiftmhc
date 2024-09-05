@@ -3,9 +3,11 @@ import logging
 
 import torch
 
+import ml_collections
+
 from openfold.utils.rigid_utils import Rotation
 from openfold.model.primitives import Linear, LayerNorm
-from openfold.model.structure_module import AngleResnet, StructureModuleTransition
+from openfold.model.structure_module import AngleResnet, StructureModuleTransition, BackboneUpdate
 from openfold.utils.tensor_utils import dict_multimap
 from openfold.utils.feats import (
     frames_and_literature_positions_to_atom14_pos,
@@ -26,42 +28,6 @@ from ..operate import average_rigid
 _log = logging.getLogger(__name__)
 
 
-class BackboneUpdate(torch.nn.Module):
-    """
-    Implements part of Algorithm 23.
-    """
-
-    def __init__(self, c_s):
-        """
-        Args:
-            c_s:
-                Single representation channel dimension
-        """
-        super(BackboneUpdate, self).__init__()
-
-        self.c_s = c_s
-
-        self.c_transition = 128
-
-        self.mlp = torch.nn.Sequential(
-            torch.nn.Linear(self.c_s, self.c_transition),
-            torch.nn.ReLU(),
-            Linear(self.c_transition, 6, init="final")
-        )
-
-    def forward(self, s: torch.Tensor) -> torch.Tensor:
-        """
-        Args:
-            [*, N_res, C_s] single representation
-        Returns:
-            [*, N_res, 6] update vector 
-        """
-        # [*, 6]
-        update = self.mlp(s)
-
-        return update
-
-
 class CrossStructureModule(torch.nn.Module):
     """
     This is like algorithm 20 in AlphaFold2, but with some modifications:
@@ -73,25 +39,9 @@ class CrossStructureModule(torch.nn.Module):
     The code was copied from OpenFold and then modified.
     """
 
-    def __init__(
-        self,
-        c_s,
-        c_ipa,
-        c_resnet,
-        no_heads_ipa,
-        no_qk_points,
-        no_v_points,
-        dropout_rate,
-        no_blocks,
-        no_resnet_blocks,
-        no_angles,
-        trans_scale_factor,
-        no_transition_layers,
-        epsilon,
-        **kwargs,
-    ):
+    def __init__(self, config: ml_collections.ConfigDict):
         """
-        Args:
+        in config:
             c_s:
                 Single representation channel dimension
             c_ipa:
@@ -122,19 +72,19 @@ class CrossStructureModule(torch.nn.Module):
         super(CrossStructureModule, self).__init__()
 
         # constants
-        self.c_s = c_s
-        self.c_ipa = c_ipa
-        self.c_resnet = c_resnet
-        self.no_heads_ipa = no_heads_ipa
-        self.no_qk_points = no_qk_points
-        self.no_v_points = no_v_points
-        self.dropout_rate = dropout_rate
-        self.n_blocks = no_blocks
-        self.no_resnet_blocks = no_resnet_blocks
-        self.no_angles = no_angles
-        self.trans_scale_factor = trans_scale_factor
-        self.epsilon = epsilon
-        self.n_transition_layers = no_transition_layers
+        self.c_s = config.c_s
+        self.c_ipa = config.c_hidden
+        self.c_resnet = config.c_resnet
+        self.no_heads_ipa = config.no_heads
+        self.no_qk_points = config.no_qk_points
+        self.no_v_points = config.no_v_points
+        self.dropout_rate = config.dropout_rate
+        self.n_blocks = config.no_blocks
+        self.no_resnet_blocks = config.no_resnet_blocks
+        self.no_angles = config.no_angles
+        self.trans_scale_factor = config.trans_scale_factor
+        self.epsilon = config.epsilon
+        self.n_transition_layers = config.no_transition_layers
 
         # Buffers to be lazily initialized later
         # self.default_frames
@@ -150,14 +100,7 @@ class CrossStructureModule(torch.nn.Module):
         self.linear_in_protein = Linear(self.c_s, self.c_s)
 
         # modules for updating s_i (peptide), from the protein structure
-        self.peptide_ipa = CrossInvariantPointAttention(
-            self.c_s,
-            self.c_ipa,
-            self.no_heads_ipa,
-            self.no_qk_points,
-            self.no_v_points,
-            eps=self.epsilon,
-        )
+        self.peptide_ipa = CrossInvariantPointAttention(config)
         self.peptide_ipa_dropout = torch.nn.Dropout(self.dropout_rate)
         self.peptide_layer_norm_ipa = LayerNorm(self.c_s)
         self.peptide_transition = StructureModuleTransition(self.c_s,

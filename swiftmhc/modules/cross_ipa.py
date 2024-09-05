@@ -3,6 +3,8 @@ import logging
 
 import torch
 
+import ml_collections
+
 from openfold.utils.precision_utils import is_fp16_enabled
 from openfold.model.primitives import Linear, LayerNorm, ipa_point_weights_init_
 from openfold.utils.tensor_utils import (
@@ -16,22 +18,15 @@ _log = logging.getLogger(__name__)
 
 
 class CrossInvariantPointAttention(torch.nn.Module):
-    def __init__( self,
-        c_s: int,
-        c_hidden: int,
-        no_heads: int,
-        no_qk_points: int,
-        no_v_points: int,
-        eps: float = 1e-8,
-        inf: float = 1e5,
-    ):
+    def __init__(self, config: ml_collections.ConfigDict):
+
         """
         This is like Algorithm 22 in AlphaFold2, but between two different sequences: a source and destination.
         The idea is that the source is used to update the destination sequence.
         The second term was removed from the attention weight formula.
         The code was taken from OpenFold and then modified.
 
-        Args:
+        in config:
             c_s:
                 Single representation channel dimension
             c_hidden:
@@ -45,12 +40,13 @@ class CrossInvariantPointAttention(torch.nn.Module):
         """
         super(CrossInvariantPointAttention, self).__init__()
 
-        self.c_s = c_s
-        self.c_hidden = c_hidden
-        self.no_heads = no_heads
-        self.no_qk_points = no_qk_points
-        self.no_v_points = no_v_points
-        self.eps = eps
+        self.c_s = config.c_s
+        self.c_hidden = config.c_hidden
+        self.no_heads = config.no_heads
+        self.no_qk_points = config.no_qk_points
+        self.no_v_points = config.no_v_points
+        self.eps = config.epsilon
+        self.inf = config.inf
 
         # These linear layers differ from their specifications in the
         # supplement. There, they lack bias and use Glorot initialization.
@@ -76,9 +72,7 @@ class CrossInvariantPointAttention(torch.nn.Module):
         self.softmax = torch.nn.Softmax(dim=-1)
         self.softplus = torch.nn.Softplus()
 
-        self.inf = inf
-
-        self.head_weights = torch.nn.Parameter(torch.zeros((no_heads)))
+        self.head_weights = torch.nn.Parameter(torch.zeros((self.no_heads)))
         ipa_point_weights_init_(self.head_weights)
 
     @staticmethod

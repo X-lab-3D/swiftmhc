@@ -35,66 +35,44 @@ class Predictor(torch.nn.Module):
     main module, calls all other modules
     """
 
-    def __init__(self,
-        peptide_maxlen: int,
-        protein_maxlen: int,
-        model_type: ModelType,
-        config: ml_collections.ConfigDict,
-        blosum: bool,
-    ):
+    def __init__(self, config: ml_collections.ConfigDict):
         super(Predictor, self).__init__()
 
-        self.blosum = blosum
+        self.blosum = config.blosum
 
         # general settings
-        self.eps = 1e-6
+        self.peptide_maxlen = config.peptide_maxlen
+        self.protein_maxlen = config.protein_maxlen
 
-        structure_module_config = copy(config.structure_module)
-        structure_module_config.c_s = 32
-        structure_module_config.c_z = 1
-        structure_module_config.no_blocks = 2
-        structure_module_config.no_heads_ipa = 2
-
-        self.peptide_maxlen = peptide_maxlen
-        self.protein_maxlen = protein_maxlen
-
-        self.n_head = structure_module_config.no_heads_ipa
-        self.n_ipa_repeat = structure_module_config.no_blocks
+        self.n_head = config.no_heads
+        self.n_ipa_repeat = config.no_blocks
 
         # modules for self attention on peptide, updating {s_i}
         self.transform = torch.nn.ModuleList([
-            SequenceEncoder(self.n_head, self.peptide_maxlen, structure_module_config.c_s)
-            for _ in range(structure_module_config.no_blocks)
+            SequenceEncoder(config)
+            for _ in range(config.no_blocks)
         ])
 
         self.peptide_norm = torch.nn.Sequential(
-            torch.nn.Dropout(p=structure_module_config.dropout_rate),
-            LayerNorm(structure_module_config.c_s)
+            torch.nn.Dropout(p=config.dropout_rate),
+            torch.nn.LayerNorm(config.c_s)
         )
 
         # modules for self attention on protein, updating {s_j}
         self.protein_dist_norm = torch.nn.LayerNorm((self.protein_maxlen, self.protein_maxlen, 1))
 
-        self.protein_ipa = IPA(
-            structure_module_config.c_s,
-            structure_module_config.c_z,
-            structure_module_config.c_ipa,
-            structure_module_config.no_heads_ipa,
-            structure_module_config.no_qk_points,
-            structure_module_config.no_v_points
-        )
-        self.protein_ipa.inf = structure_module_config.inf
+        self.protein_ipa = IPA(config)
 
         self.protein_norm = torch.nn.Sequential(
-            torch.nn.Dropout(p=structure_module_config.dropout_rate),
-            LayerNorm(structure_module_config.c_s)
+            torch.nn.Dropout(p=config.dropout_rate),
+            torch.nn.LayerNorm(config.c_s)
         )
 
         # module for structure prediction and cross updating {s_i}
-        self.cross = CrossStructureModule(**structure_module_config)
+        self.cross = CrossStructureModule(config)
 
         # decide here what output shape to generate: regression or classification
-        self.model_type = model_type
+        self.model_type = config.model_type
         if model_type == ModelType.REGRESSION:
             output_size = 1
         elif model_type == ModelType.CLASSIFICATION:
@@ -103,11 +81,12 @@ class Predictor(torch.nn.Module):
             raise TypeError(str(model_type))
 
         # module for predicting affinity from updated {s_i}
-        c_transition = 128
-        self.affinity_transition = torch.nn.Sequential(
-            torch.nn.Linear(structure_module_config.c_s, c_transition),
+        self.affinity_module = torch.nn.Sequential(
+            torch.nn.Dropout(structure_module_config.dropout_rate),
+            LayerNorm(structure_module_config.c_s),
+            torch.nn.Linear(structure_module_config.c_s, config.c_transition),
             torch.nn.ReLU(),
-            torch.nn.Linear(c_transition, output_size),
+            torch.nn.Linear(config.c_transition, output_size),
         )
 
     def forward(self, batch: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
@@ -201,7 +180,7 @@ class Predictor(torch.nn.Module):
         peptide_embd = output["single"]
 
         # [*, peptide_maxlen, output_size]
-        p = self.affinity_transition(peptide_embd)
+        p = self.affinity_module(peptide_embd)
 
         # [*, peptide_maxlen, 1]
         mask = batch["peptide_cross_residues_mask"].unsqueeze(-1)
@@ -213,7 +192,7 @@ class Predictor(torch.nn.Module):
         masked_p = torch.where(mask, p, 0.0)
 
         # [*, output_size]
-        ba_output = masked_p.sum(dim=-2) / length.unsqueeze(-1)
+        ba_output = masked_p.sum(dim=-2)
 
         # affinity prediction
         if self.model_type == ModelType.REGRESSION:

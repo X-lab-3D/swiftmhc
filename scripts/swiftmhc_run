@@ -58,6 +58,7 @@ from openfold.utils.rigid_utils import Rigid, Rotation
 from openfold.config import config as openfold_config
 from openfold.utils.tensor_utils import permute_final_dims
 
+from swiftmhc.config import config as default_config
 from swiftmhc.time import Timer
 from swiftmhc.preprocess import preprocess
 from swiftmhc.dataset import ProteinLoopDataset, get_entry_names
@@ -299,31 +300,37 @@ class EarlyStopper:
     for early stopping are met.
     """
 
-    def __init__(self, patience: int = 30, epsilon: float = 0.01):
+    def __init__(self, patience: int = 10, epsilon: float = 0.01):
 
-        self._patience = patience  # number of successive epochs matching epsilon
-        self._epsilon = epsilon  # max difference between validation loss values
+        # number of successive epochs matching epsilon
+        self._patience = patience
 
-        self._counter = 0  # count number of epochs matching epsilon
-        self._lowest_validation_loss = float('inf')  # lowest value encountered so far
+        # max difference between validation loss values
+        self._epsilon = epsilon
+
+        # remembers the previous loss values
+        self._record = []
+
+        # lowest value encountered so far
+        self._lowest_validation_loss = float('inf')
 
     def update(self, validation_loss: float):
-        if validation_loss < self._lowest_validation_loss:
 
-            # postpone early stopping if validation loss is still going down
-            self._counter = 0
+        self._record.append(validation_loss)
+
+        if validation_loss < self._lowest_validation_loss:
 
             self._lowest_validation_loss = validation_loss
 
-        elif abs(validation_loss - self._lowest_validation_loss) <= self._epsilon:
-
-            self._counter += 1
-
-        else:  # interrupted, difference is bigger than epsilon
-            self._counter = 0
-
     def stops_early(self) -> bool:
-        return self._counter >= self._patience
+
+        if len(self._record) > patience:
+
+            recent = numpy.array(self._record[-patience:])
+
+            return numpy.all((recent - recent.mean()).abs() < self._epsilon):
+        else:
+            return False
 
 
 class TrainingPhase:
@@ -390,16 +397,13 @@ class Trainer:
         """
 
         self._lr = lr
-        self._model_type = model_type
+        self.config = default_config
+        self.config.model_type = model_type
 
         self._device = device
 
         # for snapshots: every 20 batches
         self._snap_period = 20
-
-        # how much space to allocate for peptide anc protein (AA)
-        self.peptide_maxlen = 16
-        self.protein_maxlen = 200
 
         self.workers_count = workers_count
 
@@ -668,11 +672,7 @@ class Trainer:
         _log.info(f"testing {model_path} on {structure_builders_count} structure builders")
 
         # init model
-        model = Predictor(self.peptide_maxlen,
-                          self.protein_maxlen,
-                          self._model_type,
-                          openfold_config.model,
-                          blosum=blosum)
+        model = Predictor(self.config)
 
         model_state = torch.load(model_path,  map_location=self._device)
         model_state = remove_module_prefix(model_state)
@@ -777,11 +777,7 @@ class Trainer:
         """
 
         # Set up the model
-        model = Predictor(self.peptide_maxlen,
-                          self.protein_maxlen,
-                          self._model_type,
-                          openfold_config.model,
-                          blosum=blosum)
+        model = Predictor(self.config)
         if self._device.type == "cuda" and torch.cuda.device_count() > 1:
             model = DataParallel(model)
 

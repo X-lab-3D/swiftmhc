@@ -4,70 +4,71 @@ import logging
 
 import torch
 import torch.nn
-from torch.nn.functional import one_hot
+
+import ml_collections
+
+from position_encoding import get_relative_position_encoding_matrix
 
 
 _log = logging.getLogger(__name__)
 
 
-class RelativePositionEncoder(torch.nn.Module):
+class SequenceEncoder(torch.nn.Module):
     """
     Gives the input sequence a relative positional encoding and performs multi-headed attention.
     """
 
-    def __init__(
-            self,
-            no_heads: int, relpos_k: int, depth: int,
-            dropout_rate: Optional[float] = 0.1,
-            transition: Optional[int] = 128
-    ):
+    def __init__(self, config: ml_collections.ConfigDict):
         """
-        Args:
-            no_heads:       number of attention heads
-            relpos_k:       determines the number of distance bins: [-k, -k + 1, ..., 0, ..., k - 1, k]
-            depth:          the depth of the input tensor, at shape -1
-            dropout_rate:   for the dropouts before normalisation
-            transition:     transition depth in feed forward block
+        in config:
+            no_heads:           number of attention heads
+            peptide_maxlen(k):  determines the number of distance bins: [-k, -k + 1, ..., 0, ..., k - 1, k]
+            depth:              the depth of the input tensor, at shape -1
+            dropout_rate:       for the dropouts before normalisation
+            transition:         transition depth in feed forward block
         """
 
         super(RelativePositionEncoder, self).__init__()
 
         # constants
-        self.no_heads = no_heads
-        self.relpos_k = relpos_k
+        self.no_heads = config.no_heads
+        self.relpos_k = config.peptide_maxlen
         self.no_bins = 2 * relpos_k + 1
-        self.depth = depth
-        self.inf = 1e5
+        self.c_s = config.c_s
+        self.c_hidden = config.c_hidden
+        self.inf = config.inf
         self.w_L = sqrt(1.0 / 2)  # because we have two terms
+        self.dropout_rate = config.dropout_rate
+        self.c_transition = config.c_transition
 
         # scaled dot multi-headed attention: queries, keys, values
-        self.linear_q = torch.nn.Linear(depth, depth * no_heads, bias=False)
-        self.linear_k = torch.nn.Linear(depth, depth * no_heads, bias=False)
-        self.linear_v = torch.nn.Linear(depth, depth * no_heads, bias=False)
+        self.linear_q = torch.nn.Linear(self.c_s, self.c_hidden * no_heads, bias=False)
+        self.linear_k = torch.nn.Linear(self.c_s, self.c_hidden * no_heads, bias=False)
+        self.linear_v = torch.nn.Linear(self.c_s, self.c_hidden * no_heads, bias=False)
 
         # generates the b term in the attention weight
         self.linear_b = torch.nn.Linear(self.no_bins, self.no_heads, bias=False)
 
         # generates the output of the multi-header attention
-        self.linear_output = torch.nn.Linear((self.no_bins + depth) * self.no_heads, depth)
+        self.linear_output = torch.nn.Linear((self.no_bins + self.c_hidden) * self.no_heads, self.c_s)
 
         # to be used after multi-headed attention
-        self.norm_attention = torch.nn.Sequential(
-            torch.nn.Dropout(dropout_rate),
-            torch.nn.LayerNorm(depth),
+        self.norm1 = torch.nn.Sequential(
+            torch.nn.Dropout(self.dropout_rate),
+            torch.nn.LayerNorm(self.c_s),
         )
 
         # to be used after multi-headed attention norm
         self.feed_forward = torch.nn.Sequential(
-            torch.nn.Linear(depth, transition),
+            torch.nn.Linear(self.c_s, self.c_transition),
             torch.nn.ReLU(),
-            torch.nn.Linear(transition, depth),
+            torch.nn.Linear(self.c_transition, self.c_s),
         )
 
         # to be used after feed-forward
-        self.norm_feed_forward = torch.nn.Sequential(
-            torch.nn.Dropout(dropout_rate),
-            torch.nn.LayerNorm(depth),
+        self.norm2 = torch.nn.Sequential(
+            torch.nn.Dropout(self.dropout_rate),
+            torch.nn.LayerNorm(self.c_s),
         )
 
     def relpos(self, masks: torch.Tensor) -> torch.Tensor:
@@ -119,11 +120,10 @@ class RelativePositionEncoder(torch.nn.Module):
 
     def forward(self, s: torch.Tensor, masks: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
 
-        x, a = self.attention(s, masks)
-        s = self.norm_attention(s + x)
+        s_upd, a = self.attention(s, masks)
+        s = self.norm1(s + s_upd)
 
-        x = self.feed_forward(s)
-        s = self.norm_feed_forward(s + x)
+        s = self.norm2(s + self.feed_forward(s))
 
         return s, a
 
@@ -143,8 +143,12 @@ class RelativePositionEncoder(torch.nn.Module):
 
         batch_size, maxlen = masks.shape
 
+        # [*, N_res, N_res]
+        square_masks = masks[..., :, None] * masks[..., None, :]
+
         # [*, N_res, N_res, no_bins]
-        relpos = self.relpos(masks)
+        relpos = get_relative_position_encoding_matrix(maxlen, self.no_bins)
+        relpos = relpos[None, ...] * square_masks[..., None]
 
         # [*, H, N_res, N_res]
         b = self.linear_b(relpos).transpose(-2, -1).transpose(-3, -2)
@@ -172,9 +176,11 @@ class RelativePositionEncoder(torch.nn.Module):
         # [*, N_res, depth]
         embd = self.linear_output(
             torch.cat(
-                (o_pair.transpose(-3, -2).reshape(batch_size, maxlen, self.no_heads * self.no_bins),
-                 o.transpose(-3, -2).reshape(batch_size, maxlen, self.no_heads * self.depth),
-                 ), dim=-1
+                (
+                    o_pair.transpose(-3, -2).reshape(batch_size, maxlen, self.no_heads * self.no_bins),
+                    o.transpose(-3, -2).reshape(batch_size, maxlen, self.no_heads * self.depth),
+                ),
+                dim=-1
             )
         )
 
