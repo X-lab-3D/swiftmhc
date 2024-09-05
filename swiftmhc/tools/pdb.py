@@ -108,7 +108,7 @@ def recreate_structure(structure_id: str,
             # iter atoms in residue
             for atom_index, atom_name in enumerate(openfold_residue_atom14_names[residue_name]):
 
-                if not atom_exists[residue_index][atom_index]:
+                if not atom_exists[residue_index][atom_index] or len(atom_name) == 0:
                     continue
 
                 position = atom_positions[residue_index][atom_index]
