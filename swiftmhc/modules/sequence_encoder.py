@@ -71,84 +71,47 @@ class SequenceEncoder(torch.nn.Module):
             torch.nn.LayerNorm(self.c_s),
         )
 
-    def relpos(self, masks: torch.Tensor) -> torch.Tensor:
+    def forward(self, s: torch.Tensor, mask: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         """
-        Creates a relative position matrix.
+        Encodes a sequence, by means of self attention and feed forward MLP
 
         Args:
-            masks: [batch_size, maxlen]
-                true for present residues, false for absent
+            s:      [*, N_res, c_s]
+            mask:   [*, N_res] (bool)
+
         Returns:
-            [*, maxlen, maxlen, no_bins] relative position codes
+            updated s:  [*, N_res, c_s]
+            attention:  [*, H, N_res, N_res]
         """
 
-        batch_size, maxlen = masks.shape
-
-        # [1, 1, no_bins]
-        bins = torch.arange(
-            start=-self.relpos_k, end=self.relpos_k + 1,
-            device=masks.device
-        ).unsqueeze(0).unsqueeze(0)
-
-        ps = []
-        for batch_index, mask in enumerate(masks):
-
-            l = mask.int().sum()
-
-            # [l]
-            r = torch.arange(l, device=mask.device)
-
-            # [l, l, 1]
-            d = (r[:, None] - r[None, :]).unsqueeze(-1)
-
-            # [l, l, no_bins]
-            p_ins = torch.nn.functional.one_hot(
-                torch.argmin(torch.abs(d - bins), dim=-1),
-                num_classes=self.no_bins
-            ).float()
-
-            # [max_len, max_len, no_bins]
-            square_mask = (mask[:, None] * mask[None, :]).unsqueeze(-1).expand(-1, -1, self.no_bins)
-
-            # [max_len, max_len, no_bins]
-            p = torch.zeros(maxlen, maxlen, self.no_bins, device=p_ins.device)
-            p[square_mask] = p_ins.view(-1)
-
-            ps.append(p)
-
-        return torch.stack(ps)
-
-    def forward(self, s: torch.Tensor, masks: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-
-        s_upd, a = self.attention(s, masks)
+        s_upd, a = self.attention(s, mask)
         s = self.norm1(s + s_upd)
 
         s = self.norm2(s + self.feed_forward(s))
 
         return s, a
 
-    def attention(self, s: torch.Tensor, masks: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+    def attention(self, s: torch.Tensor, mask: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         """
-        Performs multi-headed attention.
+        Performs multi-headed attention, but also takes relative positions into account.
 
         Args:
-            s:
-                features of shape [*, N_res, c_s]
-            masks:
-                boolean of shape [*, N_res]
+            s:      [*, N_res, c_s]
+            mask:   [*, N_res] (bool)
+
         Returns:
-            embd: [*, N_res, c_s]
+            updated s:  [*, N_res, c_s]
             attention:  [*, H, N_res, N_res]
         """
 
-        batch_size, maxlen = masks.shape
+        batch_size, maxlen = mask.shape
 
         # [*, N_res, N_res]
-        square_masks = masks[..., :, None] * masks[..., None, :]
+        square_mask = torch.logical_and(mask[..., :, None], mask[..., None, :]).unsqueeze(-3)
 
         # [*, N_res, N_res, no_bins]
         relpos = get_relative_position_encoding_matrix(maxlen, self.no_bins).to(device=s.device, dtype=torch.float)
-        relpos = relpos[None, ...] * square_masks[..., None]
+        relpos = relpos[None, ...] * square_mask[..., None]
 
         # [*, H, N_res, N_res]
         b = self.linear_b(relpos).transpose(-2, -1).transpose(-3, -2)
@@ -158,13 +121,11 @@ class SequenceEncoder(torch.nn.Module):
         k = self.linear_k(s).reshape(batch_size, maxlen, self.c_hidden, self.no_heads).transpose(-2, -1).transpose(-3, -2)
         v = self.linear_v(s).reshape(batch_size, maxlen, self.c_hidden, self.no_heads).transpose(-2, -1).transpose(-3, -2)
 
-        # [*, 1, N_res, N_res]
-        square_mask = torch.logical_and(masks[:, :, None], masks[:, None, :]).unsqueeze(-3)
-
         # [*, H, N_res, N_res]
         a = torch.nn.functional.softmax(
-            self.w_L * (torch.matmul(q, k.transpose(-2, -1)) / sqrt(self.c_hidden) + b) - self.inf * torch.logical_not(square_mask).float(),
-            -1
+            self.w_L * (torch.matmul(q, k.transpose(-2, -1)) / sqrt(self.c_hidden) + b)
+                 - self.inf * torch.logical_not(square_mask[..., None, :, :]).float(),
+            dim=-1,
         )
 
         # [*, H, N_res, no_bins]

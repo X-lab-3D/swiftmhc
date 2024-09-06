@@ -196,6 +196,7 @@ class CrossStructureModule(torch.nn.Module):
                 peptide_mask, protein_mask,
             )
 
+            # retrieve updated state of s_peptide and T_peptide from block_results
             s_peptide = preds["states"]
             T_peptide = Rigid.from_tensor_7(preds["unscaled_frames"])
 
@@ -206,21 +207,24 @@ class CrossStructureModule(torch.nn.Module):
         # unslice the output
         masked_angles = torch.tensor([[1.0, 0.0] for _ in range(7)], device=s_peptide.device)
         result = {}
-        result["single"] = self._restore_masked(outputs["states"][-1], peptide_slice)
-        result["final_frames"] = self._restore_masked(outputs["frames"][-1], peptide_slice)
-        result["final_sidechain_frames"] = self._restore_masked(outputs["sidechain_frames"][-1], peptide_slice)
-        result["final_angles"] = self._restore_masked(outputs["angles"][-1], peptide_slice, masked_angles)
-        result["final_unnormalized_angles"] = self._restore_masked(outputs["unnormalized_angles"][-1], peptide_slice, masked_angles)
-        result["final_positions"] = self._restore_masked(outputs["positions"][-1], peptide_slice)
+        result["single"] = self._unslice_and_restore_masked(outputs["states"][-1], peptide_slice)
+        result["final_frames"] = self._unslice_and_restore_masked(outputs["frames"][-1], peptide_slice)
+        result["final_sidechain_frames"] = self._unslice_and_restore_masked(outputs["sidechain_frames"][-1], peptide_slice)
+        result["final_angles"] = self._unslice_and_restore_masked(outputs["angles"][-1], peptide_slice, masked_angles)
+        result["final_unnormalized_angles"] = self._unslice_and_restore_masked(outputs["unnormalized_angles"][-1], peptide_slice, masked_angles)
+        result["final_positions"] = self._unslice_and_restore_masked(outputs["positions"][-1], peptide_slice)
         return result
 
     @staticmethod
-    def _restore_masked(
+    def _unslice_and_restore_masked(
         residue_value: torch.Tensor,
         residue_slice: torch.Tensor,
         masked_value: Optional[torch.Tensor] = None
     ) -> torch.Tensor:
         """
+        Undoes the effect of slicing.
+        Expands the data tensor back into its original size, with masks.
+
         Args:
             residue_value:          [*, length, ...]
             residue_slice:          [max_length] (bool)
@@ -240,15 +244,18 @@ class CrossStructureModule(torch.nn.Module):
 
         return masked_residue_value
 
-    def _block(self,
-               s_peptide_initial: torch.Tensor,
-               peptide_aatype: torch.Tensor,
-               s_peptide: torch.Tensor,
-               s_protein: torch.Tensor,
-               T_peptide: Rigid,
-               T_protein: Rigid,
-               peptide_mask: torch.Tensor,
-               protein_mask: torch.Tensor) -> Dict[str, torch.Tensor]:
+    def _block(
+        self,
+        s_peptide_initial: torch.Tensor,
+        peptide_aatype: torch.Tensor,
+        s_peptide: torch.Tensor,
+        s_protein: torch.Tensor,
+        T_peptide: Rigid,
+        T_protein: Rigid,
+        peptide_mask: torch.Tensor,
+        protein_mask: torch.Tensor,
+
+    ) -> Dict[str, torch.Tensor]:
 
         # [*, peptide_maxlen, c_s]
         s_upd, ipa_att = self.peptide_ipa(
