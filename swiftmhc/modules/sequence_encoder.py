@@ -107,7 +107,7 @@ class SequenceEncoder(torch.nn.Module):
         batch_size, maxlen = mask.shape
 
         # [*, N_res, N_res]
-        square_mask = torch.logical_and(mask[..., :, None], mask[..., None, :]).unsqueeze(-3)
+        square_mask = torch.logical_and(mask[..., :, None], mask[..., None, :])
 
         # [*, N_res, N_res, no_bins]
         relpos = get_relative_position_encoding_matrix(maxlen, self.no_bins).to(device=s.device, dtype=torch.float)
