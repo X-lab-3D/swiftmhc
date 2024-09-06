@@ -328,7 +328,7 @@ class EarlyStopper:
 
             recent = numpy.array(self._record[-self._patience:])
 
-            return numpy.all((recent - recent.mean()).abs() < self._epsilon)
+            return numpy.all(numpy.abs(recent - recent.mean()) < self._epsilon)
         else:
             return False
 
