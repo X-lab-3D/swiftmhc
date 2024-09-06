@@ -17,13 +17,12 @@ from openfold.utils.feats import atom14_to_atom37
 from openfold.model.primitives import LayerNorm
 
 from ..tools.rigid import Rigid
-from .sequence_attention import SequenceEncoder
-from .cross_structure_module import CrossStructureModule
 from ..domain.amino_acid import AMINO_ACID_DIMENSION
 from ..models.data import TensorDict
 from ..tools.amino_acid import one_hot_decode_sequence
 from .ipa import DebuggableInvariantPointAttention as IPA
-from .cross_ipa import CrossInvariantPointAttention as CrossIPA
+from .sequence_encoder import SequenceEncoder
+from .cross_structure_module import CrossStructureModule
 from ..models.types import ModelType
 
 
@@ -175,35 +174,49 @@ class Predictor(torch.nn.Module):
         # [*, peptide_maxlen, 37, 3]
         output["final_atom_positions"] = atom14_to_atom37(output["final_positions"], output)
 
+        # retrieve updated peptide sequence, per residue features
+        # [*, peptide_maxlen, c_s]
         peptide_embd = output["single"]
 
-        # [*, peptide_maxlen, output_size]
-        p = self.affinity_module(peptide_embd)
-
-        # [*, peptide_maxlen, 1]
-        mask = batch["peptide_cross_residues_mask"].unsqueeze(-1)
-
-        # [*]
-        length = batch["peptide_cross_residues_mask"].float().sum(dim=-1)
-
-        # [*, peptide_maxlen, output_size]
-        masked_p = torch.where(mask, p, 0.0)
+        # [*, peptide_maxlen]
+        peptide_mask = batch["peptide_cross_residues_mask"]
 
         # [*, output_size]
-        ba_output = masked_p.sum(dim=-2)
+        ba = self._compute_ba(peptide_embd, peptide_mask)
 
         # affinity prediction
         if self.model_type == ModelType.REGRESSION:
+
             # [*]
-            output["affinity"] = ba_output.reshape(batch_size)
+            output["affinity"] = ba.reshape(batch_size)
 
         elif self.model_type == ModelType.CLASSIFICATION:
 
             # [*, 2]
-            output["logits"] = ba_output
+            output["logits"] = ba
 
             # [*]
-            output["class"] = torch.argmax(ba_output, dim=-1)
+            output["class"] = torch.argmax(ba, dim=-1)
 
         return output
+
+    def _compute_ba(self, peptide_embd: torch.Tensor, peptide_mask: torch.Tensor) -> torch.Tensor:
+        """
+        Args:
+            peptide_embd:       [*, peptide_maxlen, c_s]
+            peptide_mask:       [*, peptide_maxlen]
+        Return:
+            ba:                 [*, output_size(1 or 2)]
+        """
+
+        # [*, peptide_maxlen, output_size]
+        peptide_scores = self.affinity_module(peptide_embd)
+
+        # [*, peptide_maxlen, output_size]
+        masked_scores = torch.where(mask.unsqueeze(-1), peptide_scores, 0.0)
+
+        # [*, output_size]
+        ba = masked_scores.sum(dim=-2)
+
+        return ba
 
