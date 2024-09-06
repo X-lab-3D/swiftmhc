@@ -1,5 +1,5 @@
 from typing import Optional, Tuple, Sequence
-import math
+from math import sqrt
 
 import logging
 import torch
@@ -67,6 +67,9 @@ class DebuggableInvariantPointAttention(torch.nn.Module):
         self.softmax = torch.nn.Softmax(dim=-1)
         self.softplus = torch.nn.Softplus()
 
+        # we have two attention terms, so divide by two
+        self.w_L = sqrt(0.5)
+
     def forward(
         self,
         s: torch.Tensor,
@@ -74,8 +77,6 @@ class DebuggableInvariantPointAttention(torch.nn.Module):
         r: Rigid,
         mask: torch.Tensor,
         inplace_safe: bool = False,
-        _offload_inference: bool = False,
-        _z_reference_list: Optional[Sequence[torch.Tensor]] = None,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Performs Invariant Point attention on the residues within one sequence.
@@ -89,10 +90,6 @@ class DebuggableInvariantPointAttention(torch.nn.Module):
             [*, N_res, C_s] updated single representation
             [*, H, N_res, N_res] attention weights
         """
-        if(_offload_inference and inplace_safe):
-            z = _z_reference_list
-        else:
-            z = [z]
 
         #######################################
         # Generate scalar and point activations
@@ -114,44 +111,22 @@ class DebuggableInvariantPointAttention(torch.nn.Module):
         # Compute attention scores
         ##########################
         # [*, N_res, N_res, H]
-        b = self.linear_b(z[0])
+        b = self.linear_b(z)
 
-        if(_offload_inference):
-            assert(sys.getrefcount(z[0]) == 2)
-            z[0] = z[0].cpu()
+        # [*, H, N_res, N_res]
+        b = permute_final_dims(b, (2, 0, 1))
 
         # [*, N_res, N_res]
         square_mask = torch.logical_and(mask.unsqueeze(-1), mask.unsqueeze(-2))
-        square_mask = (self.inf * (square_mask.to(dtype=torch.float32) - 1)).unsqueeze(-3)
 
         # [*, H, N_res, N_res]
-        if(is_fp16_enabled()):
-            with torch.cuda.amp.autocast(enabled=False):
-                a = torch.matmul(
-                    permute_final_dims(q.float(), (1, 0, 2)),  # [*, H, N_res, C_hidden]
-                    permute_final_dims(k.float(), (1, 2, 0)),  # [*, H, C_hidden, N_res]
-                )
-        else:
-            a = torch.matmul(
-                permute_final_dims(q, (1, 0, 2)),  # [*, H, N_res, C_hidden]
-                permute_final_dims(k, (1, 2, 0)),  # [*, H, C_hidden, N_res]
-            )
+        a_sd = torch.matmul(
+            permute_final_dims(q, (1, 0, 2)),  # [*, H, N_res, C_hidden]
+            permute_final_dims(k, (1, 2, 0)),  # [*, H, C_hidden, N_res]
 
-        a *= math.sqrt(1.0 / (2 * self.c_hidden))
+        ) / sqrt(self.c_hidden)
 
-        a += (math.sqrt(1.0 / 2) * permute_final_dims(b, (2, 0, 1)))
-
-        if(inplace_safe):
-            a += square_mask
-            # in-place softmax
-            attn_core_inplace_cuda.forward_(
-                a,
-                reduce(mul, a.shape[:-1]),
-                a.shape[-1],
-            )
-        else:
-            a = a + square_mask
-            a = self.softmax(a)
+        a = self.softmax(self.w_L * (a_sd + b) - self.inf * torch.logical_not(square_mask[..., None, :, :]).float())
 
         ################
         # Compute output
@@ -164,20 +139,17 @@ class DebuggableInvariantPointAttention(torch.nn.Module):
         # [*, N_res, H * C_hidden]
         o = flatten_final_dims(o, 2)
 
-        if(_offload_inference):
-            z[0] = z[0].to(o.device)
-
         # [*, N_res, H, C_z]
-        o_pair = torch.matmul(a.transpose(-2, -3), z[0].to(dtype=a.dtype))
+        o_pair = torch.matmul(a.transpose(-2, -3), z.to(dtype=a.dtype))
 
         # [*, N_res, H * C_z]
         o_pair = flatten_final_dims(o_pair, 2)
 
         # [*, N_res, C_s]
-        s = self.linear_out(
+        s_upd = self.linear_out(
             torch.cat(
                 (o, o_pair), dim=-1
-            ).to(dtype=z[0].dtype)
+            ).to(dtype=z.dtype)
         )
 
-        return s, a.clone()
+        return s_upd, a
