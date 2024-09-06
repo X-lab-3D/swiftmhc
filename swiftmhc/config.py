@@ -9,7 +9,7 @@ config = mlc.ConfigDict(
         "c_hidden": 16,
         "c_resnet": 128,
         "c_transition": 128,
-        "no_heads": 12,
+        "no_heads": 2,
         "no_qk_points": 4,
         "no_v_points": 8,
         "dropout_rate": 0.1,
