@@ -213,7 +213,7 @@ class Predictor(torch.nn.Module):
         peptide_scores = self.affinity_module(peptide_embd)
 
         # [*, peptide_maxlen, output_size]
-        masked_scores = torch.where(mask.unsqueeze(-1), peptide_scores, 0.0)
+        masked_scores = torch.where(peptide_mask.unsqueeze(-1), peptide_scores, 0.0)
 
         # [*, output_size]
         ba = masked_scores.sum(dim=-2)
