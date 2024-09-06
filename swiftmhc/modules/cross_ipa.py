@@ -1,4 +1,4 @@
-import math
+from math import sqrt
 import logging
 
 import torch
@@ -72,8 +72,14 @@ class CrossInvariantPointAttention(torch.nn.Module):
         self.softmax = torch.nn.Softmax(dim=-1)
         self.softplus = torch.nn.Softplus()
 
+        # [H]
         self.head_weights = torch.nn.Parameter(torch.zeros((self.no_heads)))
         ipa_point_weights_init_(self.head_weights)
+
+        self.w_C = sqrt(2.0 / (9.0 * self.no_qk_points))
+
+        # only two terms in attention weight, so divide by two
+        self.w_L = sqrt(0.5)
 
     @staticmethod
     def _standardize_pts_attention(a: torch.Tensor) -> torch.Tensor:
@@ -93,8 +99,6 @@ class CrossInvariantPointAttention(torch.nn.Module):
         T_src: Rigid,
         dst_mask: torch.Tensor,
         src_mask: torch.Tensor,
-        inplace_safe: bool = False,
-        _offload_inference: bool = False,
 
     ) -> torch.Tensor:
         """
@@ -171,67 +175,28 @@ class CrossInvariantPointAttention(torch.nn.Module):
         # Compute attention scores : line #7 in alphafold
         ##########################
 
-        if(is_fp16_enabled()):
-            with torch.cuda.amp.autocast(enabled=False):
-                a = torch.matmul(
-                    permute_final_dims(q.float(), (1, 0, 2)),  # [*, H, N_res, C_hidden]
-                    permute_final_dims(k.float(), (1, 2, 0)),  # [*, H, C_hidden, N_res]
-                )
-        else:
-            a = torch.matmul(
-                permute_final_dims(q, (1, 0, 2)),  # [*, H, N_res, C_hidden]
-                permute_final_dims(k, (1, 2, 0)),  # [*, H, C_hidden, N_res]
-            )
+        # [*, H, len_dst, len_src]
+        a_sd = torch.matmul(
+            permute_final_dims(q, (1, 0, 2)),  # [*, H, len_dst, C_hidden]
+            permute_final_dims(k, (1, 2, 0)),  # [*, H, C_hidden, len_src]
 
-        a *= math.sqrt(1.0 / (2 * self.c_hidden))
-
-        # [*, len_dst, len_src, H, P_q, 3]
-        pt_att = q_pts.unsqueeze(-4) - k_pts.unsqueeze(-5)
-        if(inplace_safe):
-            pt_att *= pt_att
-        else:
-            pt_att = pt_att ** 2
-
-        # [*, len_dst, len_src, H, P_q]
-        pt_att = sum(torch.unbind(pt_att, dim=-1))
-
-        head_weights = self.softplus(self.head_weights).view(
-            *((1,) * len(pt_att.shape[:-2]) + (-1, 1))
-        )
+        ) * sqrt(1.0 / self.c_hidden)
 
         # only two terms in attention weight, so divide by two
-        head_weights = head_weights * math.sqrt(
-            1.0 / (2 * (self.no_qk_points * 9.0 / 2))
-        )
-        if(inplace_safe):
-            pt_att *= head_weights
-        else:
-            pt_att = pt_att * head_weights
+        # [1, 1, 1, H]
+        head_weights = self.softplus(self.head_weights).view([1] * len(q_pts.shape[:-3]) + [1, -1])
 
         # [*, len_dst, len_src, H]
-        pt_att = torch.sum(pt_att, dim=-1) * (-0.5)
+        a_pt = (0.5 * head_weights * self.w_C) * ((q_pts[..., :, None, :, :, :] - k_pts[..., None, :, :, :, :]) ** 2).sum(dim=(-2, -1))
+
+        # [*, H, len_dst, len_src]
+        a_pt = permute_final_dims(a_pt, (2, 0, 1))
 
         # [*, len_dst, len_src]
         square_mask = torch.logical_and(dst_mask.unsqueeze(-1), src_mask.unsqueeze(-2))
-        square_mask = self.inf * (square_mask.to(dtype=torch.float32) - 1.0)
 
         # [*, H, len_dst, len_src]
-        pt_att = permute_final_dims(pt_att, (2, 0, 1))
-
-        if(inplace_safe):
-            a += pt_att
-            del pt_att
-            a += square_mask.unsqueeze(-3)
-            # in-place softmax
-            attn_core_inplace_cuda.forward_(
-                a,
-                reduce(mul, a.shape[:-1]),
-                a.shape[-1],
-            )
-        else:
-            a = a + pt_att
-            a = a + square_mask.unsqueeze(-3)
-            a = self.softmax(a)
+        a = self.softmax(self.w_L * (a_sd - a_pt) - self.inf * torch.logical_not(square_mask).float()[..., None, :, :])
 
         ################
         # Compute output
@@ -245,21 +210,10 @@ class CrossInvariantPointAttention(torch.nn.Module):
         o = flatten_final_dims(o, 2)
 
         # [*, H, 3, len_dst, P_v]
-        if(inplace_safe):
-            v_pts = permute_final_dims(v_pts, (1, 3, 0, 2))
-            o_pt = [
-                torch.matmul(a, v.to(a.dtype))
-                for v in torch.unbind(v_pts, dim=-3)
-            ]
-            o_pt = torch.stack(o_pt, dim=-3)
-        else:
-            o_pt = torch.sum(
-                (
-                    a[..., None, :, :, None]
-                    * permute_final_dims(v_pts, (1, 3, 0, 2))[..., None, :, :]
-                ),
-                dim=-2,
-            )
+        o_pt = torch.sum(
+            a[..., None, :, :, None] * permute_final_dims(v_pts, (1, 3, 0, 2))[..., None, :, :],
+            dim=-2,
+        )
 
         # [*, len_dst, H, P_v, 3]
         o_pt = permute_final_dims(o_pt, (2, 0, 3, 1))
