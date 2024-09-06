@@ -927,7 +927,7 @@ class Trainer:
 
 
 def read_ids_from(path: str) -> List[str]:
-    "reads the context of a text file as a list of data point ids"
+    "reads the contents of a text file as a list of data point ids"
 
     ids = []
     with open(path) as file_:
@@ -1074,7 +1074,7 @@ if __name__ == "__main__":
 
             if args.test_subset_path is not None:
 
-                # If a test subset path was provided, take a fraction of the HDF5 file.
+                # If a test subset path was provided, take that indicated fraction of the HDF5 file.
                 test_entry_names = read_ids_from(args.test_subset_path)
                 train_valid_entry_names = get_excluded(get_entry_names(args.data_path[0]), test_entry_names)
                 train_entry_names, valid_entry_names = random_subdivision(train_valid_entry_names, 0.1)
