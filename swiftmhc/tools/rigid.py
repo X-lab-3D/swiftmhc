@@ -4,11 +4,27 @@ import torch
 
 import openfold.utils.rigid_utils
 
+from .quat import multiply_quat, rotate_vec_by_quat, conjugate_quat
+
 
 class Rigid(openfold.utils.rigid_utils.Rigid):
     """
     Like in openfold, but overrides the apply methods to use quaternions.
     """
+
+    @staticmethod
+    def identity(
+        shape: Tuple[int],
+        dtype: Optional[torch.dtype] = None,
+        device: Optional[torch.device] = None,
+        requires_grad: bool = True,
+        fmt: str = "quat",
+
+    ) -> Rigid:
+
+        id_ = openfold.utils.rigid_utils.Rigid.identity(shape, dtype, device, requires_grad, fmt)
+
+        return Rigid(id_.get_rots(), id_.get_trans())
 
     def compose_q_update_vec(self, q_update_vec: torch.Tensor) -> Rigid:
         """
@@ -32,7 +48,7 @@ class Rigid(openfold.utils.rigid_utils.Rigid):
         q_upd = torch.nn.functional.normalize(q_upd, dim=-1)
 
         # compose new transformation:
-        new_q = multiply_quat(q_upd, self.get_quats())
+        new_q = multiply_quat(self.get_rots().get_quats(), q_upd)
 
         trans_update = rotate_vec_by_quat(self.get_rots().get_quats(), t_vec)
 
