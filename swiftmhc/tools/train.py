@@ -18,7 +18,7 @@ class EarlyStopper:
         self._epsilon = epsilon
 
         # remembers the previous loss values
-        self._record = [] 
+        self._record = []
 
     def update(self, validation_loss: float):
 
