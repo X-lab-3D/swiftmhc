@@ -79,6 +79,11 @@ class Predictor(torch.nn.Module):
         else:
             raise TypeError(str(self.model_type))
 
+        self.affinity_norm = torch.nn.Sequential(
+            torch.nn.Dropout(p=config.dropout_rate),
+            torch.nn.LayerNorm(config.c_s),
+        )
+
         # module for predicting affinity from updated {s_i}
         self.affinity_module = torch.nn.Sequential(
             torch.nn.Linear(config.c_s, config.c_transition),
@@ -176,7 +181,7 @@ class Predictor(torch.nn.Module):
 
         # retrieve updated peptide sequence, per residue features
         # [*, peptide_maxlen, c_s]
-        peptide_embd = output["single"]
+        peptide_embd = self.affinity_norm(peptide_embd + output["single"])
 
         # [*, peptide_maxlen]
         peptide_mask = batch["peptide_cross_residues_mask"]
