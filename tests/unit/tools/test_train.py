@@ -24,7 +24,7 @@ def test_no_early_stop():
     eps = 0.01
     early_stop = EarlyStopper(epsilon=eps)
 
-    losses = [0.0, eps + 0.001] * 50
+    losses = [-eps - 0.001, eps + 0.001] * 50
 
     stopped_early = False
     for loss in losses:
