@@ -22,7 +22,6 @@ from openfold.np.residue_constants import (
 
 from ..tools.rigid import Rigid
 from .cross_ipa import CrossInvariantPointAttention
-from ..operate import average_rigid
 
 
 _log = logging.getLogger(__name__)
@@ -276,7 +275,7 @@ class CrossStructureModule(torch.nn.Module):
         # here
         backb_to_global = Rigid(
             Rotation(
-                rot_mats=T_peptide.get_rots().get_rot_mats(), 
+                rot_mats=T_peptide.get_rots().get_rot_mats(),
                 quats=None
             ),
             T_peptide.get_trans(),
