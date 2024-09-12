@@ -691,9 +691,10 @@ class Trainer:
         """
 
         # Set up the model
-        model = Predictor(self.config)
+        predictor = Predictor(self.config)
+        model = predictor
         if self._device.type == "cuda" and torch.cuda.device_count() > 1:
-            model = DataParallel(model)
+            model = DataParallel(predictor)
 
         model.to(device=self._device)
 
@@ -725,11 +726,14 @@ class Trainer:
                            run_id, animated_data)
 
         # create training phases
-        training_phases = [
-            TrainingPhase(epoch_count, not disable_struct_loss, not disable_struct_loss, False, False),
-            TrainingPhase(affinity_tune_count, not disable_struct_loss, not disable_struct_loss, not disable_ba_loss, False),
-            TrainingPhase(fine_tune_count, not disable_struct_loss, not disable_struct_loss, not disable_ba_loss, not disable_struct_loss),
-        ]
+        training_phases = []
+        if not disable_struct_loss:
+            training_phases += [
+                TrainingPhase(epoch_count, True, True, False, False),
+                TrainingPhase(fine_tune_count, True, True, False, True),
+            ]
+        if not disable_ba_loss:
+            training_phases.append(TrainingPhase(affinity_tune_count, False, False, True, False))
 
         # init early stop
         early_stop = EarlyStopper()
@@ -754,6 +758,14 @@ class Trainer:
                 # if no more training phases, end training
                 if len(training_phases) == 0:
                     return
+
+                # freeze/unfreeze parameters
+                if training_phases[0].affinity_tune:
+                    predictor.switch_affinity_grad(True)
+                    predictor.switch_structure_grad(False)
+                else:
+                    predictor.switch_affinity_grad(False)
+                    predictor.switch_structure_grad(True)
 
             # train during epoch
             with Timer(f"train epoch {total_epoch_count}") as t:
