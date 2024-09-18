@@ -1,4 +1,4 @@
-
+from typing import List
 
 import numpy
 
@@ -20,6 +20,27 @@ class EarlyStopper:
         # remembers the previous loss values
         self._record = []
 
+    @staticmethod
+    def _filter_outliers(values: List[float]) -> List[float]:
+
+        # define min & max
+        q1 = numpy.quantile(values, 0.25)
+        q3 = numpy.quantile(values, 0.75)
+
+        iqr = q3 - q1
+
+        min_ = q1 - 1.5 * iqr
+        max_ = q3 + 1.5 * iqr
+
+        # filter
+        passed = []
+        for value in values:
+            if value > min_ and value < max_:
+                passed.append(value)
+
+        return passed
+
+
     def update(self, validation_loss: float):
 
         self._record.append(validation_loss)
@@ -28,9 +49,9 @@ class EarlyStopper:
 
         if len(self._record) > self._patience:
 
-            recent = numpy.array(self._record[-self._patience:])
+            recent = numpy.array(self._filter_outliers(self._record[-self._patience:]))
 
-            return numpy.all(numpy.abs(recent - recent.mean()) < self._epsilon)
+            return numpy.all(numpy.abs(recent - numpy.median(recent)) < self._epsilon)
         else:
             return False
 
