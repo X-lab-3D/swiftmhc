@@ -1020,5 +1020,5 @@ if __name__ == "__main__":
         trainer.train(train_loader, valid_loader, test_loaders,
                       (args.phase_1_epoch_count, args.phase_2_epoch_count, args.phase_3_epoch_count, args.phase_4_epoch_count),
                       run_id, pretrained_model_path,
-                      args.animate
+                      args.animate,
                       args.blosum)
