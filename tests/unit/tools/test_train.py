@@ -26,6 +26,21 @@ def test_early_stop():
     assert stopped_early
 
 
+def test_no_variance():
+    """
+    Must not result in error or NaN when there's no variance in the data
+    """
+
+    eps = 0.01
+    early_stop = EarlyStopper(epsilon=eps, patience=30)
+
+    losses = [0.0] * 100
+
+    for loss in losses:
+        early_stop.update(loss)
+        early_stop.stops_early()
+
+
 def test_no_early_stop():
     """
     Must not stop early if losses are going down
