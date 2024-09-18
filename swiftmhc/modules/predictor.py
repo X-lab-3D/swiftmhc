@@ -91,13 +91,13 @@ class Predictor(torch.nn.Module):
             torch.nn.Linear(config.c_transition, output_size),
         )
 
-    def switch_affinity_grad(requires_grad: bool):
+    def switch_affinity_grad(self, requires_grad: bool):
 
         for module in [self.affinity_norm, self.affinity_module]:
             for parameter in module.parameters():
                 parameter.requires_grad = requires_grad
 
-    def switch_structure_grad(requires_grad: bool):
+    def switch_structure_grad(self, requires_grad: bool):
 
         for module in [self.transform, self.peptide_norm,
                        self.protein_dist_norm, self.protein_ipa,
