@@ -26,7 +26,7 @@ class EarlyStopper:
         if len(values) == 0:
             return values
 
-        if all([value == values[0] for x in values]):
+        if all([value == values[0] for value in values]):
             # all the same
             return values
 
