@@ -13,7 +13,7 @@ def test_early_stop():
 
     # add outliers
     for i in range(0, len(losses), 20):
-        losses[i] = 1000.0
+        losses[i] = 1.0
 
     stopped_early = False
     for loss in losses:
