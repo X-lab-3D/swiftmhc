@@ -84,6 +84,10 @@ class TrainingPhase:
         self._epoch_count += 1
 
     @property
+    def max_epoch_count(self) -> int:
+        return self._max_epoch_count
+
+    @property
     def epoch_count(self) -> int:
         return self._epoch_count
 
@@ -102,4 +106,7 @@ class TrainingPhase:
     @property
     def fine_tune(self):
         return self._fine_tune
+
+    def __repr__(self) -> str:
+        return f"max_epoch={self._max_epoch_count}, fape_tune={self._fape_tune}, torsion_tune={self._torsion_tune}, affinity_tune={self._affinity_tune}, fine_tune={self._fine_tune}"
 

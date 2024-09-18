@@ -85,17 +85,16 @@ arg_parser.add_argument("--pretrained-model", "-p", help="use a given pretrained
 arg_parser.add_argument("--workers", "-w", help="number of worker processes to load batches", type=int, default=5)
 arg_parser.add_argument("--builders", "-B", help="number of simultaneous structure builder processes, it has no effect setting this higher than the number of models produced per batch", type=int, default=0)
 arg_parser.add_argument("--batch-size", "-b", help="batch size to use during training/validation/testing", type=int, default=8)
-arg_parser.add_argument("--epoch-count", "-e", help="how many epochs to run during structure training", type=int, default=300)
-arg_parser.add_argument("--affinity-tune-count", "-a", help="how many epochs to run during affinity-tuning, after structure training", type=int, default=100)
-arg_parser.add_argument("--fine-tune-count", "-u", help="how many epochs to run during fine-tuning, at the end", type=int, default=50)
+arg_parser.add_argument("--phase-1-epoch-count", "-1", help="how many epochs to run during phase 1 training (structure + BA loss)", type=int, default=300)
+arg_parser.add_argument("--phase-2-epoch-count", "-2", help="how many epochs to run during phase 2 training (structure loss only)", type=int, default=50)
+arg_parser.add_argument("--phase-3-epoch-count", "-3", help="how many epochs to run during phase 3 training (structure + fine tuning loss)", type=int, default=50)
+arg_parser.add_argument("--phase-4-epoch-count", "-4", help="how many epochs to run during phase 4 training (BA loss & BA gradients only)", type=int, default=50)
 arg_parser.add_argument("--animate", "-m", help="id of a data point to generate intermediary pdb for", nargs="+")
 arg_parser.add_argument("--disable-energy-minimization", help="disable structure OpenMM energy minimization", action="store_const", const=True, default=False)
 arg_parser.add_argument("--lr", help="learning rate setting", type=float, default=0.001)
 arg_parser.add_argument("--classification", "-c", help="do classification instead of regression", action="store_const", const=True, default=False)
 arg_parser.add_argument("--test-only", "-t", help="do not train, only run tests", const=True, default=False, action='store_const')
 arg_parser.add_argument("--test-subset-path", help="path to list of entry ids that should be excluded for testing")
-arg_parser.add_argument("--disable-ba-loss", help="whether or not to include the BA loss term with training", action="store_const", const=True, default=False)
-arg_parser.add_argument("--disable-struct-loss", help="whether or not to include the structural loss terms with training", action="store_const", const=True, default=False)
 arg_parser.add_argument("--blosum", help="whether or not to use blosum62 amino acid encoding, instead of one-hot encoding", action="store_const", const=True, default=False)
 arg_parser.add_argument("data_path", help="path to a hdf5 file", nargs="+")
 
@@ -662,14 +661,10 @@ class Trainer:
               train_loader: DataLoader,
               valid_loader: DataLoader,
               test_loaders: List[DataLoader],
-              epoch_count: int,
-              affinity_tune_count: int,
-              fine_tune_count: int,
+              epoch_counts: Tuple[int, int, int, int],
               run_id: str,
               pretrained_model_path: str,
               animated_complex_ids: List[str],
-              disable_struct_loss: bool,
-              disable_ba_loss: bool,
               blosum: bool,
     ):
         """
@@ -679,14 +674,10 @@ class Trainer:
             train_loader: dataset for training
             valid_loader: dataset for validation, selecting the best model and deciding on early stopping
             test_loaders: datasets for testing on
-            epoch_count: number of epochs to run optimizing just fape and chi for binding peptides
-            affinity_tune_count: number of epochs to run optimizing binding affinity
-            fine_tune_count: number of epochs to run optimizing everything
+            epoch_counts: number of epochs to run in phase 1,2,3,4
             run_id: directory to store the resulting files
             pretrained_model_path: an optional pretrained model file to start from
             animated_complex_ids: names of complexes to animate during the run. their structure snapshots will be stored in an HDF5
-            disable_struct_loss: don't include structural loss terms: fape, chi, bond-length violations, bond angle violations, clashes, torsion violations
-            disable_ba_loss: don't include the binding affinity loss term
             blosum: whether to use blosum62 encoding (True) or one-hot encoding (False)
         """
 
@@ -725,18 +716,25 @@ class Trainer:
                            model,
                            run_id, animated_data)
 
-        # create training phases
-        training_phases = []
-        if not disable_struct_loss:
-            training_phases += [
-                TrainingPhase(epoch_count, True, True, False, False),
-                TrainingPhase(fine_tune_count, True, True, False, True),
-            ]
-        if not disable_ba_loss:
-            training_phases.append(TrainingPhase(affinity_tune_count, False, False, True, False))
+        # create training phases, setting: max_epochs, fape_tune, torsion_tune, affinity_tune, fine_tune
+        training_phases = [
+            TrainingPhase(epoch_counts[0], True, True, True, False),
+            TrainingPhase(epoch_counts[1], True, True, False, False),
+            TrainingPhase(epoch_counts[2], True, True, False, True),
+            TrainingPhase(epoch_counts[3], False, False, True, False),
+        ]
+
+        # skip phases with 0 epochs
+        training_phases = [phase for phase in training_phases if phase.max_epoch_count > 0]
+
+        # freeze/unfreeze parameters
+        predictor.switch_affinity_grad(training_phases[0].affinity_tune)
+        predictor.switch_structure_grad(training_phases[0].fape_tune or training_phases[0].torsion_tune or training_phases[0].fine_tune)
 
         # init early stop
         early_stop = EarlyStopper()
+
+        _log.info(f"begin with training phase: {training_phases[0]}")
 
         # do the actual learning iteration
         total_epoch_count = 0
@@ -759,13 +757,11 @@ class Trainer:
                 if len(training_phases) == 0:
                     return
 
+                _log.info(f"begin new training phase at epoch {total_epoch_count}: {training_phases[0]}")
+
                 # freeze/unfreeze parameters
-                if training_phases[0].affinity_tune:
-                    predictor.switch_affinity_grad(True)
-                    predictor.switch_structure_grad(False)
-                else:
-                    predictor.switch_affinity_grad(False)
-                    predictor.switch_structure_grad(True)
+                predictor.switch_affinity_grad(training_phases[0].affinity_tune)
+                predictor.switch_structure_grad(training_phases[0].fape_tune or training_phases[0].torsion_tune or training_phases[0].fine_tune)
 
             # train during epoch
             with Timer(f"train epoch {total_epoch_count}") as t:
@@ -1022,7 +1018,7 @@ if __name__ == "__main__":
 
         # train with the composed datasets and user-provided settings
         trainer.train(train_loader, valid_loader, test_loaders,
-                      args.epoch_count, args.affinity_tune_count, args.fine_tune_count,
+                      (args.phase_1_epoch_count, args.phase_2_epoch_count, args.phase_3_epoch_count, args.phase_4_epoch_count),
                       run_id, pretrained_model_path,
-                      args.animate, args.disable_struct_loss, args.disable_ba_loss,
+                      args.animate
                       args.blosum)
