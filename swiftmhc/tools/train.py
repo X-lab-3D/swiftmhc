@@ -23,6 +23,13 @@ class EarlyStopper:
     @staticmethod
     def _filter_outliers(values: List[float]) -> List[float]:
 
+        if len(values) == 0:
+            return values
+
+        if all([value == values[0] for x in values]):
+            # all the same
+            return values
+
         # define min & max
         q1 = numpy.quantile(values, 0.25)
         q3 = numpy.quantile(values, 0.75)
