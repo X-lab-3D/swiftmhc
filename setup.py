@@ -16,6 +16,7 @@ setup(
         "h5py>=3.10.0",
         "ml-collections>=0.1.1",
         "scikit-learn>=1.4.1",
+        "biopython>=1.84",
     ],
 )
 
