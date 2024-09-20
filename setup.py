@@ -19,6 +19,7 @@ setup(
         "biopython>=1.84",
         "blosum>=2.0.3",
         "modelcif>=1.0",
+        "openmm>=8.1.1",
     ],
 )
 
