@@ -17,6 +17,8 @@ setup(
         "ml-collections>=0.1.1",
         "scikit-learn>=1.4.1",
         "biopython>=1.84",
+        "blosum>=2.0.3",
+        "modelcif>=1.0",
     ],
 )
 
