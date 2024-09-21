@@ -941,10 +941,10 @@ if __name__ == "__main__":
     # If cuda is available, use it.
     if torch.cuda.is_available():
         device_count = torch.cuda.device_count()
-        _log.debug(f"using {device_count} cuda devices")
+        _log.info(f"using {device_count} cuda devices")
         device = torch.device("cuda")
     else:
-        _log.debug("using cpu device")
+        _log.info("using cpu device")
         device = torch.device("cpu")
 
     # Make sure we can use multiple workers:
