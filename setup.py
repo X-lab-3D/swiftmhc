@@ -16,6 +16,12 @@ setup(
         "h5py>=3.10.0",
         "ml-collections>=0.1.1",
         "scikit-learn>=1.4.1",
+        "blosum>=2.0.3",
+        "modelcif>=1.0",
+        "filelock>=3.13.1",
+        "biopython>=1.84",
+        "openmm>=8.1.2",
+        "dm-tree>=0.1.8",
     ],
 )
 
