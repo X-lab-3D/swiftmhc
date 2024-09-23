@@ -11,6 +11,10 @@ def test_early_stop():
 
     losses = [0.0] * 100
 
+    # add variance
+    for i in range(0, len(losses), 2):
+        losses[i] = 0.001
+
     # add outliers
     for i in range(0, len(losses), 20):
         losses[i] = 1.0

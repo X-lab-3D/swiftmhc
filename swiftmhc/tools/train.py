@@ -9,7 +9,7 @@ class EarlyStopper:
     for early stopping are met.
     """
 
-    def __init__(self, patience: int = 15, epsilon: float = 0.01):
+    def __init__(self, patience: int = 50, epsilon: float = 0.0002):
 
         # number of successive epochs matching epsilon
         self._patience = patience
@@ -42,7 +42,7 @@ class EarlyStopper:
         # filter
         passed = []
         for value in values:
-            if value > min_ and value < max_:
+            if value >= min_ and value <= max_:
                 passed.append(value)
 
         return passed
@@ -57,8 +57,18 @@ class EarlyStopper:
         if len(self._record) > self._patience:
 
             recent = numpy.array(self._filter_outliers(self._record[-self._patience:]))
+            if recent.shape[0] < 2:
+                return False
 
-            return numpy.all(numpy.abs(recent - numpy.median(recent)) < self._epsilon)
+            # all the same?
+            if numpy.all(recent == recent[0].item()):
+                return True
+
+            epochs = numpy.arange(0, recent.shape[0])
+
+            slope, offset = numpy.polyfit(epochs, recent, 1)
+
+            return numpy.abs(slope) < self._epsilon
         else:
             return False
 
