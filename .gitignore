@@ -3,6 +3,7 @@
 
 # vim
 *.swp
+*~
 
 # setup
 build/
