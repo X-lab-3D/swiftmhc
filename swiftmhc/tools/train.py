@@ -31,6 +31,7 @@ class EarlyStopper:
             return values
 
         # define min & max
+        median = numpy.median(values)
         q1 = numpy.quantile(values, 0.25)
         q3 = numpy.quantile(values, 0.75)
 
@@ -44,6 +45,8 @@ class EarlyStopper:
         for value in values:
             if value >= min_ and value <= max_:
                 passed.append(value)
+            else:
+                passed.append(median)
 
         return passed
 
