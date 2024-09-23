@@ -743,12 +743,6 @@ class Trainer:
             # early stopping, if no more improvement or just end of epochs reached
             if early_stop.stops_early() or training_phases[0].end_reached():
 
-                # reset early stopping variables
-                early_stop = EarlyStopper()
-
-                # reset lowest loss variable, to be sure that future best models get saved
-                lowest_loss = float("inf")
-
                 # move on to the next training phase
                 training_phases = training_phases[1:]
                 _log.info(f"end training phase at epoch {total_epoch_count}")
@@ -756,6 +750,12 @@ class Trainer:
                 # if no more training phases, end training
                 if len(training_phases) == 0:
                     return
+
+                # reset early stopping variables
+                early_stop = EarlyStopper()
+
+                # reset lowest loss variable, to be sure that future best models get saved
+                lowest_loss = float("inf")
 
                 _log.info(f"begin new training phase at epoch {total_epoch_count}: {training_phases[0]}")
 
