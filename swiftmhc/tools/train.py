@@ -9,7 +9,7 @@ class EarlyStopper:
     for early stopping are met.
     """
 
-    def __init__(self, patience: int = 50, epsilon: float = 0.0002):
+    def __init__(self, patience: int = 50, epsilon: float = 1e-4):
 
         # number of successive epochs matching epsilon
         self._patience = patience
