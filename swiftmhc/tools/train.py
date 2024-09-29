@@ -82,3 +82,6 @@ class TrainingPhase:
     def fine_tune(self):
         return self._fine_tune
 
+    def __str__(self):
+        return f"max_epoch={self._max_epoch_count}, fape_tune={self._fape_tune}, torsion_tune={self._torsion_tune}, affinity_tune={self._affinity_tune}, fine_tune={self._fine_tune}"
+
