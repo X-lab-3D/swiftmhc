@@ -7,6 +7,8 @@ import torch.nn
 
 import ml_collections
 
+from openfold.model.primitives import Linear, LayerNorm
+
 from position_encoding.relative import get_relative_position_encoding_matrix
 
 
@@ -42,33 +44,33 @@ class SequenceEncoder(torch.nn.Module):
         self.c_transition = config.c_transition
 
         # scaled dot multi-headed attention: queries, keys, values
-        self.linear_q = torch.nn.Linear(self.c_s, self.c_hidden * self.no_heads, bias=False)
-        self.linear_k = torch.nn.Linear(self.c_s, self.c_hidden * self.no_heads, bias=False)
-        self.linear_v = torch.nn.Linear(self.c_s, self.c_hidden * self.no_heads, bias=False)
+        self.linear_q = Linear(self.c_s, self.c_hidden * self.no_heads, bias=False)
+        self.linear_k = Linear(self.c_s, self.c_hidden * self.no_heads, bias=False)
+        self.linear_v = Linear(self.c_s, self.c_hidden * self.no_heads, bias=False)
 
         # generates the b term in the attention weight
-        self.linear_b = torch.nn.Linear(self.no_bins, self.no_heads, bias=False)
+        self.linear_b = Linear(self.no_bins, self.no_heads, bias=False)
 
         # generates the output of the multi-header attention
-        self.linear_output = torch.nn.Linear((self.no_bins + self.c_hidden) * self.no_heads, self.c_s)
+        self.linear_output = Linear((self.no_bins + self.c_hidden) * self.no_heads, self.c_s, init='final')
 
         # to be used after multi-headed attention
         self.norm1 = torch.nn.Sequential(
             torch.nn.Dropout(self.dropout_rate),
-            torch.nn.LayerNorm(self.c_s),
+            LayerNorm(self.c_s),
         )
 
         # to be used after multi-headed attention norm
         self.feed_forward = torch.nn.Sequential(
-            torch.nn.Linear(self.c_s, self.c_transition),
+            Linear(self.c_s, self.c_transition, init='relu'),
             torch.nn.ReLU(),
-            torch.nn.Linear(self.c_transition, self.c_s),
+            Linear(self.c_transition, self.c_s, init='final'),
         )
 
         # to be used after feed-forward
         self.norm2 = torch.nn.Sequential(
             torch.nn.Dropout(self.dropout_rate),
-            torch.nn.LayerNorm(self.c_s),
+            LayerNorm(self.c_s),
         )
 
     def forward(self, s: torch.Tensor, mask: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
