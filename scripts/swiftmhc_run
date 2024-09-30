@@ -85,13 +85,11 @@ arg_parser.add_argument("--pretrained-model", "-p", help="use a given pretrained
 arg_parser.add_argument("--workers", "-w", help="number of worker processes to load batches", type=int, default=5)
 arg_parser.add_argument("--builders", "-B", help="number of simultaneous structure builder processes, it has no effect setting this higher than the number of models produced per batch", type=int, default=0)
 arg_parser.add_argument("--batch-size", "-b", help="batch size to use during training/validation/testing", type=int, default=8)
-arg_parser.add_argument("--phase-1-epoch-count", "-1", help="how many epochs to run during phase 1 training (structure + BA loss)", type=int, default=300)
+arg_parser.add_argument("--phase-1-epoch-count", "-1", help="how many epochs to run during phase 1 training (structure + BA loss)", type=int, default=1000)
 arg_parser.add_argument("--phase-2-epoch-count", "-2", help="how many epochs to run during phase 2 training (structure loss only)", type=int, default=50)
 arg_parser.add_argument("--phase-3-epoch-count", "-3", help="how many epochs to run during phase 3 training (structure + fine tuning loss)", type=int, default=50)
-arg_parser.add_argument("--phase-4-epoch-count", "-4", help="how many epochs to run during phase 4 training (BA loss & BA gradients only)", type=int, default=50)
 arg_parser.add_argument("--animate", "-m", help="id of a data point to generate intermediary pdb for", nargs="+")
 arg_parser.add_argument("--disable-energy-minimization", help="disable structure OpenMM energy minimization", action="store_const", const=True, default=False)
-arg_parser.add_argument("--lr", help="learning rate setting", type=float, default=0.001)
 arg_parser.add_argument("--classification", "-c", help="do classification instead of regression", action="store_const", const=True, default=False)
 arg_parser.add_argument("--test-only", "-t", help="do not train, only run tests", const=True, default=False, action='store_const')
 arg_parser.add_argument("--test-subset-path", help="path to list of entry ids that should be excluded for testing")
@@ -298,18 +296,15 @@ class Trainer:
     def __init__(self,
                  device: torch.device,
                  workers_count: int,
-                 lr: float,
                  model_type: ModelType,
     ):
         """
         Args:
             device: will be used to load the model parameters on
             workers_count: number of workers to simultaneously read from the data
-            lr: learning rate
             model_type: regression or classification
         """
 
-        self._lr = lr
         self.config = default_config
         self.config.model_type = model_type
 
@@ -421,8 +416,8 @@ class Trainer:
         loss = losses["total"]
         loss.backward()
 
-        # only do this if necessary, when the training isn't stable
-        #clip_grad_norm_(model.parameters(), 0.5)
+        # for preventing loss spikes
+        clip_grad_norm_(model.parameters(), max_norm=0.5)
 
         # optimize
         optimizer.step()
@@ -697,8 +692,6 @@ class Trainer:
 
             model.load_state_dict(model_state)
 
-        optimizer = Adam(model.parameters(), lr=self._lr)
-
         # define model paths
         model_path = f"{run_id}/best-predictor.pth"
 
@@ -718,10 +711,9 @@ class Trainer:
 
         # create training phases, setting: max_epochs, fape_tune, torsion_tune, affinity_tune, fine_tune
         training_phases = [
-            TrainingPhase(epoch_counts[0], True, True, True, False),
-            TrainingPhase(epoch_counts[1], True, True, False, False),
-            TrainingPhase(epoch_counts[2], True, True, False, True),
-            TrainingPhase(epoch_counts[3], False, False, True, False),
+            TrainingPhase(epoch_counts[0], 1e-3, True, True, False, False),
+            TrainingPhase(epoch_counts[1], 1e-3, True, True, False, True),
+            TrainingPhase(epoch_counts[2], 1e-3, False, False, True, False),
         ]
 
         # skip phases with 0 epochs
@@ -730,6 +722,9 @@ class Trainer:
         # freeze/unfreeze parameters
         predictor.switch_affinity_grad(training_phases[0].affinity_tune)
         predictor.switch_structure_grad(training_phases[0].fape_tune or training_phases[0].torsion_tune or training_phases[0].fine_tune)
+
+        # optimizer
+        optimizer = Adam(model.parameters(), lr=training_phases[0].lr)
 
         # init early stop
         early_stop = EarlyStopper()
@@ -768,6 +763,9 @@ class Trainer:
                 # freeze/unfreeze parameters
                 predictor.switch_affinity_grad(training_phases[0].affinity_tune)
                 predictor.switch_structure_grad(training_phases[0].fape_tune or training_phases[0].torsion_tune or training_phases[0].fine_tune)
+
+                # adjust learning rate
+                optimizer.param_groups[0]['lr'] = training_phases[0].lr
 
             # train during epoch
             with Timer(f"train epoch {total_epoch_count}") as t:
@@ -944,6 +942,10 @@ if __name__ == "__main__":
         logging.basicConfig(filename=f"{run_id}/swiftmhc.log", filemode="a",
                             level=log_level)
 
+    seed = random.getrandbits(64)
+    torch.manual_seed(seed)
+    _log.info(f"setting manual seed {seed}")
+
     # If cuda is available, use it.
     if torch.cuda.is_available():
         device_count = torch.cuda.device_count()
@@ -958,7 +960,7 @@ if __name__ == "__main__":
     torch.multiprocessing.set_start_method('spawn')
 
     # Init trainer object with given arguments
-    trainer = Trainer(device, args.workers, args.lr, model_type)
+    trainer = Trainer(device, args.workers, model_type)
 
     if args.test_only:
         if pretrained_model_path is None:
@@ -1024,7 +1026,7 @@ if __name__ == "__main__":
 
         # train with the composed datasets and user-provided settings
         trainer.train(train_loader, valid_loader, test_loaders,
-                      (args.phase_1_epoch_count, args.phase_2_epoch_count, args.phase_3_epoch_count, args.phase_4_epoch_count),
+                      (args.phase_1_epoch_count, args.phase_2_epoch_count, args.phase_3_epoch_count),
                       run_id, pretrained_model_path,
                       args.animate,
                       args.blosum)
