@@ -85,6 +85,7 @@ class TrainingPhase:
     def __init__(
         self,
         max_epoch_count: int,
+        lr: float,
         fape_tune: bool,
         torsion_tune: bool,
         affinity_tune: bool,
@@ -92,6 +93,7 @@ class TrainingPhase:
     ):
         self._epoch_count = 0
         self._max_epoch_count = max_epoch_count
+        self._lr = lr
         self._fape_tune = fape_tune
         self._torsion_tune = torsion_tune
         self._affinity_tune = affinity_tune
@@ -127,6 +129,10 @@ class TrainingPhase:
     def fine_tune(self):
         return self._fine_tune
 
+    @property
+    def lr(self):
+        return self._lr
+
     def __repr__(self) -> str:
-        return f"max_epoch={self._max_epoch_count}, fape_tune={self._fape_tune}, torsion_tune={self._torsion_tune}, affinity_tune={self._affinity_tune}, fine_tune={self._fine_tune}"
+        return f"max_epoch={self._max_epoch_count}, lr={self._lr}, fape_tune={self._fape_tune}, torsion_tune={self._torsion_tune}, affinity_tune={self._affinity_tune}, fine_tune={self._fine_tune}"
 
