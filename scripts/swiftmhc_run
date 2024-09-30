@@ -731,6 +731,9 @@ class Trainer:
             TrainingPhase(fine_tune_count, not disable_struct_loss, not disable_struct_loss, not disable_ba_loss, not disable_struct_loss),
         ]
 
+        # skip phases with 0 epochs
+        training_phases = [phase for phase in training_phases if phase.max_epoch_count > 0]
+
         # init early stop
         early_stop = EarlyStopper()
 
@@ -742,12 +745,6 @@ class Trainer:
             # early stopping, if no more improvement or just end of epochs reached
             if early_stop.stops_early() or training_phases[0].end_reached():
 
-                # reset early stopping variables
-                early_stop = EarlyStopper()
-
-                # reset lowest loss variable, to be sure that future best models get saved
-                lowest_loss = float("inf")
-
                 # move on to the next training phase
                 training_phases = training_phases[1:]
                 _log.info(f"end training phase at epoch {total_epoch_count}")
@@ -756,7 +753,19 @@ class Trainer:
                 if len(training_phases) == 0:
                     return
 
-                _log.info(f"start training phase {training_phases[0]}")
+                _log.info(f"start training phase {training_phases[0]} at epoch {total_epoch_count}")
+
+                # reload best model
+                model_state = torch.load(model_path, map_location=self._device)
+                model_state = remove_module_prefix(model_state)
+
+                model.load_state_dict(model_state)
+
+                # reset early stopping variables
+                early_stop = EarlyStopper()
+
+                # reset lowest loss variable, to be sure that future best models get saved
+                lowest_loss = float("inf")
 
             # train during epoch
             with Timer(f"train epoch {total_epoch_count}") as t:
