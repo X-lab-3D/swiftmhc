@@ -29,7 +29,7 @@ _log = logging.getLogger(__name__)
 
 arg_parser = ArgumentParser(description="combine multiple snapshot structures into an animation")
 arg_parser.add_argument("hdf5_path", help="path to the hdf5 data file")
-arg_parser.add_argument("--align-ref-pdb", "-r", help="path to a pdb structure to align the video to")
+arg_parser.add_argument("--align-ref-pdb", "-r", help="path to a pdb structure to align the structures in the video to")
 
 
 font = ImageFont.truetype("DejaVuSans.ttf", 48)
