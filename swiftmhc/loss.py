@@ -380,7 +380,7 @@ def get_loss(model_type: ModelType,
 
         if "affinity" in batch:
 
-            affinity_loss = _regression_loss_function(output["affinity"], batch["affinity"])
+            affinity_loss = _regression_loss_function(output["affinity"].float(), batch["affinity"].float())
 
             # handle inequalities
             # if truth is t < 0.5 and prediction is t = 0.49, then the loss must be zero
@@ -398,7 +398,7 @@ def get_loss(model_type: ModelType,
 
     elif model_type == ModelType.CLASSIFICATION:
 
-        affinity_loss = _classification_loss_function(output["logits"], batch["class"])
+        affinity_loss = _classification_loss_function(output["logits"].float(), batch["class"].float())
         non_binders_index = torch.logical_not(batch["class"])
     else:
         raise TypeError(f"unknown model type {model_type}")
