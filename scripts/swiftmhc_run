@@ -588,7 +588,7 @@ class Trainer:
         if self._device.type == "cuda" and torch.cuda.device_count() > 1:
             model = DataParallel(model)
 
-        model.to(device=self._device)
+        model.to(device=self._device, dtype=torch.bfloat16)
         model.eval()
 
         # load the pretrained model
@@ -691,6 +691,8 @@ class Trainer:
             model_state = remove_module_prefix(model_state)
 
             model.load_state_dict(model_state)
+
+        model.bfloat16()
 
         # define model paths
         model_path = f"{run_id}/best-predictor.pth"

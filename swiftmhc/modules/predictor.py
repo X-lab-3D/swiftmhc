@@ -171,7 +171,7 @@ class Predictor(torch.nn.Module):
             protein_upd, protein_a = self.protein_ipa(protein_embd[:, protein_slice],
                                                       sliced_protein_norm_prox,
                                                       protein_T[:, protein_slice],
-                                                      batch["protein_self_residues_mask"][:, protein_slice].float())
+                                                      batch["protein_self_residues_mask"][:, protein_slice].bfloat16())
             protein_embd[:, protein_slice] = self.protein_norm(protein_embd[:, protein_slice] + protein_upd)
 
         # cross attention and peptide structure prediction

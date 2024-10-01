@@ -55,7 +55,7 @@ amino_acids_by_letter = {amino_acid.one_letter_code: amino_acid for amino_acid i
 amino_acids_by_one_hot_index = {}
 for index, one_letter_code in enumerate(openfold_one_letter_order):
     amino_acid = amino_acids_by_letter[one_letter_code]
-    amino_acid.one_hot_code = one_hot(torch.tensor(index), AMINO_ACID_DIMENSION).to(dtype=torch.float32)
+    amino_acid.one_hot_code = one_hot(torch.tensor(index), AMINO_ACID_DIMENSION).to(dtype=torch.bfloat16)
     amino_acid.index = index
 
     amino_acids_by_one_hot_index[index] = amino_acid

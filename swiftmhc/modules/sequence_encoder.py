@@ -112,26 +112,32 @@ class SequenceEncoder(torch.nn.Module):
         square_mask = torch.logical_and(mask[..., :, None], mask[..., None, :])
 
         # [*, N_res, N_res, no_bins]
-        relpos = get_relative_position_encoding_matrix(maxlen, self.no_bins).to(device=s.device, dtype=torch.float)
-        relpos = relpos[None, ...] * square_mask[..., None]
+        z = get_relative_position_encoding_matrix(maxlen, self.no_bins).to(device=s.device, dtype=torch.bfloat16)
+        z = z[None, ...] * square_mask[..., None]
 
         # [*, H, N_res, N_res]
-        b = self.linear_b(relpos).transpose(-2, -1).transpose(-3, -2)
+        b = self.linear_b(z).transpose(-2, -1).transpose(-3, -2)
 
         # [*, H, N_res, c_hidden]
         q = self.linear_q(s).reshape(batch_size, maxlen, self.c_hidden, self.no_heads).transpose(-2, -1).transpose(-3, -2)
         k = self.linear_k(s).reshape(batch_size, maxlen, self.c_hidden, self.no_heads).transpose(-2, -1).transpose(-3, -2)
         v = self.linear_v(s).reshape(batch_size, maxlen, self.c_hidden, self.no_heads).transpose(-2, -1).transpose(-3, -2)
 
+        qk = torch.matmul(q, k.transpose(-2, -1))
+
+        a = self.w_L * (torch.matmul(q, k.transpose(-2, -1)) / sqrt(self.c_hidden) + b)
+
+        a = a - self.inf * torch.logical_not(square_mask[..., None, :, :]).bfloat16()
+
         # [*, H, N_res, N_res]
         a = torch.nn.functional.softmax(
             self.w_L * (torch.matmul(q, k.transpose(-2, -1)) / sqrt(self.c_hidden) + b)
-                 - self.inf * torch.logical_not(square_mask[..., None, :, :]).float(),
+                 - self.inf * torch.logical_not(square_mask[..., None, :, :]).bfloat16(),
             dim=-1,
         )
 
         # [*, H, N_res, no_bins]
-        o_pair = (a.unsqueeze(-1) * relpos.unsqueeze(-4)).sum(-2)
+        o_pair = (a.unsqueeze(-1) * z.unsqueeze(-4)).sum(-2)
 
         # [*, H, N_res, c_hidden]
         o = (a.unsqueeze(-1) * v.unsqueeze(-3)).sum(-2)

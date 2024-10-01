@@ -196,7 +196,7 @@ class CrossInvariantPointAttention(torch.nn.Module):
         square_mask = torch.logical_and(dst_mask.unsqueeze(-1), src_mask.unsqueeze(-2))
 
         # [*, H, len_dst, len_src]
-        a = self.softmax(self.w_L * (a_sd - a_pt) - self.inf * torch.logical_not(square_mask).float()[..., None, :, :])
+        a = self.softmax(self.w_L * (a_sd - a_pt) - self.inf * torch.logical_not(square_mask).bfloat16()[..., None, :, :])
 
         ################
         # Compute output

@@ -86,7 +86,7 @@ class ProteinLoopDataset(Dataset):
 
         self._pairs = pairs
 
-        self._float_dtype = torch.float
+        self._float_dtype = torch.bfloat16
 
     @property
     def entry_names(self) -> List[str]:
