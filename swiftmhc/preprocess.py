@@ -411,7 +411,7 @@ def _read_residue_data(residues: List[Residue]) -> Dict[str, torch.Tensor]:
     residue_numbers = []
     for residue_index, residue in enumerate(residues):
         p, m = get_atom14_positions(residue)
-        atom14_positions.append(p.bfloat16())
+        atom14_positions.append(p.float())
         atom14_mask.append(m)
         residue_numbers.append(residue.get_id()[1])
 
@@ -464,8 +464,10 @@ def _create_proximities(residues1: List[Residue], residues2: List[Residue]) -> t
     else:
         device = torch.device("cpu")
 
+    float_dtype=torch.float32
+
     # allocate memory
-    residue_distances = torch.empty((len(residues1), len(residues2), 1), dtype=torch.bfloat16, device=device)
+    residue_distances = torch.empty((len(residues1), len(residues2), 1), dtype=float_dtype, device=device)
 
     # get atomic coordinates
     atom_positions1 = [torch.tensor(numpy.array([atom.coord for atom in residue.get_atoms() if atom.element != "H"]), device=device)

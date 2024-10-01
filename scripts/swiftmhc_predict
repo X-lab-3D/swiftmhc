@@ -38,14 +38,14 @@ arg_parser.add_argument("--num-builders", "-B", type=int, default=0, help="numbe
 arg_parser.add_argument("--blosum", help="whether or not to use blosum62 amino acid encoding, instead of one-hot encoding", action="store_const", const=True, default=False)
 
 
-def create_dataset(table_path: str, hdf5_path: str, device: torch.device) -> ProteinLoopDataset:
+def create_dataset(table_path: str, hdf5_path: str, device: torch.device, float_dtype: torch.dtype) -> ProteinLoopDataset:
 
     table = pandas.read_csv(table_path)
     pairs = []
     for _, row in table.iterrows():
         pairs.append((row["peptide"], row["allele"]))
 
-    dataset = ProteinLoopDataset(hdf5_path, device, PEPTIDE_MAXLEN, PROTEIN_MAXLEN, pairs=pairs)
+    dataset = ProteinLoopDataset(hdf5_path, device, float_dtype, PEPTIDE_MAXLEN, PROTEIN_MAXLEN, pairs=pairs)
     return dataset
 
 
@@ -128,9 +128,11 @@ if __name__ == "__main__":
     else:
         device = torch.device("cpu")
 
+    float_dtype = torch.bfloat16
+
     args = arg_parser.parse_args()
 
-    dataset = create_dataset(args.table_path, args.hdf5_path, device)
+    dataset = create_dataset(args.table_path, args.hdf5_path, device, float_dtype)
     data_loader = torch.utils.data.DataLoader(
         dataset,
         collate_fn=ProteinLoopDataset.collate,
@@ -147,6 +149,7 @@ if __name__ == "__main__":
     model = torch.nn.DataParallel(model)
     model.to(device=device)
     model.load_state_dict(torch.load(args.model_path, map_location=device))
+    model.to(dtype=float_dtype)
 
     if args.num_builders > 0:
         with Pool(args.num_builders) as builder_pool:

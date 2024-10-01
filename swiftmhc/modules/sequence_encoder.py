@@ -112,7 +112,7 @@ class SequenceEncoder(torch.nn.Module):
         square_mask = torch.logical_and(mask[..., :, None], mask[..., None, :])
 
         # [*, N_res, N_res, no_bins]
-        z = get_relative_position_encoding_matrix(maxlen, self.no_bins).to(device=s.device, dtype=torch.bfloat16)
+        z = get_relative_position_encoding_matrix(maxlen, self.no_bins).to(device=s.device, dtype=s.dtype)
         z = z[None, ...] * square_mask[..., None]
 
         # [*, H, N_res, N_res]
@@ -123,16 +123,10 @@ class SequenceEncoder(torch.nn.Module):
         k = self.linear_k(s).reshape(batch_size, maxlen, self.c_hidden, self.no_heads).transpose(-2, -1).transpose(-3, -2)
         v = self.linear_v(s).reshape(batch_size, maxlen, self.c_hidden, self.no_heads).transpose(-2, -1).transpose(-3, -2)
 
-        qk = torch.matmul(q, k.transpose(-2, -1))
-
-        a = self.w_L * (torch.matmul(q, k.transpose(-2, -1)) / sqrt(self.c_hidden) + b)
-
-        a = a - self.inf * torch.logical_not(square_mask[..., None, :, :]).bfloat16()
-
         # [*, H, N_res, N_res]
         a = torch.nn.functional.softmax(
             self.w_L * (torch.matmul(q, k.transpose(-2, -1)) / sqrt(self.c_hidden) + b)
-                 - self.inf * torch.logical_not(square_mask[..., None, :, :]).bfloat16(),
+                 - self.inf * torch.logical_not(square_mask[..., None, :, :]).to(dtype=s.dtype),
             dim=-1,
         )
 

@@ -105,9 +105,9 @@ def _compute_fape_loss(
     renamed_truth = openfold_compute_renamed_ground_truth({
                                                             "atom14_gt_positions": batch["peptide_atom14_gt_positions"],
                                                             "atom14_alt_gt_positions": batch["peptide_atom14_alt_gt_positions"],
-                                                            "atom14_gt_exists": batch["peptide_atom14_gt_exists"].bfloat16(),
+                                                            "atom14_gt_exists": batch["peptide_atom14_gt_exists"].float(),
                                                             "atom14_atom_is_ambiguous": atom14_atom_is_ambiguous,
-                                                            "atom14_alt_gt_exists": batch["peptide_atom14_gt_exists"].bfloat16(),
+                                                            "atom14_alt_gt_exists": batch["peptide_atom14_gt_exists"].float(),
                                                           },
                                                           output["final_positions"])
 
@@ -172,7 +172,7 @@ def _compute_cross_distance_loss(output: Dict[str, torch.Tensor], batch: Dict[st
     # calculate error from existing atoms' distance
     # [*]
     mask = batch["peptide_atom14_gt_exists"][:, :, None, 1] * batch["protein_atom14_gt_exists"][:, None, :, 1]
-    err = (mask * torch.abs(pred_dist2 - true_dist2)).sum(dim=(1, 2)) / torch.sum(mask.bfloat16(), dim=(1, 2))
+    err = (mask * torch.abs(pred_dist2 - true_dist2)).sum(dim=(1, 2)) / torch.sum(mask.to(output["final_positions"].dtype), dim=(1, 2))
 
     return err
 
@@ -417,7 +417,7 @@ def get_loss(model_type: ModelType,
     violation_losses = _compute_cross_violation_loss(output, batch, openfold_config.loss.violation)
 
     # init total loss at zero
-    total_loss = torch.zeros(batch["peptide_aatype"].shape[0], dtype=torch.bfloat16, device=batch["peptide_aatype"].device)
+    total_loss = torch.zeros(batch["peptide_aatype"].shape[0], dtype=output["final_angles"].dtype, device=batch["peptide_aatype"].device)
 
     # add fape loss (backbone, sidechain)
     if fape_tune:

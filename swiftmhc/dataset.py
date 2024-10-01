@@ -55,6 +55,7 @@ class ProteinLoopDataset(Dataset):
         self,
         hdf5_path: str,
         device: torch.device,
+        float_dtype: torch.dtype,
         peptide_maxlen: int,
         protein_maxlen: int,
         entry_names: Optional[List[str]] = None,
@@ -86,7 +87,7 @@ class ProteinLoopDataset(Dataset):
 
         self._pairs = pairs
 
-        self._float_dtype = torch.bfloat16
+        self._float_dtype = float_dtype
 
     @property
     def entry_names(self) -> List[str]:

@@ -295,6 +295,7 @@ def remove_module_prefix(state: Dict[str, torch.Tensor]) -> Dict[str, torch.Tens
 class Trainer:
     def __init__(self,
                  device: torch.device,
+                 float_dtype: torch.dtype,
                  workers_count: int,
                  model_type: ModelType,
     ):
@@ -309,6 +310,7 @@ class Trainer:
         self.config.model_type = model_type
 
         self._device = device
+        self._float_dtype = float_dtype
 
         # for snapshots: every 20 batches
         self._snap_period = 20
@@ -588,11 +590,12 @@ class Trainer:
         if self._device.type == "cuda" and torch.cuda.device_count() > 1:
             model = DataParallel(model)
 
-        model.to(device=self._device, dtype=torch.bfloat16)
+        model.to(device=self._device)
         model.eval()
 
         # load the pretrained model
         model.load_state_dict(model_state)
+        model.to(dtype=self._float_dtype)
 
         # make the snapshots
         if animated_complex_ids is not None:
@@ -692,9 +695,9 @@ class Trainer:
 
             model.load_state_dict(model_state)
 
-        model.bfloat16()
+        model.to(dtype=self._float_dtype)
 
-        # define model paths
+        # define model paths, for writing to
         model_path = f"{run_id}/best-predictor.pth"
 
         # Keep track of the lowest loss value seen during the run.
@@ -818,7 +821,6 @@ class Trainer:
         self,
         data_path: str,
         batch_size: int,
-        device: torch.device,
         shuffle: Optional[bool] = True,
         entry_ids: Optional[List[str]] = None,
         name: Optional[str] = None,
@@ -837,7 +839,7 @@ class Trainer:
         """
 
         # create dataset as entrypoint to the data hdf5 file
-        dataset = ProteinLoopDataset(data_path, device,
+        dataset = ProteinLoopDataset(data_path, self._device, self._float_dtype,
                                      peptide_maxlen=self.config.peptide_maxlen,
                                      protein_maxlen=self.config.protein_maxlen,
                                      entry_names=entry_ids)
@@ -957,19 +959,22 @@ if __name__ == "__main__":
         _log.info("using cpu device")
         device = torch.device("cpu")
 
+    # 16-bit memory consumption per floating point number
+    float_dtype=torch.bfloat16
+
     # Make sure we can use multiple workers:
     _log.debug(f"using {args.workers} workers")
     torch.multiprocessing.set_start_method('spawn')
 
     # Init trainer object with given arguments
-    trainer = Trainer(device, args.workers, model_type)
+    trainer = Trainer(device, float_dtype, args.workers, model_type)
 
     if args.test_only:
         if pretrained_model_path is None:
             raise ValueError("testing requires a pretrained model")
 
         # We do a test, no training
-        test_loaders = [trainer.get_data_loader(test_path, args.batch_size, device, shuffle=False)
+        test_loaders = [trainer.get_data_loader(test_path, args.batch_size, shuffle=False)
                         for test_path in args.data_path]
         trainer.test(test_loaders, run_id, args.animate, pretrained_model_path, args.builders, args.blosum,
                      not args.disable_energy_minimization)
@@ -984,9 +989,9 @@ if __name__ == "__main__":
             _log.debug(f"validating on {valid_path}")
             _log.debug(f"testing on {test_paths}")
 
-            train_loader = trainer.get_data_loader(train_path, args.batch_size, device, shuffle=True)
-            valid_loader = trainer.get_data_loader(valid_path, args.batch_size, device, shuffle=False)
-            test_loaders = [trainer.get_data_loader(test_path, args.batch_size, device, shuffle=False)
+            train_loader = trainer.get_data_loader(train_path, args.batch_size, shuffle=True)
+            valid_loader = trainer.get_data_loader(valid_path, args.batch_size, shuffle=False)
+            test_loaders = [trainer.get_data_loader(test_path, args.batch_size, shuffle=False)
                             for test_path in test_paths]
 
         elif len(args.data_path) == 2:
@@ -994,8 +999,8 @@ if __name__ == "__main__":
             # assume that the two files are train and validation set, no test set
             train_path, valid_path = args.data_path
 
-            train_loader = trainer.get_data_loader(train_path, args.batch_size, device, shuffle=True)
-            valid_loader = trainer.get_data_loader(valid_path, args.batch_size, device, shuffle=False)
+            train_loader = trainer.get_data_loader(train_path, args.batch_size, shuffle=True)
+            valid_loader = trainer.get_data_loader(valid_path, args.batch_size, shuffle=False)
             test_loaders = []
 
             _log.debug(f"training on {train_path}")
@@ -1019,12 +1024,12 @@ if __name__ == "__main__":
 
             data_name = os.path.splitext(os.path.basename(args.data_path[0]))[0]
 
-            train_loader = trainer.get_data_loader(args.data_path[0], args.batch_size, device, True, train_entry_names, f"{data_name}-train")
-            valid_loader = trainer.get_data_loader(args.data_path[0], args.batch_size, device, False, valid_entry_names, f"{data_name}-valid")
+            train_loader = trainer.get_data_loader(args.data_path[0], args.batch_size, True, train_entry_names, f"{data_name}-train")
+            valid_loader = trainer.get_data_loader(args.data_path[0], args.batch_size, False, valid_entry_names, f"{data_name}-valid")
 
             test_loaders = []
             if len(test_entry_names) > 0:
-                test_loaders = [trainer.get_data_loader(args.data_path[0], args.batch_size, device, False, test_entry_names, f"{data_name}-test")]
+                test_loaders = [trainer.get_data_loader(args.data_path[0], args.batch_size, False, test_entry_names, f"{data_name}-test")]
 
         # train with the composed datasets and user-provided settings
         trainer.train(train_loader, valid_loader, test_loaders,

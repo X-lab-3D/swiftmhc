@@ -126,7 +126,7 @@ class DebuggableInvariantPointAttention(torch.nn.Module):
 
         ) / sqrt(self.c_hidden)
 
-        a = self.softmax(self.w_L * (a_sd + b) - self.inf * torch.logical_not(square_mask[..., None, :, :]).bfloat16())
+        a = self.softmax(self.w_L * (a_sd + b) - self.inf * torch.logical_not(square_mask[..., None, :, :]).to(dtype=s.dtype))
 
         ################
         # Compute output
