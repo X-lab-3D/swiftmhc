@@ -118,6 +118,9 @@ class CrossStructureModule(torch.nn.Module):
             self.epsilon,
         )
 
+        # init the angle bias to be nonzero
+        self._init_angle()
+
     def forward(
         self,
         peptide_aatype: torch.Tensor,
@@ -323,6 +326,17 @@ class CrossStructureModule(torch.nn.Module):
         T_peptide = T_peptide.stop_rot_gradient()
 
         return preds
+
+    def _init_angle(self):
+        """
+        Sometimes, the angle resnet produces (0,0) sin,cos angles.
+        This results in a zero norm and NaN loss values.
+
+        To prevent that, we set the bias to nonzero values.
+        """
+
+        with torch.no_grad():
+            self.angle_resnet.linear_out.bias.fill_(self.epsilon)
 
     def _init_residue_constants(self, float_dtype, device):
         if not hasattr(self, "default_frames"):
