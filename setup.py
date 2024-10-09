@@ -7,7 +7,7 @@ setup(
     description="A deep learning algorithm for predicting MHC-p structure and binding affinity at the same time",
     version="1.0.0",
     packages=find_packages("swiftmhc"),
-    scripts=glob("scripts/*.py"),
+    scripts=glob("scripts/swiftmhc_*"),
     install_requires = [
         "openfold>=1.0.0",
         "torch>=2.0.1",
