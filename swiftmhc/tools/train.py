@@ -133,6 +133,8 @@ class TrainingPhase:
     def lr(self):
         return self._lr
 
-    def __repr__(self) -> str:
+        return self._max_epoch_count
+
+    def __str__(self):
         return f"max_epoch={self._max_epoch_count}, lr={self._lr}, fape_tune={self._fape_tune}, torsion_tune={self._torsion_tune}, affinity_tune={self._affinity_tune}, fine_tune={self._fine_tune}"
 

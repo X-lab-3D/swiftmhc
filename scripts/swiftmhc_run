@@ -738,6 +738,7 @@ class Trainer:
 
         # do the actual learning iteration
         total_epoch_count = 0
+        _log.info(f"start training phase {training_phases[0]}")
         while True:
 
             # early stopping, if no more improvement or just end of epochs reached
