@@ -6,7 +6,7 @@ A deep learning algorithm for predicting pMHC structure and binding affinity at 
 
  - python >= 3.11.5
  - openfold >= 1.0.0
- - position-encoding (github.com/cmbi/position-encoding)
+ - position-encoding >= 1.0.0 (github.com/cmbi/position-encoding)
  - pytorch >= 2.0.1
  - pandas >= 1.5.3
  - numpy >= 1.26.4
@@ -14,6 +14,8 @@ A deep learning algorithm for predicting pMHC structure and binding affinity at 
  - ml-collections >= 0.1.1
  - scikit-learn >= 1.4.1
  - openmm >= 8.1.1
+
+CUDA is optional
 
 ## INSTALL
 
