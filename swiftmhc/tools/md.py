@@ -86,7 +86,7 @@ def build_modeller(chain_data: List[Tuple[str,
             atoms_by_name = {}
             positions_by_name = {}
             for atom_index, atom_name in enumerate(restype_name_to_atom14_names[amino_acid_code]):
-                if atom14_mask[residue_index, atom_index]:
+                if atom14_mask[residue_index, atom_index] and len(atom_name) > 0:
 
                     coords = atom14_positions[residue_index, atom_index]
                     pos = 0.1 * Vec3(coords[0].item(), coords[1].item(), coords[2].item())
