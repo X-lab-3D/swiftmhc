@@ -86,8 +86,7 @@ arg_parser.add_argument("--workers", "-w", help="number of worker processes to l
 arg_parser.add_argument("--builders", "-B", help="number of simultaneous structure builder processes, it has no effect setting this higher than the number of models produced per batch", type=int, default=0)
 arg_parser.add_argument("--batch-size", "-b", help="batch size to use during training/validation/testing", type=int, default=8)
 arg_parser.add_argument("--phase-1-epoch-count", "-1", help="how many epochs to run during phase 1 training (structure + BA loss)", type=int, default=1000)
-arg_parser.add_argument("--phase-2-epoch-count", "-2", help="how many epochs to run during phase 2 training (structure loss only)", type=int, default=50)
-arg_parser.add_argument("--phase-3-epoch-count", "-3", help="how many epochs to run during phase 3 training (structure + fine tuning loss)", type=int, default=50)
+arg_parser.add_argument("--phase-2-epoch-count", "-2", help="how many epochs to run during phase 2 training (structure + BA loss + fine tuning loss)", type=int, default=100)
 arg_parser.add_argument("--animate", "-m", help="id of a data point to generate intermediary pdb for", nargs="+")
 arg_parser.add_argument("--disable-energy-minimization", help="disable structure OpenMM energy minimization", action="store_const", const=True, default=False)
 arg_parser.add_argument("--classification", "-c", help="do classification instead of regression", action="store_const", const=True, default=False)
@@ -716,9 +715,8 @@ class Trainer:
 
         # create training phases, setting: max_epochs, fape_tune, torsion_tune, affinity_tune, fine_tune
         training_phases = [
-            TrainingPhase(epoch_counts[0], 1e-3, True, True, False, False),
-            TrainingPhase(epoch_counts[1], 1e-3, True, True, False, True),
-            TrainingPhase(epoch_counts[2], 1e-3, False, False, True, False),
+            TrainingPhase(epoch_counts[0], 1e-3, True, True, True, False),
+            TrainingPhase(epoch_counts[1], 1e-3, True, True, True, True),
         ]
 
         # skip phases with 0 epochs
