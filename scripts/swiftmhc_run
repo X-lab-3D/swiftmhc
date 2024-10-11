@@ -658,7 +658,7 @@ class Trainer:
               train_loader: DataLoader,
               valid_loader: DataLoader,
               test_loaders: List[DataLoader],
-              epoch_counts: Tuple[int, int, int, int],
+              epoch_counts: Tuple[int, int],
               run_id: str,
               pretrained_model_path: str,
               animated_complex_ids: List[str],
@@ -671,7 +671,7 @@ class Trainer:
             train_loader: dataset for training
             valid_loader: dataset for validation, selecting the best model and deciding on early stopping
             test_loaders: datasets for testing on
-            epoch_counts: number of epochs to run in phase 1,2,3,4
+            epoch_counts: number of epochs to run in phase 1,2
             run_id: directory to store the resulting files
             pretrained_model_path: an optional pretrained model file to start from
             animated_complex_ids: names of complexes to animate during the run. their structure snapshots will be stored in an HDF5
@@ -1032,7 +1032,7 @@ if __name__ == "__main__":
 
         # train with the composed datasets and user-provided settings
         trainer.train(train_loader, valid_loader, test_loaders,
-                      (args.phase_1_epoch_count, args.phase_2_epoch_count, args.phase_3_epoch_count),
+                      (args.phase_1_epoch_count, args.phase_2_epoch_count),
                       run_id, pretrained_model_path,
                       args.animate,
                       args.blosum)
