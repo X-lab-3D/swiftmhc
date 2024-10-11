@@ -89,6 +89,8 @@ arg_parser.add_argument("--phase-1-epoch-count", "-1", help="how many epochs to 
 arg_parser.add_argument("--phase-2-epoch-count", "-2", help="how many epochs to run during phase 2 training (structure + BA loss + fine tuning loss)", type=int, default=100)
 arg_parser.add_argument("--animate", "-m", help="id of a data point to generate intermediary pdb for", nargs="+")
 arg_parser.add_argument("--disable-energy-minimization", help="disable structure OpenMM energy minimization", action="store_const", const=True, default=False)
+arg_parser.add_argument("--disable-ba-loss", help="disable BA loss term", action="store_const", const=True, default=False)
+arg_parser.add_argument("--disable-struct-loss", help="disable structural loss terms", action="store_const", const=True, default=False)
 arg_parser.add_argument("--classification", "-c", help="do classification instead of regression", action="store_const", const=True, default=False)
 arg_parser.add_argument("--test-only", "-t", help="do not train, only run tests", const=True, default=False, action='store_const')
 arg_parser.add_argument("--test-subset-path", help="path to list of entry ids that should be excluded for testing")
@@ -659,6 +661,8 @@ class Trainer:
               valid_loader: DataLoader,
               test_loaders: List[DataLoader],
               epoch_counts: Tuple[int, int],
+              disable_ba_loss: bool,
+              disable_struct_loss: bool,
               run_id: str,
               pretrained_model_path: str,
               animated_complex_ids: List[str],
@@ -672,6 +676,8 @@ class Trainer:
             valid_loader: dataset for validation, selecting the best model and deciding on early stopping
             test_loaders: datasets for testing on
             epoch_counts: number of epochs to run in phase 1,2
+            disable_ba_loss: turns off the BA loss term
+            disable_struct_loss: turns off the structural loss terms
             run_id: directory to store the resulting files
             pretrained_model_path: an optional pretrained model file to start from
             animated_complex_ids: names of complexes to animate during the run. their structure snapshots will be stored in an HDF5
@@ -715,8 +721,8 @@ class Trainer:
 
         # create training phases, setting: max_epochs, fape_tune, torsion_tune, affinity_tune, fine_tune
         training_phases = [
-            TrainingPhase(epoch_counts[0], 1e-3, True, True, True, False),
-            TrainingPhase(epoch_counts[1], 1e-3, True, True, True, True),
+            TrainingPhase(epoch_counts[0], 1e-3, not disable_struct_loss, not disable_struct_loss, not disable_ba_loss, False),
+            TrainingPhase(epoch_counts[1], 1e-3, not disable_struct_loss, not disable_struct_loss, not disable_ba_loss, not disable_struct_loss),
         ]
 
         # skip phases with 0 epochs
@@ -1033,6 +1039,7 @@ if __name__ == "__main__":
         # train with the composed datasets and user-provided settings
         trainer.train(train_loader, valid_loader, test_loaders,
                       (args.phase_1_epoch_count, args.phase_2_epoch_count),
+                      args.disable_ba_loss, args.disable_struct_loss,
                       run_id, pretrained_model_path,
                       args.animate,
                       args.blosum)
