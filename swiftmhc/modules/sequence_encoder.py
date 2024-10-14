@@ -27,7 +27,8 @@ class SequenceEncoder(torch.nn.Module):
             peptide_maxlen(k):  determines the number of distance bins: [-k, -k + 1, ..., 0, ..., k - 1, k]
             c_s:                the depth of the input tensor, at shape -1
             dropout_rate:       for the dropouts before normalisation
-            transition:         transition depth in feed forward block
+            c_transition:       transition depth in feed forward block
+            c_hidden:           the depth of the hidden tensors: attention query(q), keys(k), values(v)
         """
 
         super(SequenceEncoder, self).__init__()
@@ -51,7 +52,7 @@ class SequenceEncoder(torch.nn.Module):
         # generates the b term in the attention weight
         self.linear_b = Linear(self.no_bins, self.no_heads, bias=False)
 
-        # generates the output of the multi-header attention
+        # generates the output of the multi-headed attention
         self.linear_output = Linear((self.no_bins + self.c_hidden) * self.no_heads, self.c_s, init='final')
 
         # to be used after multi-headed attention
