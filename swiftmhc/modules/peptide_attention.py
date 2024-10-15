@@ -15,7 +15,7 @@ from position_encoding.relative import get_relative_position_encoding_matrix
 _log = logging.getLogger(__name__)
 
 
-class SequenceEncoder(torch.nn.Module):
+class PeptideSelfAttention(torch.nn.Module):
     """
     Gives the input sequence a relative positional encoding and performs multi-headed attention.
     """
@@ -31,7 +31,7 @@ class SequenceEncoder(torch.nn.Module):
             c_hidden:           the depth of the hidden tensors: attention query(q), keys(k), values(v)
         """
 
-        super(SequenceEncoder, self).__init__()
+        super(PeptideSelfAttention, self).__init__()
 
         # constants
         self.no_heads = config.no_heads

@@ -20,8 +20,8 @@ from ..tools.rigid import Rigid
 from ..domain.amino_acid import AMINO_ACID_DIMENSION
 from ..models.data import TensorDict
 from ..tools.amino_acid import one_hot_decode_sequence
-from .ipa import DebuggableInvariantPointAttention as IPA
-from .sequence_encoder import SequenceEncoder
+from .ipa import DebuggableInvariantPointAttention as SelfIPA
+from .peptide_attention import PeptideSelfAttention
 from .cross_structure_module import CrossStructureModule
 from ..models.types import ModelType
 
@@ -48,7 +48,7 @@ class Predictor(torch.nn.Module):
 
         # modules for self attention on peptide, updating {s_i}
         self.transform = torch.nn.ModuleList([
-            SequenceEncoder(config)
+            PeptideSelfAttention(config)
             for _ in range(config.no_blocks)
         ])
 
@@ -60,7 +60,7 @@ class Predictor(torch.nn.Module):
         # modules for self attention on protein, updating {s_j}
         self.protein_dist_norm = torch.nn.LayerNorm((self.protein_maxlen, self.protein_maxlen, 1))
 
-        self.protein_ipa = IPA(config)
+        self.protein_ipa = SelfIPA(config)
 
         self.protein_norm = torch.nn.Sequential(
             torch.nn.Dropout(p=config.dropout_rate),
