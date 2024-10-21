@@ -78,7 +78,7 @@ class CrossStructureModule(torch.nn.Module):
         self.no_qk_points = config.no_qk_points
         self.no_v_points = config.no_v_points
         self.dropout_rate = config.dropout_rate
-        self.n_blocks = config.no_blocks
+        self.n_blocks = config.no_cross_blocks
         self.no_resnet_blocks = config.no_resnet_blocks
         self.no_angles = config.no_angles
         self.trans_scale_factor = config.trans_scale_factor
