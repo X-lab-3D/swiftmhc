@@ -95,6 +95,7 @@ arg_parser.add_argument("--classification", "-c", help="do classification instea
 arg_parser.add_argument("--test-only", "-t", help="do not train, only run tests", const=True, default=False, action='store_const')
 arg_parser.add_argument("--test-subset-path", help="path to list of entry ids that should be excluded for testing")
 arg_parser.add_argument("--blosum", help="whether or not to use blosum62 amino acid encoding, instead of one-hot encoding", action="store_const", const=True, default=False)
+arg_parser.add_argument("--patience", help="early stopping patience", type=int, default=50)
 arg_parser.add_argument("data_path", help="path to a hdf5 file", nargs="+")
 
 
@@ -667,6 +668,7 @@ class Trainer:
               pretrained_model_path: str,
               animated_complex_ids: List[str],
               blosum: bool,
+              ptience: int,
     ):
         """
         Call this method for training a model
@@ -682,6 +684,7 @@ class Trainer:
             pretrained_model_path: an optional pretrained model file to start from
             animated_complex_ids: names of complexes to animate during the run. their structure snapshots will be stored in an HDF5
             blosum: whether to use blosum62 encoding (True) or one-hot encoding (False)
+            patience: early stopping patience
         """
 
         # Set up the model
@@ -763,7 +766,7 @@ class Trainer:
                 model.load_state_dict(model_state)
 
                 # reset early stopping variables
-                early_stop = EarlyStopper()
+                early_stop = EarlyStopper(patience=patience)
 
                 # reset lowest loss variable, to be sure that future best models get saved
                 lowest_loss = float("inf")
@@ -1042,4 +1045,5 @@ if __name__ == "__main__":
                       args.disable_ba_loss, args.disable_struct_loss,
                       run_id, pretrained_model_path,
                       args.animate,
-                      args.blosum)
+                      args.blosum,
+                      args.patience)
