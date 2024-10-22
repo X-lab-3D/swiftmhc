@@ -56,13 +56,13 @@ This requires preprocessed HDF5 files, containing structures of the MHC protein,
 
 Run
 ```
-swiftmhc_run train.hdf5 valid.hdf5 test.hdf5
+swiftmhc_run -r example train.hdf5 valid.hdf5 test.hdf5
 ```
 
 Run `swiftmhc_run --help` for details.
 
 
-This will save the model to `best-predictor.pth`
+This will save the model to `example/best-predictor.pth`
 
 ## PREDICTING UNLABELED DATA
 
