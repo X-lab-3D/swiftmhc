@@ -6,18 +6,22 @@ A deep learning algorithm for predicting pMHC structure and binding affinity at 
 
  - python >= 3.11.5
  - openfold >= 1.0.0
- - position-encoding >= 1.0.0 (github.com/cmbi/position-encoding)
- - pytorch >= 2.0.1
+ - position-encoding >= 1.0.0 (github.com/X-lab-3D/position-encoding)
+ - PyTorch >= 2.0.1
  - pandas >= 1.5.3
  - numpy >= 1.26.4
  - h5py >= 3.10.0
  - ml-collections >= 0.1.1
  - scikit-learn >= 1.4.1
  - openmm >= 8.1.1
+ - blosum >= 2.0.3
+ - modelcif >= 1.0
+ - filelock >= 3.13.1
+ - biopython >= 1.8.4
 
 CUDA is optional
 
-## INSTALL
+## INSTALLATION
 
 Run:
 ```
@@ -62,12 +66,13 @@ This will save the model to `best-predictor.pth`
 
 ## PREDICTING UNLABELED DATA
 
+Do this after training a model (pth format).
 This requires preprocessed HDF5 files, containing structures of the MHC protein, for every allele.
 It also requires a table, linking the peptides to MHC alleles.
 
 Run
 ```
-swiftmhc_predict best-predictor.pth table.csv preprocessed_mhcs.hdf5 results/
+swiftmhc_predict model.pth table.csv preprocessed_mhcs.hdf5 results/
 ```
 
 Run `swiftmhc_predict --help` for details.
