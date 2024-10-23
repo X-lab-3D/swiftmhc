@@ -49,8 +49,7 @@ swiftmhc_preprocess allele_table.csv ref_mhc.pdb mhc_models/ mhc_self_attention.
 
 Run `swiftmhc_preprocess --help` for details.
 
-Preprocessing requires mask files. Check the data directory in this repo for examples.
-
+Preprocessing requires data tables, 3D structures and mask files. Check the data directory in this repo for examples.
 
 ## TRAINING
 
