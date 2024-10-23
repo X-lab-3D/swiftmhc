@@ -882,6 +882,7 @@ def preprocess(
         table_path: CSV input data table, containing columns: ID (of complex),
                     measurement_value (optional, IC50, Kd or BINDING/NONBINDING/POSITIVE/NEGATIVE),
                     allele (optional, name of MHC allele)
+                    peptide (optional, sequence of peptide)
         models_path: directory or tarball, to search for models with the IDs from the input table
         protein_self_mask_path: mask file to be used for self attention
         protein_cross_mask_path: mask file to be used for cross attention
