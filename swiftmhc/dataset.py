@@ -217,7 +217,16 @@ class ProteinLoopDataset(Dataset):
         result = {}
 
         with h5py.File(self._hdf5_path, 'r') as hdf5_file:
-            entry_group = hdf5_file[entry_name]
+            if entry_name in hdf5_file:
+                entry_group = hdf5_file[entry_name]
+            else:
+                # look for an entry with a matching allele name
+                for name, group in hdf5_file.items():
+                    if group['allele_name'] == entry_name:
+                        entry_group = group
+                        break
+                else:
+                    raise ValueError(f"{entry_name} not found in {self._hdf5_path}")
 
             # Decide whether we take the peptide (if present) or just the protein residue data
             # In this iteration list:
