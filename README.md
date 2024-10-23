@@ -32,6 +32,7 @@ python setup.py install
 
 Preprocessing means to create a file in HDF5 format, containing info in the peptide and MHC protein.
 It requires the following:
+ - A table in IEDB CSV format, see data directory for examples.
  - structures of the MHC molecules and optionally peptides for training
  - a reference structure, to align all MHC molecules to
  - two residue masks, compatible to the reference structure, one for self-attention (G-domain) and one for cross attention (pocket)
@@ -39,7 +40,7 @@ It requires the following:
 
 To create training, validation, test sets, run:
 ```
-swiftmhc_preprocess IEdb_table.csv ref_mhc.pdb mhcp_binder_models/ mhc_self_attention.mask mhc_cross_attention.mask preprocessed_data.hdf5
+swiftmhc_preprocess IEDB_table.csv ref_mhc.pdb mhcp_binder_models/ mhc_self_attention.mask mhc_cross_attention.mask preprocessed_data.hdf5
 ```
 
 To preprocess just the MHC allele structures, for predicting unlabeled data, run:
@@ -75,5 +76,7 @@ Run
 ```
 swiftmhc_predict model.pth table.csv preprocessed_mhcs.hdf5 results/
 ```
+
+The data directory contains a preprocessed hdf5 file for the HLA-A*02:01 allele.
 
 Run `swiftmhc_predict --help` for details.
