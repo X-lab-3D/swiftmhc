@@ -31,12 +31,19 @@ python setup.py install
 ## PREPROCESSING DATA
 
 Preprocessing means to create a file in HDF5 format, containing info in the peptide and MHC protein.
-It requires the following:
- - A table in IEDB CSV format, see data directory for examples.
- - structures of the MHC molecules and optionally peptides for training
- - a reference structure, to align all MHC molecules to
- - two residue masks, compatible to the reference structure, one for self-attention (G-domain) and one for cross attention (pocket)
- - optionally, binding affinity data or classification (BINDING/NONBINDING), for training
+
+Preprocessing requires a CSV table in IEDB format. See the data directory for an example.
+This table must have the following columns:
+- ID (required) : the id under which the row's data will be stored in the HDF5 file. This must correspond to the name of a structure in PDB format.
+- allele (required): the name of the MHC allele. (example: HLA-A*02:01) SwiftMHC will use this to identify MHC structures when predicting unlabeled data.
+- peptide (optional): the sequence of the peptide. This is used in training, validation, test and not in predicting unlabeled data.
+- measurement_value (optional): binding affinity data or classification (BINDING/NONBINDING). This is used in training, validation, test and not in predicting unlabeled data.
+
+Preprocessing requires a reference structure, to align all MHC molecules to.
+It also requires a directory containing all the other structures. These may have a peptide in them, but must always contain an MHC structure.
+
+Preprocessing also requires two mask files: a G-domain and a CROSS mask (pocket residues only). See the data directory for examples.
+These masks have to be compatible to the reference structure.
 
 To create training, validation, test sets, run:
 ```
