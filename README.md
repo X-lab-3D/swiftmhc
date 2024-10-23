@@ -81,7 +81,7 @@ It also requires a table, linking the peptides to MHC alleles.
 
 Run
 ```
-swiftmhc_predict model.pth table.csv preprocessed_mhcs.hdf5 results/
+swiftmhc_predict -B1 model.pth table.csv preprocessed_mhcs.hdf5 results/
 ```
 
 The data directory contains a preprocessed hdf5 file for the HLA-A*02:01 allele.

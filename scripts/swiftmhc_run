@@ -94,7 +94,6 @@ arg_parser.add_argument("--disable-struct-loss", help="disable structural loss t
 arg_parser.add_argument("--classification", "-c", help="do classification instead of regression", action="store_const", const=True, default=False)
 arg_parser.add_argument("--test-only", "-t", help="do not train, only run tests", const=True, default=False, action='store_const')
 arg_parser.add_argument("--test-subset-path", help="path to list of entry ids that should be excluded for testing")
-arg_parser.add_argument("--blosum", help="whether or not to use blosum62 amino acid encoding, instead of one-hot encoding", action="store_const", const=True, default=False)
 arg_parser.add_argument("--patience", help="early stopping patience", type=int, default=50)
 arg_parser.add_argument("data_path", help="path to a hdf5 file", nargs="+")
 
@@ -564,7 +563,6 @@ class Trainer:
         animated_complex_ids: List[str],
         model_path: str,
         structure_builders_count: int,
-        blosum: bool,
         minimize_energy: bool,
     ):
         """
@@ -577,7 +575,6 @@ class Trainer:
             animated_complex_ids: list of complex names, of which the structures should be saved
             model_path: pretrained model to use
             structure_builders_count: number of simultaneous structure builder processes
-            blosum: whether to use blosum62 encoding (True) or one-hot encoding (False)
             minimize_energy: whether to do energy minimization on the structure
         """
 
@@ -667,7 +664,6 @@ class Trainer:
               run_id: str,
               pretrained_model_path: str,
               animated_complex_ids: List[str],
-              blosum: bool,
               ptience: int,
     ):
         """
@@ -683,7 +679,6 @@ class Trainer:
             run_id: directory to store the resulting files
             pretrained_model_path: an optional pretrained model file to start from
             animated_complex_ids: names of complexes to animate during the run. their structure snapshots will be stored in an HDF5
-            blosum: whether to use blosum62 encoding (True) or one-hot encoding (False)
             patience: early stopping patience
         """
 
@@ -984,7 +979,7 @@ if __name__ == "__main__":
         # We do a test, no training
         test_loaders = [trainer.get_data_loader(test_path, args.batch_size, shuffle=False)
                         for test_path in args.data_path]
-        trainer.test(test_loaders, run_id, args.animate, pretrained_model_path, args.builders, args.blosum,
+        trainer.test(test_loaders, run_id, args.animate, pretrained_model_path, args.builders,
                      not args.disable_energy_minimization)
 
     else:  # train, validate, test
@@ -1045,5 +1040,4 @@ if __name__ == "__main__":
                       args.disable_ba_loss, args.disable_struct_loss,
                       run_id, pretrained_model_path,
                       args.animate,
-                      args.blosum,
                       args.patience)

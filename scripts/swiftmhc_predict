@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 
+import sys
 import os
 import logging
 from argparse import ArgumentParser
@@ -11,14 +12,14 @@ import torch
 
 from Bio.PDB.PDBIO import PDBIO
 
-from openfold.config import config as openfold_config
-
+from swiftmhc.config import config
 from swiftmhc.tools.pdb import recreate_structure
 from swiftmhc.models.types import ModelType
 from swiftmhc.modules.predictor import Predictor
 from swiftmhc.dataset import ProteinLoopDataset
 from swiftmhc.preprocess import affinity_binding_threshold
-
+from swiftmhc.tools.md import build_modeller, minimize
+import openmm.app
 
 _log = logging.getLogger(__name__)
 
@@ -35,7 +36,6 @@ arg_parser.add_argument("output_directory", help="directory for the output files
 arg_parser.add_argument("--batch-size", "-b", type=int, default=64, help="number of simultaneous complexes to predict in one batch")
 arg_parser.add_argument("--num-workers", "-w", type=int, default=5, help="number of simulteneous data readers")
 arg_parser.add_argument("--num-builders", "-B", type=int, default=0, help="number of simultaneous structure builders, set to 0 to disable structure prediction")
-arg_parser.add_argument("--blosum", help="whether or not to use blosum62 amino acid encoding, instead of one-hot encoding", action="store_const", const=True, default=False)
 
 
 def remove_module_prefix(state: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
@@ -72,12 +72,15 @@ def create_dataset(table_path: str, hdf5_path: str, device: torch.device, float_
 
 def save_structure(path: str, data: List[Tuple[str, torch.Tensor, torch.Tensor, torch.Tensor]]):
 
-    structure = recreate_structure(path, data)
+    try:
+        modeller = build_modeller(data)
+        modeller = minimize(modeller)
 
-    pdbio = PDBIO()
-    pdbio.set_structure(structure)
-    pdbio.save(path)
+        with open(path, 'wt') as f:
+            openmm.app.PDBFile.writeFile(modeller.topology, modeller.getPositions(), f, keepIds=True)
 
+    except:
+        _log.exception(f"on {path}")
 
 def on_error(e):
     "callback function, send the error to the logs"
@@ -96,26 +99,31 @@ def store_output(
     # save structures
     for index, id_ in enumerate(batch["ids"]):
 
-        pdb_path = os.path.join(directory_path, f"{id_}.pdb")
+        pdb_name = id_.replace("*","x").replace(":", "_")
+        pdb_path = os.path.join(directory_path, f"{pdb_name}.pdb")
 
         peptide_residue_numbers = batch["peptide_residue_numbers"].cpu()
-        peptide_sequence_onehot = batch["peptide_sequence_onehot"].cpu()
+        peptide_aatype = batch["peptide_aatype"].cpu()
         peptide_atom14_positions = output["final_positions"].cpu()
+        peptide_atom14_exists = batch["peptide_atom14_gt_exists"].cpu()
 
         protein_residue_numbers = batch["protein_residue_numbers"].cpu()
-        protein_sequence_onehot = batch["protein_sequence_onehot"].cpu()
-        protein_atom14_gt_positions = batch["protein_atom14_gt_positions"].cpu()
+        protein_aatype = batch["protein_aatype"].cpu()
+        protein_atom14_positions = batch["protein_atom14_gt_positions"].cpu()
+        protein_atom14_exists = batch["protein_atom14_gt_exists"].cpu()
 
         if pool is not None and ("class" in output and output["class"][index] > 0 or \
                                  "affinity" in output and output["affinity"][index] > affinity_binding_threshold):
+
+            _log.info(f"add to build pool: {pdb_path}")
 
             # found a binder case, store the model
             pool.apply_async(
                 save_structure,
                 (
                     pdb_path,
-                    [("P", peptide_residue_numbers[index], peptide_sequence_onehot[index], peptide_atom14_positions[index]),
-                     ("M", protein_residue_numbers[index], protein_sequence_onehot[index], protein_atom14_gt_positions[index])]
+                    [("P", peptide_residue_numbers[index], peptide_aatype[index], peptide_atom14_positions[index], peptide_atom14_exists[index]),
+                     ("M", protein_residue_numbers[index], protein_aatype[index], protein_atom14_positions[index], protein_atom14_exists[index])]
                 ),
                 error_callback=on_error,
             )
@@ -141,8 +149,12 @@ def store_output(
         data = pandas.DataFrame(data_dict)
     data.to_csv(table_path, index=False)
 
+    pool.close()
+    pool.join()
 
 if __name__ == "__main__":
+
+    logging.basicConfig(stream=sys.stdout, level=logging.INFO)
 
     if torch.cuda.is_available():
         device = torch.device("cuda")
@@ -166,11 +178,11 @@ if __name__ == "__main__":
     torch.multiprocessing.set_start_method('spawn')
 
     # Set up the model
-    model = Predictor(PEPTIDE_MAXLEN, PROTEIN_MAXLEN, ModelType.REGRESSION, openfold_config.model, blosum=args.blosum)
-    model = torch.nn.DataParallel(model)
+    model = Predictor(config)
     model.to(device=device)
     model.load_state_dict(remove_module_prefix(torch.load(args.model_path, map_location=device)))
     model.to(dtype=float_dtype)
+    model = torch.nn.DataParallel(model)
 
     if args.num_builders > 0:
         with Pool(args.num_builders) as builder_pool:
