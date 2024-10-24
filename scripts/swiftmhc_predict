@@ -183,6 +183,7 @@ if __name__ == "__main__":
     model.load_state_dict(remove_module_prefix(torch.load(args.model_path, map_location=device)))
     model.to(dtype=float_dtype)
     model = torch.nn.DataParallel(model)
+    model.eval()
 
     if args.num_builders > 0:
         with Pool(args.num_builders) as builder_pool:
