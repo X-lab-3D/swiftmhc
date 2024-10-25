@@ -154,7 +154,10 @@ class ProteinLoopDataset(Dataset):
         The peptide sequence is optional and will only be matched when there are multiple entries with the matching allele.
         """
 
-        peptide_aatype = [residue_constants.restypes.index(aa) for aa in list(peptide_sequence)]
+        if peptide_sequence is not None:
+            peptide_aatype = [residue_constants.restypes.index(aa) for aa in list(peptide_sequence)]
+        else:
+            peptide_aatype is None
 
         matching_entry_name = None
         with h5py.File(self._hdf5_path, 'r') as hdf5_file:
@@ -166,7 +169,7 @@ class ProteinLoopDataset(Dataset):
 
                     matching_entry_name = entry_name
 
-                    if PREPROCESS_PEPTIDE_NAME in entry_group:
+                    if peptide_aatype is not None and PREPROCESS_PEPTIDE_NAME in entry_group:
 
                         peptide_group = entry_group[PREPROCESS_PEPTIDE_NAME]
                         if numpy.all(peptide_group['aatype'] == peptide_aatype):
