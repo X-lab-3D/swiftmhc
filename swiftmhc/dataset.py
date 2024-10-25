@@ -105,13 +105,15 @@ class ProteinLoopDataset(Dataset):
 
         if self._pairs is not None:
 
-            # Pairs have been requested to be predicted, BA or peptide structure is unknown.
+            # Pairs have been requested to be predicted, BA or peptide structure could be unknown.
             # We must make the combination.
             peptide, allele = self._pairs[index]
 
             try:
-                result = self._get_structural_data(allele, False)
-                result.update(self._get_sequence_data(peptide))
+                entry_name = self._find_matching_entry(allele, peptide)
+                result = self._get_structural_data(entry_name, False)
+                if not 'peptide_aatype' in result:
+                    result.update(self._get_sequence_data(peptide))
                 result["peptide"] = peptide
                 result["allele"] = allele
                 result["ids"] = f"{allele}-{peptide}"
@@ -145,6 +147,38 @@ class ProteinLoopDataset(Dataset):
             sequence = [residue_constants.restypes[i] for i in aatype]
 
             return sequence
+
+    def _find_matching_entry(self, allele_name: str, peptide_sequence: Optional[str] = None) -> str:
+        """
+        Find an entry that matches the given allele and returns its name.
+        The peptide sequence is optional and will only be matched when there are multiple entries with the matching allele.
+        """
+
+        peptide_aatype = [residue_constants.restypes.index(aa) for aa in list(peptide_sequence)]
+
+        matching_entry_name = None
+        with h5py.File(self._hdf5_path, 'r') as hdf5_file:
+            for entry_name, entry_group in hdf5_file.items():
+
+                protein_group = entry_group[PREPROCESS_PROTEIN_NAME]
+
+                if 'allele_name' in protein_group and protein_group['allele_name'][()].decode('utf_8') == allele_name:
+
+                    matching_entry_name = entry_name
+
+                    if PREPROCESS_PEPTIDE_NAME in entry_group:
+
+                        peptide_group = entry_group[PREPROCESS_PEPTIDE_NAME]
+                        if numpy.all(peptide_group['aatype'] == peptide_aatype):
+
+                            # perfect match
+                            return entry_name
+
+        if matching_entry_name is None:
+            raise ValueError(f"no entry found for {allele_name},{peptide_sequence}")
+
+        return matching_entry_name
+
 
     def _get_sequence_data(self, sequence: str) -> Dict[str, torch.Tensor]:
         """
@@ -219,14 +253,6 @@ class ProteinLoopDataset(Dataset):
         with h5py.File(self._hdf5_path, 'r') as hdf5_file:
             if entry_name in hdf5_file:
                 entry_group = hdf5_file[entry_name]
-            else:
-                # look for an entry with a matching allele name
-                for name, group in hdf5_file.items():
-                    if group['allele_name'] == entry_name:
-                        entry_group = group
-                        break
-                else:
-                    raise ValueError(f"{entry_name} not found in {self._hdf5_path}")
 
             # Decide whether we take the peptide (if present) or just the protein residue data
             # In this iteration list:
@@ -335,7 +361,8 @@ class ProteinLoopDataset(Dataset):
         Make sure that for the peptide,
         all frames, atom positions and angles are set to zero.
         This is just to assure that the variables aren't missing during a run and
-        can still be included in loss term calculation. Even though that loss term doesn't count.
+        can still be included in loss term calculation.
+        This is meant for nonbinder structures where the loss term is calculated but doesn't count in the end.
 
         Args:
             result: a dictionary, to which variables are to be added.
