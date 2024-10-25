@@ -149,9 +149,6 @@ def store_output(
         data = pandas.DataFrame(data_dict)
     data.to_csv(table_path, index=False)
 
-    pool.close()
-    pool.join()
-
 if __name__ == "__main__":
 
     logging.basicConfig(stream=sys.stdout, level=logging.INFO)
@@ -192,6 +189,8 @@ if __name__ == "__main__":
                     output = model(batch)
 
                     store_output(builder_pool, args.output_directory, batch, output)
+            pool.close()
+            pool.join()
     else:
         with torch.no_grad():
             for batch in data_loader:
