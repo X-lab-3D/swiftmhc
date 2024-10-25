@@ -83,6 +83,7 @@ class ProteinLoopDataset(Dataset):
         if entry_names is not None:
             self._entry_names = entry_names
         else:
+            # list all entries in the file
             self._entry_names = get_entry_names(self._hdf5_path)
 
         self._pairs = pairs
@@ -167,6 +168,7 @@ class ProteinLoopDataset(Dataset):
 
                 if 'allele_name' in protein_group and protein_group['allele_name'][()].decode('utf_8') == allele_name:
 
+                    # allele name match
                     matching_entry_name = entry_name
 
                     if peptide_aatype is not None and PREPROCESS_PEPTIDE_NAME in entry_group:
@@ -178,6 +180,7 @@ class ProteinLoopDataset(Dataset):
                             return entry_name
 
         if matching_entry_name is None:
+            # not a single matching allele name
             raise ValueError(f"no entry found for {allele_name},{peptide_sequence}")
 
         return matching_entry_name
@@ -186,6 +189,9 @@ class ProteinLoopDataset(Dataset):
     def _get_sequence_data(self, sequence: str) -> Dict[str, torch.Tensor]:
         """
         Converts a peptide sequence into a SwiftMHC-compatible format
+
+        Returns:
+            a dictionary, containing all swiftMHC compatible data derived from the sequence
         """
 
         result = {}
@@ -221,7 +227,7 @@ class ProteinLoopDataset(Dataset):
         result[f"{prefix}_residue_numbers"] = torch.zeros(max_length, dtype=torch.long, device=self._device)
         result[f"{prefix}_residue_numbers"][:length] = torch.arange(1, length + 1, 1, device=self._device)
 
-        # atoms masks
+        # atoms masks, according to amino acids
         result[f"{prefix}_atom14_gt_exists"] = torch.zeros((max_length, 14), dtype=torch.bool, device=self._device)
         result[f"{prefix}_torsion_angles_mask"] = torch.zeros((max_length, 7), dtype=torch.bool, device=self._device)
         result[f"{prefix}_all_atom_mask"] = torch.zeros((max_length, 37), dtype=torch.bool, device=self._device)
@@ -248,7 +254,7 @@ class ProteinLoopDataset(Dataset):
             take_peptide:   whether or not to take the peptide structure also, if not then it takes only the MHC protein.
 
         Returns:
-            a dictionary, containing all data taken from the HDF5.
+            a dictionary, containing all entry data taken from the HDF5.
         """
 
         result = {}
@@ -393,7 +399,10 @@ class ProteinLoopDataset(Dataset):
 
     def get_entry(self, entry_name: str) -> Dict[str, torch.Tensor]:
         """
-        Gets the data entry (case) with the given name(ID)
+        Gets the data entry (usually one pMHC case) with the given name(ID)
+
+        Returns:
+            a dictionary, containing all entry data taken from the HDF5.
         """
 
         result = {}
@@ -440,6 +449,9 @@ class ProteinLoopDataset(Dataset):
     def collate(data_entries: List[Dict[str, torch.Tensor]]) -> Dict[str, torch.Tensor]:
         """
         Collation function, to pack data of multiple entries in one batch.
+
+        Returns:
+            a dictionary, containing the batch data
         """
 
         # only take data that both entries have
