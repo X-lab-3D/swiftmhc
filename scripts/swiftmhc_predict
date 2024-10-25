@@ -33,6 +33,7 @@ arg_parser.add_argument("model_path", help="pretrained model")
 arg_parser.add_argument("table_path", help="table containing the columns: 'peptide' and 'allele'")
 arg_parser.add_argument("hdf5_path", help="an hdf5 file containing the preprocessed mhc structures, identified by allele")
 arg_parser.add_argument("output_directory", help="directory for the output files: *.pdb and *.csv")
+arg_parser.add_argument("--disable-energy-minimization", help="disable structure OpenMM energy minimization", action="store_const", const=True, default=False)
 arg_parser.add_argument("--batch-size", "-b", type=int, default=64, help="number of simultaneous complexes to predict in one batch")
 arg_parser.add_argument("--num-workers", "-w", type=int, default=5, help="number of simulteneous data readers")
 arg_parser.add_argument("--num-builders", "-B", type=int, default=0, help="number of simultaneous structure builders, set to 0 to disable structure prediction")
@@ -70,17 +71,21 @@ def create_dataset(table_path: str, hdf5_path: str, device: torch.device, float_
     return dataset
 
 
-def save_structure(path: str, data: List[Tuple[str, torch.Tensor, torch.Tensor, torch.Tensor]]):
+def output_structure(path: str, data: List[Tuple[str, torch.Tensor, torch.Tensor, torch.Tensor]], minimize_energy: bool):
 
-    try:
+    if minimize_energy:
         modeller = build_modeller(data)
         modeller = minimize(modeller)
 
         with open(path, 'wt') as f:
             openmm.app.PDBFile.writeFile(modeller.topology, modeller.getPositions(), f, keepIds=True)
+    else:
+        structure = recreate_structure(path, data)
 
-    except:
-        _log.exception(f"on {path}")
+        io = PDBIO()
+        io.set_structure(structure)
+        io.save(path)
+
 
 def on_error(e):
     "callback function, send the error to the logs"
@@ -91,7 +96,8 @@ def store_output(
     pool: Optional[Pool],
     directory_path: str,
     batch: Dict[str, torch.Tensor],
-    output: Dict[str, torch.Tensor]
+    output: Dict[str, torch.Tensor],
+    minimize_energy: bool,
 ):
     if not os.path.isdir(directory_path):
         os.mkdir(directory_path)
@@ -119,11 +125,12 @@ def store_output(
 
             # found a binder case, store the model
             pool.apply_async(
-                save_structure,
+                output_structure,
                 (
                     pdb_path,
                     [("P", peptide_residue_numbers[index], peptide_aatype[index], peptide_atom14_positions[index], peptide_atom14_exists[index]),
-                     ("M", protein_residue_numbers[index], protein_aatype[index], protein_atom14_positions[index], protein_atom14_exists[index])]
+                     ("M", protein_residue_numbers[index], protein_aatype[index], protein_atom14_positions[index], protein_atom14_exists[index])],
+                    minimize_energy,
                 ),
                 error_callback=on_error,
             )
@@ -188,12 +195,13 @@ if __name__ == "__main__":
                 for batch in data_loader:
                     output = model(batch)
 
-                    store_output(builder_pool, args.output_directory, batch, output)
-            pool.close()
-            pool.join()
+                    store_output(builder_pool, args.output_directory, batch, output, not args.disable_energy_minimization)
+
+            builder_pool.close()
+            builder_pool.join()
     else:
         with torch.no_grad():
             for batch in data_loader:
                 output = model(batch)
 
-                store_output(None, args.output_directory, batch, output)
+                store_output(None, args.output_directory, batch, output, False)
