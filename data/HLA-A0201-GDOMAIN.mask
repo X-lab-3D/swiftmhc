@@ -178,4 +178,3 @@ M       177       GLU
 M       178       THR
 M       179       LEU
 M       180       GLN
-M       181       ARG
