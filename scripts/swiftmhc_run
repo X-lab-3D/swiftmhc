@@ -664,7 +664,7 @@ class Trainer:
               run_id: str,
               pretrained_model_path: str,
               animated_complex_ids: List[str],
-              ptience: int,
+              patience: int,
     ):
         """
         Call this method for training a model
@@ -734,7 +734,7 @@ class Trainer:
         optimizer = Adam(model.parameters(), lr=training_phases[0].lr)
 
         # init early stop
-        early_stop = EarlyStopper()
+        early_stop = EarlyStopper(patience=patience)
 
         _log.info(f"begin with training phase: {training_phases[0]}")
 
