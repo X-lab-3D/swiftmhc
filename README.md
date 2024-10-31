@@ -84,6 +84,8 @@ Run
 swiftmhc_predict -B1 model.pth table.csv preprocessed_mhcs.hdf5 results/
 ```
 
-The data directory contains a preprocessed hdf5 file for the HLA-A*02:01 allele.
+The output `results` directory will contain a HDF5 file, holding the structures. Use the `swiftmhc_hdf5_to_pdb` script to convert the structures to PDB format.
+
+The data directory contains a preprocessed hdf5 file for the HLA-A*02:01 allele, that can be used as input to the `swiftmhc_predict` script.
 
 Run `swiftmhc_predict --help` for details.
