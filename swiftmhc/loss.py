@@ -55,13 +55,6 @@ from .tools.rigid import Rigid
 _log = logging.getLogger(__name__)
 
 
-def _masked_mean(mask: torch.Tensor, value: torch.Tensor, dim: List[int], eps: float = 1e-4) -> torch.Tensor:
-    sum_of_value = torch.where(mask, value, 0.0).sum(dim=dim)
-    sum_of_mask = mask.sum(dim=dim)
-
-    return sum_of_value / (sum_of_mask + eps)
-
-
 def _compute_fape_loss(
     output: Dict[str, torch.Tensor],
     batch: Dict[str, torch.Tensor],
@@ -76,7 +69,7 @@ def _compute_fape_loss(
         total:      [*] backbone FAPE + sidechain FAPE
     """
 
-    # compute backbone loss
+    # compute backbone FAPE
     peptide_mask = batch["peptide_cross_residues_mask"]
     peptide_true_frames = Rigid.from_tensor_4x4(batch["peptide_backbone_rigid_tensor"])
     peptide_output_frames = Rigid.from_tensor_7(output["final_frames"])
@@ -97,7 +90,7 @@ def _compute_fape_loss(
         )
     )
 
-    # compute sidechain loss
+    # Find out which atoms are ambiguous.
     atom14_atom_is_ambiguous = torch.tensor(openfold_restype_atom14_ambiguous_atoms[batch["peptide_aatype"].cpu().numpy()],
                                             device=batch["peptide_aatype"].device)
 
@@ -110,6 +103,8 @@ def _compute_fape_loss(
                                                           },
                                                           output["final_positions"])
 
+    # Get the truth frames and alternative truth frames from the true atom positions,
+    # This involves converting from 14-atoms to 37-atoms format.
     peptide_residx_atom37_to_atom14 = batch["peptide_residx_atom37_to_atom14"]
     atom37_positions = openfold_batched_gather(
         batch["peptide_atom14_gt_positions"],
@@ -131,6 +126,7 @@ def _compute_fape_loss(
         }
     )
 
+    # compute the actual sidechain FAPE
     sc_loss = openfold_compute_sidechain_loss(sidechain_frames=output["final_sidechain_frames"][None, ...],
                                               sidechain_atom_pos=output["final_positions"][None, ...],
                                               rigidgroups_gt_frames=truth_frames["rigidgroups_gt_frames"],
@@ -151,38 +147,13 @@ def _compute_fape_loss(
     }
 
 
-def _compute_cross_distance_loss(output: Dict[str, torch.Tensor], batch: Dict[str, torch.Tensor]) -> torch.Tensor:
-    """
-    Calculates the error on the distances between the protein and peptide CAs
-
-    Returns:
-        [*] the MSE on the distances
-    """
-
-    # get xyz from dataset: [*, len, 3]
-    true_ca_positions_peptide = batch["peptide_atom14_gt_positions"][..., 1, :]
-    true_ca_positions_protein = batch["protein_atom14_gt_positions"][..., 1, :]
-    pred_ca_positions_peptide = output["final_positions"][..., 1, :]
-
-    # calculate square distances: [*, peptide_maxlen, protein_maxlen]
-    true_dist2 = torch.sum(torch.square(true_ca_positions_peptide[:, :, None, :] - true_ca_positions_protein[:, None, :, :]), dim=3)
-    pred_dist2 = torch.sum(torch.square(pred_ca_positions_peptide[:, :, None, :] - true_ca_positions_protein[:, None, :, :]), dim=3)
-
-    # calculate error from existing atoms' distance
-    # [*]
-    mask = batch["peptide_atom14_gt_exists"][:, :, None, 1] * batch["protein_atom14_gt_exists"][:, None, :, 1]
-    err = (mask * torch.abs(pred_dist2 - true_dist2)).sum(dim=(1, 2)) / torch.sum(mask.to(output["final_positions"].dtype), dim=(1, 2))
-
-    return err
-
-
 def _compute_cross_violation_loss(output: Dict[str, torch.Tensor],
                                   batch: Dict[str, torch.Tensor],
                                   config: ml_collections.ConfigDict) -> Dict[str, torch.Tensor]:
     """
     Compute violations in the predicted structure.
     Returns:
-        bond:                       [*] bond violations between residues within the peptide
+        bond:                       [*] bond length violations between residues within the peptide
         CA-C-N-angles:              [*] C-alpha-C-N angle violations in peptide
         C-N-CA-angles:              [*] C-N-C-alpha angle violations in peptide
         between-residues-clash:     [*] clashes between residues from protein and peptide
@@ -215,7 +186,9 @@ def _compute_cross_violation_loss(output: Dict[str, torch.Tensor],
     # [*, peptide_maxlen + protein_maxlen, 14]
     atom14_atom_radius = atom14_atom_exists * atomtype_radius[residx_atom14_to_atom37]
 
+    # [*, peptide_maxlen]
     peptide_residue_index = batch["peptide_residue_index"]
+    # [*, protein_maxlen]
     protein_residue_index = batch["protein_residue_index"]
 
     # [*, peptide_maxlen + protein_maxlen]
@@ -261,23 +234,25 @@ def _compute_cross_violation_loss(output: Dict[str, torch.Tensor],
         tolerance_factor_hard=config.violation_tolerance_factor,
     )
 
-    # []
+    # [*]
     violations_between_residues_bonds_c_n_loss_mean = connection_violations["c_n_loss_mean"]
     violations_between_residues_angles_ca_c_n_loss_mean = connection_violations["ca_c_n_loss_mean"]
     violations_between_residues_angles_c_n_ca_loss_mean = connection_violations["c_n_ca_loss_mean"]
 
-    # [peptide_len + protein_len, 14]
+    # [*, peptide_len + protein_len, 14]
     violations_between_residues_clashes_per_atom_loss_sum = between_residue_clashes["per_atom_loss_sum"]
 
-    # [peptide_len, 14]
+    # [*, peptide_len, 14]
     violations_within_residues_per_atom_loss_sum = residue_violations["per_atom_loss_sum"]
 
     # Calculate loss, as in openfold
     peptide_num_atoms = torch.sum(batch["peptide_atom14_gt_exists"])
 
+    # [*]
     between_residues_clash = torch.sum(violations_between_residues_clashes_per_atom_loss_sum) / (config.eps + peptide_num_atoms)
     within_residues_clash = torch.sum(violations_within_residues_per_atom_loss_sum) / (config.eps + peptide_num_atoms)
 
+    # [*]
     loss = {
         "bond": violations_between_residues_bonds_c_n_loss_mean,
         "CA-C-N-angles": violations_between_residues_angles_ca_c_n_loss_mean,
@@ -294,7 +269,7 @@ def _compute_cross_violation_loss(output: Dict[str, torch.Tensor],
     return loss
 
 
-def _torsion_angle_loss(
+def _compute_torsion_angle_loss(
     a: torch.Tensor,
     a_mask: torch.Tensor,
     a_gt: torch.Tensor,
@@ -325,18 +300,19 @@ def _torsion_angle_loss(
     min_diff = torch.minimum(diff_norm_gt ** 2, diff_norm_alt_gt ** 2)
 
     # [*]
-    l_torsion = _masked_mean(a_mask, min_diff, dim=(-2, -1))
-    l_angle_norm = _masked_mean(a_mask, torch.abs(norm - 1), dim=(-2, -1))
+    l_torsion = openfold_masked_mean(a_mask, min_diff, dim=(-2, -1))
+    l_angle_norm = openfold_masked_mean(a_mask, torch.abs(norm - 1), dim=(-2, -1))
 
     an_weight = 0.02
     return l_torsion + an_weight * l_angle_norm
 
 
+# above this value, BA output is considered binding
 AFFINITY_BINDING_TRESHOLD = 1.0 - log(500) / log(50000)
 
+# BA loss functions
 _classification_loss_function = torch.nn.CrossEntropyLoss(reduction="none")
 _regression_loss_function = torch.nn.MSELoss(reduction="none")
-
 
 def get_loss(model_type: ModelType,
              output: Dict[str, torch.Tensor],
@@ -403,10 +379,12 @@ def get_loss(model_type: ModelType,
         raise TypeError(f"unknown model type {model_type}")
 
     # compute torsion losses
-    torsion_loss = _torsion_angle_loss(output["final_angles"],
-                                       batch["peptide_torsion_angles_mask"],
-                                       batch["peptide_torsion_angles_sin_cos"],
-                                       batch["peptide_alt_torsion_angles_sin_cos"])
+    torsion_loss = _compute_torsion_angle_loss(
+        output["final_angles"],
+        batch["peptide_torsion_angles_mask"],
+        batch["peptide_torsion_angles_sin_cos"],
+        batch["peptide_alt_torsion_angles_sin_cos"],
+    )
 
     # compute fape loss, as in openfold
     fape_losses = _compute_fape_loss(output, batch,
@@ -507,120 +485,3 @@ def get_calpha_rmsd(output_data: Dict[str, torch.Tensor],
     return {ids[i]: rmsd[i].item() for i in range(len(ids))}
 
 
-def sum_within_peptide_clashes_between_residues(
-    output_data: Dict[str, torch.Tensor],
-    batch_data: Dict[str, torch.Tensor],
-) -> Dict[str, float]:
-    """
-    Returns: sum of clashes between residues within peptide per binder id, nonbinders are ignored
-    """
-
-    # take binders only
-    if "class" in batch_data:
-        binders_index = batch_data["class"] == 1
-
-    elif "affinity" in batch_data:
-        binders_index = batch_data["affinity"] > AFFINITY_BINDING_TRESHOLD
-
-    else:
-        raise ValueError("Cannot compute RMSD without class or affinity output")
-
-    # prevent NaN, in case of no binders
-    if not torch.any(binders_index):
-        return {}
-
-    # [n_binders, peptide_maxlen, 14, 3]
-    predicted_positions = output_data["final_positions"][binders_index]
-    fp_type = predicted_positions.dtype
-
-    # [n_binders, peptide_maxlen, 14]
-    atoms_mask = batch_data["peptide_atom14_gt_exists"][binders_index]
-
-    # [n_binders, peptide_maxlen]
-    residue_index = batch_data["peptide_residue_index"][binders_index]
-
-    # Compute the Van der Waals radius for every atom
-    # (the first letter of the atom name is the element type).
-    # [37]
-    atomtype_radius = [
-        openfold_van_der_waals_radius[name[0]]
-        for name in openfold_atom_types
-    ]
-    # [37]
-    atomtype_radius = predicted_positions.new_tensor(atomtype_radius)
-
-    # [n_binders, peptide_maxlen, 14]
-    residx_atom14_to_atom37 = batch_data["peptide_residx_atom14_to_atom37"][binders_index]
-
-    # [n_binders, peptide_maxlen, 14]
-    atoms_radius = atoms_mask * atomtype_radius[residx_atom14_to_atom37]
-
-    # Create the distance matrix.
-    # [n_binders, peptide_maxlen, peptide_maxlen, 14, 14]
-    eps = 1e-10
-    distances = torch.sqrt(eps +
-        torch.sum(
-            (predicted_positions[..., :, None, :, None, :] - predicted_positions[..., None, :, None, :, :]) ** 2,
-            dim=-1
-        )
-    )
-
-    # Create the mask for valid distances
-    # [n_binders, peptide_maxlen, peptide_maxlen, 14, 14]
-    distance_mask = atoms_mask[..., :, None, :, None] * atoms_mask[..., None, :, None, :].type(fp_type)
-
-    # Mask out all the duplicate entries in the lower triangular matrix.
-    # Also mask out the diagonal (atom-pairs from the same residue) -- these atoms
-    # are handled separately.
-    distance_mask = distance_mask * (residue_index[..., :, None, None, None] < residue_index[..., None, :, None, None])
-
-    # Backbone C--N bond between subsequent residues is no clash.
-    c_one_hot = torch.nn.functional.one_hot(
-        residue_index.new_tensor(2), num_classes=14
-    )
-    c_one_hot = c_one_hot.reshape(
-        *((1,) * len(residue_index.shape[:-1])), *c_one_hot.shape
-    )
-    c_one_hot = c_one_hot.type(fp_type)
-
-    n_one_hot = torch.nn.functional.one_hot(
-        residue_index.new_tensor(0), num_classes=14
-    )
-    n_one_hot = n_one_hot.reshape(
-        *((1,) * len(residue_index.shape[:-1])), *n_one_hot.shape
-    )
-    n_one_hot = n_one_hot.type(fp_type)
-
-    neighbour_mask = (
-        residue_index[..., :, None, None, None] + 1
-    ) == residue_index[..., None, :, None, None]
-
-    c_n_bonds = neighbour_mask * c_one_hot[..., None, None, :, None] * n_one_hot[..., None, None, None, :]
-
-    distance_mask = distance_mask * (1.0 - c_n_bonds)
-
-    # Disulfide bridge between two cysteines is no clash.
-    cys = openfold_restype_name_to_atom14_names["CYS"]
-    cys_sg_idx = cys.index("SG")
-    cys_sg_idx = residue_index.new_tensor(cys_sg_idx)
-    cys_sg_idx = cys_sg_idx.reshape(*((1,) * len(residue_index.shape[:-1])), 1).squeeze(-1)
-    cys_sg_one_hot = torch.nn.functional.one_hot(cys_sg_idx, num_classes=14)
-    disulfide_bonds = cys_sg_one_hot[..., None, None, :, None] * cys_sg_one_hot[..., None, None, None, :]
-    distance_mask = distance_mask * (1.0 - disulfide_bonds)
-
-    # Compute the lower bound for the allowed distances.
-    # [n_binders, peptide_maxlen, peptide_maxlen, 14, 14]
-    lower_bounds = distance_mask * (atoms_radius[..., :, None, :, None] + atoms_radius[..., None, :, None, :])
-
-    # [n_binders, peptide_maxlen, peptide_maxlen, 14, 14]
-    errors = distance_mask * torch.nn.functional.relu(lower_bounds - distances)
-
-    # [n_binders]
-    errors = errors.sum(dim=(-4, -3, -2, -1))
-
-    ids = [batch_data["ids"][i] for i in torch.nonzero(binders_index)]
-
-    return {
-        ids[i]: errors[i].item()
-        for i in range(len(ids))
-    }
