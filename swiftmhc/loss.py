@@ -35,8 +35,7 @@ from openfold.utils.loss import (violation_loss as openfold_compute_violation_lo
                                  between_residue_clash_loss as openfold_between_residue_clash_loss,
                                  between_residue_bond_loss as openfold_between_residue_bond_loss,
                                  softmax_cross_entropy as openfold_softmax_cross_entropy)
-from openfold.data.data_transforms import (atom37_to_frames as openfold_atom37_to_frames,
-                                           make_atom14_masks as openfold_make_atom14_masks)
+from openfold.data.data_transforms import (atom37_to_frames as openfold_atom37_to_frames)
 from openfold.config import config as openfold_config
 from openfold.utils.tensor_utils import permute_final_dims
 
