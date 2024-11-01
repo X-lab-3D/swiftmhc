@@ -267,13 +267,13 @@ class MetricsRecord:
             table = pandas.read_csv(metrics_path, sep=',')
 
         # make sure the table has a row for this epoch
-        if epoch_number not in table["epoch"].values:
+        if not any(table["epoch"] == epoch_number):
             row = pandas.DataFrame()
             for key in table:
                 row[key] = [None]
             row["epoch"] = [epoch_number]
 
-            table = pandas.concat((table, row))
+            table = pandas.concat((table, row), axis=0)
 
         row_index = (table["epoch"] == epoch_number)
 
