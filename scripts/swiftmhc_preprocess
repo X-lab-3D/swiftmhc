@@ -27,6 +27,7 @@ arg_parser.add_argument("protein_cross_mask", help="TSV file with mask data, to 
 arg_parser.add_argument("output_path", help="hdf5 file where to store the preprocessed data")
 arg_parser.add_argument("--debug", "-d", help="adds debug statments to the log", action="store_const", const=True, default=False)
 arg_parser.add_argument("--processes", "-p", help="number of simultaneous processes", type=int, default=1)
+arg_parser.add_argument("--skip-errors", help="skip a data entry if an error is encountered", action="store_const", const=True, default=False)
 
 
 def split_table(table_path: str, dir_path: str, split_count: int) -> List[str]:
@@ -77,6 +78,7 @@ if __name__ == "__main__":
             args.protein_cross_mask,
             args.output_path,
             args.reference_structure,
+            args.skip_errors,
         )
     else:
         tmp_dir = os.path.join(os.path.dirname(args.output_path), uuid4().hex)
@@ -92,7 +94,7 @@ if __name__ == "__main__":
 
                 output_path = f"{table_path}.hdf5"
 
-                p = Process(target=preprocess, args=(table_path, args.models_dir, args.protein_self_mask, args.protein_cross_mask, output_path, args.reference_structure))
+                p = Process(target=preprocess, args=(table_path, args.models_dir, args.protein_self_mask, args.protein_cross_mask, output_path, args.reference_structure, args.skip_errors))
                 ps.append(p)
 
                 tmp_output_paths.append(output_path)
