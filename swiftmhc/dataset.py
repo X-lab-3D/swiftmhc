@@ -311,15 +311,6 @@ class ProteinLoopDataset(Dataset):
                 result[f"{prefix}_residue_numbers"] = torch.zeros(max_length, dtype=torch.int, device=self._device)
                 result[f"{prefix}_residue_numbers"][index] = torch.tensor(entry_group[prefix]["residue_numbers"][:], dtype=torch.int, device=self._device)
 
-                # back and forth conversion tables for atom 14 to atom 37 format
-                residx_atom14_to_atom37_data = entry_group[prefix]["residx_atom14_to_atom37"][:]
-                result[f"{prefix}_residx_atom14_to_atom37"] = torch.zeros((max_length, residx_atom14_to_atom37_data.shape[1]), device=self._device, dtype=torch.long)
-                result[f"{prefix}_residx_atom14_to_atom37"][index] = torch.tensor(residx_atom14_to_atom37_data, device=self._device, dtype=torch.long)
-
-                residx_atom37_to_atom14_data = entry_group[prefix]["residx_atom37_to_atom14"][:]
-                result[f"{prefix}_residx_atom37_to_atom14"] = torch.zeros((max_length, residx_atom37_to_atom14_data.shape[1]), device=self._device, dtype=torch.long)
-                result[f"{prefix}_residx_atom37_to_atom14"][index] = torch.tensor(residx_atom37_to_atom14_data, device=self._device, dtype=torch.long)
-
                 # one-hot encoded amino acid sequence
                 result[f"{prefix}_sequence_onehot"] = torch.zeros((max_length, 32), device=self._device, dtype=self._float_dtype)
                 t = torch.tensor(entry_group[prefix]["sequence_onehot"][:], device=self._device, dtype=self._float_dtype)

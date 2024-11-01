@@ -35,10 +35,11 @@ def test_preprocess_BA_67447():
             cross_mask_path,
             hdf5_path,
             ref_pdb_path,
+            False,
         )
 
         # Check that the preprocessed data is complete
-        dataset = ProteinLoopDataset(hdf5_path, torch.device("cpu"), 16, 200)
+        dataset = ProteinLoopDataset(hdf5_path, torch.device("cpu"), torch.float32, 16, 200)
         assert len(dataset) > 0
 
         entry = dataset[0]
@@ -79,6 +80,7 @@ def test_protein_data_preserved():
         self_mask_path,
         cross_mask_path,
         allele,
+        torch.device("cpu"),
     )
 
     assert "proximities" in protein_data

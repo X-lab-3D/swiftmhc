@@ -17,7 +17,7 @@ def test_modeller():
         chain = list(model.get_chains())[0]
         residues = list(chain.get_residues())
 
-        protein = _read_residue_data(residues)
+        protein = _read_residue_data(residues, torch.device("cpu"))
 
         length = len(residues)
         max_length = 100

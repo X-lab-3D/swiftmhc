@@ -35,7 +35,8 @@ from openfold.utils.loss import (violation_loss as openfold_compute_violation_lo
                                  between_residue_clash_loss as openfold_between_residue_clash_loss,
                                  between_residue_bond_loss as openfold_between_residue_bond_loss,
                                  softmax_cross_entropy as openfold_softmax_cross_entropy)
-from openfold.data.data_transforms import (atom37_to_frames as openfold_atom37_to_frames)
+from openfold.data.data_transforms import (atom37_to_frames as openfold_atom37_to_frames,
+                                           make_atom14_masks as openfold_make_atom14_masks)
 from openfold.config import config as openfold_config
 from openfold.utils.tensor_utils import permute_final_dims
 
@@ -385,6 +386,14 @@ def get_loss(model_type: ModelType,
         batch["peptide_torsion_angles_sin_cos"],
         batch["peptide_alt_torsion_angles_sin_cos"],
     )
+
+    # mapping 14-atoms to 37-atoms format, because several openfold functions use the 37 format
+    peptide_data = openfold_make_atom14_masks({"aatype": batch["peptide_aatype"]})
+    protein_data = openfold_make_atom14_masks({"aatype": batch["protein_aatype"]})
+    batch["peptide_residx_atom37_to_atom14"] = peptide_data["residx_atom37_to_atom14"]
+    batch["protein_residx_atom37_to_atom14"] = protein_data["residx_atom37_to_atom14"]
+    batch["peptide_residx_atom14_to_atom37"] = peptide_data["residx_atom14_to_atom37"]
+    batch["protein_residx_atom14_to_atom37"] = protein_data["residx_atom14_to_atom37"]
 
     # compute fape loss, as in openfold
     fape_losses = _compute_fape_loss(output, batch,

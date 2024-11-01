@@ -8,7 +8,7 @@ def test_dataset():
 
     protein_maxlen = 200
 
-    dataset = ProteinLoopDataset("tests/data/data.hdf5", torch.device("cpu"), 16, protein_maxlen)
+    dataset = ProteinLoopDataset("tests/data/data.hdf5", torch.device("cpu"), torch.float32, 16, protein_maxlen)
     i = dataset.entry_names.index("BA-99998")
 
     peptide_sequence = ''.join([restypes[i] for i in dataset[i]["peptide_sequence_onehot"].nonzero(as_tuple=True)[1]])

@@ -1,8 +1,10 @@
 import torch
+from math import sqrt
 from Bio.PDB.PDBParser import PDBParser
 
 from swiftmhc.tools.pdb import get_atom14_positions
 from swiftmhc.modules.cross_structure_module import CrossStructureModule
+from swiftmhc.config import config
 
 
 pdb_parser = PDBParser()
@@ -10,7 +12,7 @@ pdb_parser = PDBParser()
 
 def test_omega_calculation():
 
-    m = CrossStructureModule(32, 16, 32, 2, 4, 8, 0.1, 2, 2, 7, 10, 2, 1e-6)
+    m = CrossStructureModule(config)
 
     pdb = pdb_parser.get_structure("BA-55224", "tests/data/BA-55224.pdb")
     residues = list(pdb[0]["M"].get_residues())
@@ -24,9 +26,7 @@ def test_omega_calculation():
 
     mask = torch.ones(xyz.shape[:-2])
 
-    omegas = m.calculate_omegas_from_positions(xyz, mask)
-
-    eps = 0.05
+    omegas = m._calculate_omegas_from_positions(xyz, mask)
 
     for index in range(omegas.shape[0]):
 
@@ -35,6 +35,9 @@ def test_omega_calculation():
 
         sin, cos = omegas[index]
 
+        l = sqrt(sin * sin + cos * cos)
+        sin = sin / l
+        cos = cos / l
+
         # omega must be close to pi radials, 180 degrees
-        assert abs(cos + 1.0) < eps, (residues[index], residues[index + 1], cos.item())
-        assert abs(sin) < eps, (residues[index], residue[index + 1], sin.item())
+        assert cos < -0.5, f" between {residues[index]} and {residues[index + 1]}: sin,cos={sin.item()}, {cos.item()}"

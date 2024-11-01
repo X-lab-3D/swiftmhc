@@ -8,10 +8,10 @@ import random
 
 import torch
 
-from openfold.config import config as openfold_config
 from openfold.utils.feats import atom14_to_atom37
 from openfold.np import residue_constants as rc
 
+from swiftmhc.config import config
 from swiftmhc.modules.predictor import Predictor
 from swiftmhc.models.types import ModelType
 from swiftmhc.loss import get_loss
@@ -62,7 +62,9 @@ def test_predictor():
         "protein_all_atom_mask": torch.tensor([[[bool(random.randrange(2)) for ___ in range(37) ] for _ in range(protein_maxlen)] for __ in range(n_complexes)]),
         "protein_residue_index": torch.tensor([range(protein_maxlen) for __ in range(n_complexes)]),
 
-        "class": torch.tensor([random.randrange(2) for __ in range(n_complexes)]),
+        "affinity": torch.rand(n_complexes),
+        "affinity_lt": torch.zeros(n_complexes, dtype=torch.bool),
+        "affinity_gt": torch.zeros(n_complexes, dtype=torch.bool),
     }
     restype_atom14_to_atom37 = []
     for rt in rc.restypes:
@@ -72,11 +74,10 @@ def test_predictor():
     data["peptide_residx_atom14_to_atom37"] = torch.tensor(restype_atom14_to_atom37)[data["peptide_aatype"]]
     data["protein_residx_atom14_to_atom37"] = torch.tensor(restype_atom14_to_atom37)[data["protein_aatype"]]
 
-    model_type = ModelType.CLASSIFICATION
-    model = Predictor(peptide_maxlen, protein_maxlen, model_type, openfold_config.model)
+    model = Predictor(config)
 
     output = model(data)
 
-    losses = get_loss(model_type, output, data, True, True, True, True)
+    losses = get_loss(config.model_type, output, data, True, True, True, True)
 
     assert "total" in losses

@@ -41,10 +41,10 @@ def test_metrics():
 
         pred_datas.append({
             "ids": ids,
-            "classification": torch.rand(batch_size, 2),
+            "logits": torch.rand(batch_size, 2),
             "final_positions": pred_coord,
         })
-        pred_datas[-1]["class"] = torch.argmax(pred_datas[-1]["classification"], dim=1)
+        pred_datas[-1]["class"] = torch.argmax(pred_datas[-1]["logits"], dim=1)
 
         aatype = (torch.rand(batch_size, 9) * 20).int()
 
@@ -117,10 +117,10 @@ def test_metrics_one_epoch():
 
         pred_datas.append({
             "ids": ids,
-            "classification": torch.rand(batch_size, 2),
+            "logits": torch.rand(batch_size, 2),
             "final_positions": pred_coord,
         })
-        pred_datas[-1]["class"] = torch.argmax(pred_datas[-1]["classification"], dim=1)
+        pred_datas[-1]["class"] = torch.argmax(pred_datas[-1]["logits"], dim=1)
 
         aatype = (torch.rand(batch_size, 9) * 20).int()
 
