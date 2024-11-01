@@ -32,10 +32,9 @@ class CrossStructureModule(torch.nn.Module):
     This is like algorithm 20 in AlphaFold2, but with some modifications:
 
      - omega angles are calculated from predicted frames. They are not predicted directly.
-     - The backbone frames are predicted from s_i, but not by a single linear layer, rather a transitional block.
      - It does not predict frames for a complete sequence. It takes a protein structure and peptide sequence as input. The peptide structure is predicted.
 
-    The code was copied from OpenFold and then modified.
+    The code was copied from OpenFold (openfold/model/structure_module.py) and then modified.
     """
 
     def __init__(self, config: ml_collections.ConfigDict):
@@ -85,7 +84,7 @@ class CrossStructureModule(torch.nn.Module):
         self.epsilon = config.epsilon
         self.n_transition_layers = config.no_transition_layers
 
-        # Buffers to be lazily initialized later
+        # Buffers to be lazily initialized later in _init_residue_constants once the dtype and device are determined.
         # self.default_frames
         # self.group_idx
         # self.atom_mask
@@ -99,12 +98,12 @@ class CrossStructureModule(torch.nn.Module):
         self.linear_in_protein = Linear(self.c_s, self.c_s)
 
         # modules for updating s_i (peptide), from the protein structure
-        self.peptide_ipa = CrossInvariantPointAttention(config)
-        self.peptide_ipa_dropout = torch.nn.Dropout(self.dropout_rate)
-        self.peptide_layer_norm_ipa = LayerNorm(self.c_s)
-        self.peptide_transition = StructureModuleTransition(self.c_s,
-                                                            self.n_transition_layers,
-                                                            self.dropout_rate)
+        self.cross_ipa = CrossInvariantPointAttention(config)
+        self.cross_ipa_dropout = torch.nn.Dropout(self.dropout_rate)
+        self.cross_ipa_norm = LayerNorm(self.c_s)
+        self.cross_ipa_transition = StructureModuleTransition(self.c_s,
+                                                              self.n_transition_layers,
+                                                              self.dropout_rate)
 
         # for predicting backbone frames from s_i
         self.bb_update = BackboneUpdate(self.c_s)
@@ -132,21 +131,22 @@ class CrossStructureModule(torch.nn.Module):
 
     ) -> Dict[str, torch.Tensor]:
         """
+        This method predicts peptide structure.
+
         Args:
-            peptide_aatype:         [*, peptide_maxlen] (0 - 19)
-            s_peptide_initial:      [*, peptide_maxlen, c_s]
-            peptide_mask:           [*, peptide_maxlen]
-            s_protein_initial:      [*, protein_maxlen, c_s]
-            protein_mask:           [*, protein_maxlen]
-            T_protein:              [*, protein_maxlen, 4, 4]
+            peptide_aatype:         [*, peptide_maxlen] (int, 0 - 19, sequence)
+            s_peptide_initial:      [*, peptide_maxlen, c_s] (sequence embedding)
+            peptide_mask:           [*, peptide_maxlen] (whether to use the residue or not)
+            s_protein_initial:      [*, protein_maxlen, c_s] (sequence embedding)
+            protein_mask:           [*, protein_maxlen] (whether to use the residue or not)
+            T_protein:              [*, protein_maxlen, 4, 4] (backbone frames)
         Returns:
-            frames:                 [*, peptide_maxlen, 4, 4]
-            sidechain_frames:       [*, peptide_maxlen, 4, 4]
-            unnormalized_angles:    [*, peptide_maxlen, 7, 2]
-            angles:                 [*, peptide_maxlen, 7, 2]
-            positions:              [*, peptide_maxlen, 18, 3]
-            states:                 [*, peptide_maxlen, c_s]
-            single:                 [*, peptide_maxlen, c_s]
+            frames:                 [*, peptide_maxlen, 7] (backbone frames)
+            sidechain_frames:       [*, peptide_maxlen, 7, 4, 4] (sidechain frames)
+            unnormalized_angles:    [*, peptide_maxlen, 7, 2] (sin,cos but not normalized)
+            angles:                 [*, peptide_maxlen, 7, 2] (sin,cos and normalized)
+            positions:              [*, peptide_maxlen, 14, 3] (atom positions in 14-atom format)
+            single:                 [*, peptide_maxlen, c_s] (sequence embedding)
         """
 
         batch_size, peptide_maxlen, embd_depth = s_peptide_initial.shape
@@ -206,8 +206,9 @@ class CrossStructureModule(torch.nn.Module):
 
         outputs = dict_multimap(torch.stack, outputs)
 
-        # unslice the output
+        # fill in an angle vector of length 1.0 for masked out parts, to prevent NaN in the loss function's normalization
         masked_angles = torch.tensor([[1.0, 0.0] for _ in range(7)], device=s_peptide.device)
+        # unslice the output to a returned dictionary
         result = {}
         result["single"] = self._unslice_and_restore_masked(outputs["states"][-1], peptide_slice)
         result["final_frames"] = self._unslice_and_restore_masked(outputs["frames"][-1], peptide_slice)
@@ -258,17 +259,20 @@ class CrossStructureModule(torch.nn.Module):
         protein_mask: torch.Tensor,
 
     ) -> Dict[str, torch.Tensor]:
+        """
+        One iterated block, similar to AlphaFold2 Algorithmn 20, lines 5-31
+        """
 
         # [*, peptide_maxlen, c_s]
-        s_upd, ipa_att = self.peptide_ipa(
+        s_upd, ipa_att = self.cross_ipa(
             s_peptide, s_protein,
             T_peptide, T_protein,
             peptide_mask, protein_mask,
         )
         s_peptide = s_peptide + s_upd
-        s_peptide = self.peptide_ipa_dropout(s_peptide)
-        s_peptide = self.peptide_layer_norm_ipa(s_peptide)
-        s_peptide = self.peptide_transition(s_peptide)
+        s_peptide = self.cross_ipa_dropout(s_peptide)
+        s_peptide = self.cross_ipa_norm(s_peptide)
+        s_peptide = self.cross_ipa_transition(s_peptide)
 
         # [*, peptide_maxlen]
         T_peptide = T_peptide.compose_q_update_vec(self.bb_update(s_peptide))
@@ -284,39 +288,42 @@ class CrossStructureModule(torch.nn.Module):
             T_peptide.get_trans(),
         )
 
+        # apply the scale factor, to get the final backbone frames
         backb_to_global = backb_to_global.scale_translation(self.trans_scale_factor)
 
         # [*, peptide_len, 7, 2]
         unnormalized_angles, angles = self.angle_resnet(s_peptide, s_peptide_initial)
 
-        # Calculate frames for side chains
+        # Calculate frames for side chains torsion angles
         all_frames_to_global = self.torsion_angles_to_frames(
             backb_to_global,
             angles,
             peptide_aatype,
         )
 
-        # Compute all atom coordinates, from torsions
+        # Compute all atom coordinates, from torsion frames
         pred_xyz = self.frames_and_literature_positions_to_atom14_pos(
             all_frames_to_global,
             peptide_aatype,
         )
 
-        # calculate the actual omega angles, according to atom positions
-        post_omegas_from_xyz = self.calculate_omegas_from_positions(pred_xyz, peptide_mask)
+        # calculate the actual omega angles, according to backbone atom positions
+        post_omegas_from_xyz = self._calculate_omegas_from_positions(pred_xyz, peptide_mask)
         last_omega = post_omegas_from_xyz.new_tensor([0.0, -1.0])  # sine 0, cosine -1 : 180 degrees
         last_omega = last_omega.unsqueeze(0).expand(post_omegas_from_xyz.shape[0], -1).unsqueeze(1)
         omegas = torch.cat([post_omegas_from_xyz, last_omega], dim=-2)
+        # insert the omegas in the angle tensors
         angles = torch.cat([omegas.unsqueeze(-2), angles[..., 1:, :]], dim=-2)
         unnormalized_angles = torch.cat([omegas.unsqueeze(-2), unnormalized_angles[..., 1:, :]], dim=-2)
 
+        # apply the scale factor, to get the final backbone frames in the output
         scaled_T_peptide = T_peptide.scale_translation(self.trans_scale_factor)
 
+        # unscaled frames are added to this output, to be used in the next block
         preds = {
-            "cross_ipa_att": ipa_att,
-            "unscaled_frames": T_peptide.to_tensor_7(),
-            "frames": scaled_T_peptide.to_tensor_7(),
-            "sidechain_frames": all_frames_to_global.to_tensor_4x4(),
+            "unscaled_frames": T_peptide.to_tensor_7(),  # openfold stores these as vec+quaternion
+            "frames": scaled_T_peptide.to_tensor_7(),  # openfold stores these as vec+quaternion
+            "sidechain_frames": all_frames_to_global.to_tensor_4x4(),  # openfold stores these 4x4
             "unnormalized_angles": unnormalized_angles,
             "angles": angles,
             "positions": pred_xyz,
@@ -408,9 +415,9 @@ class CrossStructureModule(torch.nn.Module):
             self.lit_positions,
         )
 
-    def calculate_omegas_from_positions(self, positions: torch.Tensor, res_mask: torch.Tensor):
+    def _calculate_omegas_from_positions(self, positions: torch.Tensor, res_mask: torch.Tensor):
         """
-        The amide's hydrogen is missing.
+        The amide's hydrogen is absent.
         So we calculate the omega from the Ca-C-N-Ca angle.
 
         Args:
@@ -420,11 +427,12 @@ class CrossStructureModule(torch.nn.Module):
             post omegas sin, cos:  [*, N_res - 1, 2] (normalized)
         """
 
+        # positions in the array where the bakcbone atoms are stored:
         atom_index_N = 0
         atom_index_CA = 1
         atom_index_C = 2
 
-        # find the atoms
+        # find the backbone atoms
 
         # [*, N_res - 1, 3]
         positions_CA0 = positions[..., :-1, atom_index_CA, :]
@@ -436,7 +444,7 @@ class CrossStructureModule(torch.nn.Module):
         mask = torch.logical_and(res_mask[..., :-1], res_mask[..., 1:])
         masked_out = torch.logical_not(mask)
 
-        # make directional vectors for the 3 bonds
+        # make directional vectors for the 3 bonds: C-alpha---C---N---C-alpha
 
         # [*, N_res - 1, 3]
         vec_CCA0 = positions_CA0 - positions_C0
@@ -447,7 +455,7 @@ class CrossStructureModule(torch.nn.Module):
         # [*, N_res - 1, 3]
         vec_CN = positions_N1 - positions_C0
 
-        # make the newmann projections of the C-alphas on the CN bond
+        # make the newmann projections of the C-alphas on the C---N bond
 
         # [*, N_res - 1, 3]
         plane_n = torch.nn.functional.normalize(vec_CN, dim=-1)

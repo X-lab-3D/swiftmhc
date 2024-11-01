@@ -72,7 +72,7 @@ class CrossInvariantPointAttention(torch.nn.Module):
         self.softmax = torch.nn.Softmax(dim=-1)
         self.softplus = torch.nn.Softplus()
 
-        # [H]
+        # one weight per head: [H]
         self.head_weights = torch.nn.Parameter(torch.zeros((self.no_heads)))
         ipa_point_weights_init_(self.head_weights)
 

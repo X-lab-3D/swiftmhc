@@ -47,7 +47,7 @@ class Predictor(torch.nn.Module):
         self.n_ipa_repeat = config.no_protein_blocks
 
         # modules for self attention on peptide, updating {s_i}
-        self.transform = torch.nn.ModuleList([
+        self.peptide_transform = torch.nn.ModuleList([
             PeptideSelfAttention(config)
             for _ in range(config.no_peptide_blocks)
         ])
@@ -68,7 +68,7 @@ class Predictor(torch.nn.Module):
         )
 
         # module for structure prediction and cross updating {s_i}
-        self.cross = CrossStructureModule(config)
+        self.cross_sm = CrossStructureModule(config)
 
         # decide here what output shape to generate: regression or classification
         self.model_type = config.model_type
@@ -79,134 +79,136 @@ class Predictor(torch.nn.Module):
         else:
             raise TypeError(str(self.model_type))
 
-        self.affinity_norm = torch.nn.Sequential(
+        self.ba_norm = torch.nn.Sequential(
             torch.nn.Dropout(p=config.dropout_rate),
             torch.nn.LayerNorm(config.c_s),
         )
 
         # module for predicting affinity from updated {s_i}
-        self.affinity_module = torch.nn.Sequential(
+        self.ba_module = torch.nn.Sequential(
             torch.nn.Linear(config.c_s, config.c_transition),
             torch.nn.ReLU(),
             torch.nn.Linear(config.c_transition, output_size),
         )
 
     def switch_affinity_grad(self, requires_grad: bool):
+        """
+        Turns gradient on/off for BA modules.
+        """
 
-        for module in [self.affinity_norm, self.affinity_module]:
+        for module in [self.ba_norm, self.ba_module]:
             for parameter in module.parameters():
                 parameter.requires_grad = requires_grad
 
     def switch_structure_grad(self, requires_grad: bool):
+        """
+        Turns gradient on/off for structure modules.
+        """
 
-        for module in [self.transform, self.peptide_norm,
+        for module in [self.peptide_transform, self.peptide_norm,
                        self.protein_dist_norm, self.protein_ipa,
-                       self.protein_norm, self.cross]:
+                       self.protein_norm, self.cross_sm]:
 
             for parameter in module.parameters():
                 parameter.requires_grad = requires_grad
 
     def forward(self, batch: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
         """
+        This method predicts peptide structure and BA.
+
         Args:
-            peptide_aatype:                 [*, peptide_maxlen] (int, 0 - 19)
-            peptide_sequence_onehot:        [*, peptide_maxlen, c_s]
-            peptide_blosum62:               [*, peptide_maxlen, c_s]
-            peptide_self_residues_mask:     [*, peptide_maxlen]
-            peptide_cross_residue_mask:     [*, peptide_maxlen]
-            protein_sequence_onehot:        [*, protein_maxlen, c_s]
-            protein_blosum62:               [*, protein_maxlen, c_s]
-            protein_self_residues_mask:     [*, protein_maxlen]
-            protein_cross_residues_mask:    [*, protein_maxlen]
-            protein_backbone_rigid_tensor:  [*, protein_maxlen, 4, 4]
-            protein_proximities:            [*, protein_maxlen, protein_maxlen, 1]
+            peptide_aatype:                 [*, peptide_maxlen] (int, 0 - 19, sequence)
+            peptide_sequence_onehot:        [*, peptide_maxlen, c_s] (encoded sequence)
+            peptide_blosum62:               [*, peptide_maxlen, c_s] (encoded sequence)
+            peptide_self_residues_mask:     [*, peptide_maxlen] (bool, residue used or not)
+            peptide_cross_residue_mask:     [*, peptide_maxlen] (bool, residue used or not)
+            protein_sequence_onehot:        [*, protein_maxlen, c_s] (encoded sequence)
+            protein_blosum62:               [*, protein_maxlen, c_s] (encoded sequence)
+            protein_self_residues_mask:     [*, protein_maxlen] (bool, residue used or not)
+            protein_cross_residues_mask:    [*, protein_maxlen] (bool, residue used or not)
+            protein_backbone_rigid_tensor:  [*, protein_maxlen, 4, 4] (converted to frames, backbone only)
+            protein_proximities:            [*, protein_maxlen, protein_maxlen, 1] (inverted distances)
 
         Returns:
             single:                     [*, peptide_maxlen, c_s] (updated {s_i})
-            final_frames:               [*, peptide_maxlen, 7]
-            final_sidechain_frames:     [*, peptide_maxlen, 7, 4, 4]
-            final_angles:               [*, peptide_maxlen, 7, 2] (cos(a), sin(a))
-            final_unnormalized_angles:  [*, peptide_maxlen, 7, 2] (cos(a), sin(a))
-            final_positions:            [*, peptide_maxlen, 14, 3]
-            atom14_atom_exists:         [*, peptide_maxlen, 14]
-            final_atom_positions:       [*, peptide_maxlen, 37, 3]
-            atom37_atom_exists:         [*, peptide_maxlen, 37]
-            affinity:                   [*] (for regression only)
-            classification:             [*, 2] (for classification only)
-            class:                      [*] (0 / 1, for classification only)
+            final_frames:               [*, peptide_maxlen, 7] (converted from frames, backbone only)
+            final_sidechain_frames:     [*, peptide_maxlen, 7, 4, 4] (converted from frames, sidechain)
+            final_angles:               [*, peptide_maxlen, 7, 2] (sin,cos)
+            final_unnormalized_angles:  [*, peptide_maxlen, 7, 2] (sin,cos but not normalized)
+            final_positions:            [*, peptide_maxlen, 14, 3] (position of each atom in 14-atom format)
+            affinity:                   [*] (BA, for regression only)
+            logits:                     [*, 2] (BA, for classification only)
+            class:                      [*] (BA, binary 0 / 1, for classification only)
         """
 
         # [*, peptide_maxlen, c_s]
         if self.blosum:
-            peptide_seq = batch["peptide_blosum62"]
+            s_peptide = batch["peptide_blosum62"]
         else:
-            peptide_seq = batch["peptide_sequence_onehot"]
+            s_peptide = batch["peptide_sequence_onehot"]
 
-        batch_size, peptide_maxlen, peptide_depth = peptide_seq.shape
+        batch_size, peptide_maxlen, peptide_dim = s_peptide.shape
 
         # Ignore residues that are masked all over the batch.
         peptide_slice = batch["peptide_self_residues_mask"].sum(dim=0).bool()
         protein_slice = batch["protein_self_residues_mask"].sum(dim=0).bool()
         protein_slice_length = protein_slice.sum()
-        protein_prox_slice = torch.logical_and(protein_slice[None, :], protein_slice[:, None])
+        protein_2d_slice = torch.logical_and(protein_slice[None, :], protein_slice[:, None])
 
         # self attention on the peptide
-        peptide_embd = peptide_seq.clone()
-        for encoder in self.transform:
-            peptide_upd, peptide_a = encoder(peptide_embd[:, peptide_slice], batch["peptide_self_residues_mask"][:, peptide_slice])
-            peptide_embd[:, peptide_slice] = self.peptide_norm(peptide_embd[:, peptide_slice] + peptide_upd)
+        for peptide_encoder in self.peptide_transform:
+            peptide_upd, a = peptide_encoder(
+                s_peptide[:, peptide_slice],
+                batch["peptide_self_residues_mask"][:, peptide_slice],
+            )
+            s_peptide[:, peptide_slice] = self.peptide_norm(s_peptide[:, peptide_slice] + peptide_upd)
 
         # structure-based self-attention on the protein
-        protein_T = Rigid.from_tensor_4x4(batch["protein_backbone_rigid_tensor"])
+        T_protein = Rigid.from_tensor_4x4(batch["protein_backbone_rigid_tensor"])
 
         # [*, protein_maxlen, c_s]
         if self.blosum:
-            protein_embd = batch["protein_blosum62"].clone()
+            s_protein = batch["protein_blosum62"]
         else:
-            protein_embd = batch["protein_sequence_onehot"].clone()
-        protein_norm_prox = self.protein_dist_norm(batch["protein_proximities"])
-        sliced_protein_norm_prox = protein_norm_prox[:, protein_prox_slice].reshape(batch_size, protein_slice_length, protein_slice_length, -1)
+            s_protein = batch["protein_sequence_onehot"]
+
+        z_protein = self.protein_dist_norm(batch["protein_proximities"])
+        sliced_z_protein = z_protein[:, protein_2d_slice].reshape(batch_size, protein_slice_length, protein_slice_length, -1)
 
         for _ in range(self.n_ipa_repeat):
-            protein_upd, protein_a = self.protein_ipa(protein_embd[:, protein_slice],
-                                                      sliced_protein_norm_prox,
-                                                      protein_T[:, protein_slice],
-                                                      batch["protein_self_residues_mask"][:, protein_slice].to(dtype=protein_embd.dtype))
-            protein_embd[:, protein_slice] = self.protein_norm(protein_embd[:, protein_slice] + protein_upd)
+            protein_upd, a = self.protein_ipa(
+                s_protein[:, protein_slice],
+                sliced_z_protein,
+                T_protein[:, protein_slice],
+                batch["protein_self_residues_mask"][:, protein_slice].to(dtype=s_protein.dtype),
+            )
+            s_protein[:, protein_slice] = self.protein_norm(s_protein[:, protein_slice] + protein_upd)
 
         # cross attention and peptide structure prediction
-        output = self.cross(batch["peptide_aatype"],
-                            peptide_embd,
-                            batch["peptide_cross_residues_mask"],
-                            protein_embd,
-                            batch["protein_cross_residues_mask"],
-                            protein_T)
-
-        # amino acid sequence: [1, 0, 2, ... ] meaning : Arg, Ala, Asn
-        # [*, peptide_maxlen]
-        output["aatype"] = batch["peptide_aatype"]
-
-        # whether the heavy atoms exists or not
-        # for each peptide residue
-        output = make_atom14_masks(output)
-
-        # converting 14-atom format to 37-atom format:
-        # [*, peptide_maxlen, 37, 3]
-        output["final_atom_positions"] = atom14_to_atom37(output["final_positions"], output)
+        output = self.cross_sm(
+            batch["peptide_aatype"],
+            s_peptide,
+            batch["peptide_cross_residues_mask"],
+            s_protein,
+            batch["protein_cross_residues_mask"],
+            T_protein,
+        )
 
         # retrieve updated peptide sequence, per residue features
+        # normalization and skip connection
         # [*, peptide_maxlen, c_s]
-        peptide_embd = self.affinity_norm(peptide_embd + output["single"])
+        s_peptide = self.ba_norm(s_peptide + output["single"])
 
         # [*, peptide_maxlen]
         peptide_mask = batch["peptide_cross_residues_mask"]
 
         # [*, output_size]
-        ba = self._compute_ba(peptide_embd, peptide_mask)
+        ba = self._compute_ba(s_peptide, peptide_mask)
 
         # affinity prediction
         if self.model_type == ModelType.REGRESSION:
 
+            # reshape a 1-dimensional vector into a scalar
             # [*]
             output["affinity"] = ba.reshape(batch_size)
 
@@ -230,7 +232,7 @@ class Predictor(torch.nn.Module):
         """
 
         # [*, peptide_maxlen, output_size]
-        peptide_scores = self.affinity_module(peptide_embd)
+        peptide_scores = self.ba_module(peptide_embd)
 
         # [*, peptide_maxlen, output_size]
         masked_scores = torch.where(peptide_mask.unsqueeze(-1), peptide_scores, 0.0)
