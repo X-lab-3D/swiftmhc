@@ -113,13 +113,12 @@ def save_structure_to_hdf5(
         group: HDF5 group to store the data to
     """
 
-    pdbio = PDBIO()
-    pdbio.set_structure(structure)
     with StringIO() as sio:
 
+        pdbio = PDBIO()
+        pdbio.set_structure(structure)
         pdbio.save(sio)
 
-    with StringIO() as sio:
         structure_data = numpy.array([bytes(line + "\n", encoding="utf-8")
                                       for line in sio.getvalue().split('\n')
                                       if len(line.strip()) > 0],
