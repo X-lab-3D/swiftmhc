@@ -119,14 +119,15 @@ def save_structure_to_hdf5(
 
         pdbio.save(sio)
 
+    with StringIO() as sio:
         structure_data = numpy.array([bytes(line + "\n", encoding="utf-8")
                                       for line in sio.getvalue().split('\n')
                                       if len(line.strip()) > 0],
                                      dtype=numpy.dtype("bytes"))
 
-        group.create_dataset("structure",
-                             data=structure_data,
-                             compression="lzf")
+    group.create_dataset("structure",
+                         data=structure_data,
+                         compression="lzf")
 
 
 def recreate_structure_to_hdf5(hdf5_path: str, name: str, data: List[Tuple[str, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]]):
