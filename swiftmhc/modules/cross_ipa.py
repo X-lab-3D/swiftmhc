@@ -1,3 +1,4 @@
+from typing import Tuple
 from math import sqrt
 import logging
 
@@ -100,7 +101,7 @@ class CrossInvariantPointAttention(torch.nn.Module):
         dst_mask: torch.Tensor,
         src_mask: torch.Tensor,
 
-    ) -> torch.Tensor:
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Perform Invariant Point Attention between two sequences.
         Update the destination(dst) sequence from the source(src) sequence.
