@@ -89,6 +89,6 @@ The output `results` directory will contain a HDF5 file, holding the structures.
 The data directory contains a preprocessed hdf5 file for the HLA-A*02:01 allele, that can be used as input to the `swiftmhc_predict` script.
 
 By default, SwiftMHC runs OpenMM with an amber99sb/tip3p forcefield to refine the final structure.
-This can be turned off by adding the --disable-energy-minimization argument.
+This can be turned off by adding the `--disable-energy-minimization` argument.
 
 Run `swiftmhc_predict --help` for details.
