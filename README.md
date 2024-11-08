@@ -84,9 +84,7 @@ Run
 swiftmhc_predict -B1 model.pth table.csv preprocessed_mhcs.hdf5 results/
 ```
 
-The output `results` directory will contain a HDF5 file, holding the structures. Use the `swiftmhc_hdf5_to_pdb` script to convert the structures to PDB format.
-
-The data directory contains a preprocessed hdf5 file for the HLA-A*02:01 allele, that can be used as input to the `swiftmhc_predict` script.
+The output `results` directory will contain the BA data and the structures.
 
 By default, SwiftMHC runs OpenMM with an amber99sb/tip3p forcefield to refine the final structure.
 This can be turned off by adding the `--disable-energy-minimization` argument.
