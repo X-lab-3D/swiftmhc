@@ -77,7 +77,8 @@ This will save the network model to `example/best-predictor.pth`
 
 Do this after training a model (pth format).
 This requires preprocessed HDF5 files, containing structures of the MHC protein, for every allele.
-It also requires a table, linking the peptides to MHC alleles.
+The data directory contains a preprocessed hdf5 file for the HLA-A*02:01 allele only.
+Prediction also requires a table, linking the peptides to MHC alleles.
 
 Run
 ```
