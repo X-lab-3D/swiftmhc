@@ -9,9 +9,10 @@ setup(
     packages=find_packages("swiftmhc"),
     scripts=glob("scripts/swiftmhc_*"),
     install_requires = [
-        "openfold>=1.0.0",
+        "openfold>=0.0.1",
         "torch>=2.0.1",
         "pandas>=1.5.3",
+        "sympy>=1.13.1",
         "numpy>=1.26.4",
         "h5py>=3.10.0",
         "ml-collections>=0.1.1",
@@ -22,7 +23,7 @@ setup(
         "biopython>=1.84",
         "openmm>=8.1.1",
         "dm-tree>=0.1.8",
-        "position-encoding @git+https://github.com/x-lab-3d/position-encoding.git@v1.0.0"
+        "position-encoding @ git+https://github.com/x-lab-3d/position-encoding.git@v1.0.0",
     ],
 )
 
