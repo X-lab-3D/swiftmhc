@@ -4,6 +4,7 @@ A deep learning algorithm for predicting pMHC structure and binding affinity at 
 
 ## DEPENDENCIES
 
+ - pip3
  - python >= 3.11.5
  - setuptools >= 75.5.0
  - openfold >= 1.0.0
@@ -19,15 +20,30 @@ A deep learning algorithm for predicting pMHC structure and binding affinity at 
  - modelcif >= 1.0
  - filelock >= 3.13.1
  - biopython >= 1.8.4
+ - PyMol >= 3.1
 
 CUDA is optional
 
 ## INSTALLATION
 
+First install PyTorch. Follow the instructions from https://pytorch.org/get-started/locally/
+
+Then install openfold, clone this repo: https://github.com/aqlaboratory/openfold
+Then from inside that repo, run:
+
+```
+pip install -e .
+```
+
+For preprocessing, pymol is required. Download and install from https://pymol.org
+
+Then clone the SwiftMHC repo (this repo)
 From this repositiry run:
 ```
 pip install -e .
 ```
+
+SwiftMHC is now installed.
 
 ## PREPROCESSING DATA
 

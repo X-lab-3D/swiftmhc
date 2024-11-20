@@ -9,9 +9,6 @@ setup(
     packages=find_packages("swiftmhc"),
     scripts=glob("scripts/swiftmhc_*"),
     install_requires = [
-        "sympy>=1.13.1",
-        "openfold @ git+https://github.com/aqlaboratory/openfold@v1.0.0",
-        "torch>=2.0.1",
         "pandas>=1.5.3",
         "numpy>=1.26.4",
         "h5py>=3.10.0",
