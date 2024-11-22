@@ -26,6 +26,8 @@ class CrossInvariantPointAttention(torch.nn.Module):
         The idea is that the source is used to update the destination sequence.
         The second term was removed from the attention weight formula.
         The code was taken from OpenFold and then modified.
+        The Original InvariantPointAttention class is in:
+        https://github.com/aqlaboratory/openfold/blob/main/openfold/model/structure_module.py 
 
         in config:
             c_s:
