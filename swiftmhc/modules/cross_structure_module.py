@@ -34,7 +34,9 @@ class CrossStructureModule(torch.nn.Module):
      - omega angles are calculated from predicted frames. They are not predicted directly.
      - It does not predict frames for a complete sequence. It takes a protein structure and peptide sequence as input. The peptide structure is predicted.
 
-    The code was copied from OpenFold (openfold/model/structure_module.py) and then modified.
+    The code was copied from OpenFold and then modified.
+    The original StructureModule class is at:
+    https://github.com/aqlaboratory/openfold/blob/main/openfold/model/structure_module.py
     """
 
     def __init__(self, config: ml_collections.ConfigDict):
