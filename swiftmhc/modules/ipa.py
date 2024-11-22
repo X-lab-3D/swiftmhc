@@ -23,6 +23,8 @@ class DebuggableInvariantPointAttention(torch.nn.Module):
         This is like Algorithm 22 in AlphaFold2, but without the third attention weight term.
         Also, the second attention weight term is made from a proximity matrix.
         The code was taken from OpenFold and then modified.
+        The original InvariantPointAttention class is at:
+        https://github.com/aqlaboratory/openfold/blob/main/openfold/model/structure_module.py
 
         in config:
             c_s:
