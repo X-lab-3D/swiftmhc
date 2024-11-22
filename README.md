@@ -75,12 +75,14 @@ These masks have to be compatible to the reference structure.
 
 To create training, validation, test sets, run:
 ```
-swiftmhc_preprocess IEDB_table.csv ref_mhc.pdb mhcp_binder_models/ mhc_self_attention.mask mhc_cross_attention.mask preprocessed_data.hdf5
+swiftmhc_preprocess IEDB_table.csv ref_mhc.pdb mhcp_binder_models/ \
+  mhc_self_attention.mask mhc_cross_attention.mask preprocessed_data.hdf5
 ```
 
 To preprocess just the MHC allele structures, for predicting unlabeled data, run:
 ```
-swiftmhc_preprocess allele_table.csv ref_mhc.pdb mhc_models/ mhc_self_attention.mask mhc_cross_attention.mask preprocessed_mhcs.hdf5
+swiftmhc_preprocess allele_table.csv ref_mhc.pdb mhc_models/ \
+  mhc_self_attention.mask mhc_cross_attention.mask preprocessed_mhcs.hdf5
 ```
 
 Run `swiftmhc_preprocess --help` for details.
