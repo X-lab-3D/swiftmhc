@@ -1,12 +1,16 @@
-# SwiftMHC
+# Overview
 
-A deep learning algorithm for predicting pMHC structure and binding affinity at the same time.
+SwiftMHC is a deep learning algorithm for predicting pMHC structure and binding affinity at the same time.
+It currently works for HLA-A*0201 9-mers only.
+
+# Estimated speed
+
 When running on 1/4 A100 card with batch size 64:
-  BA prediction takes 0.01 seconds per pMHC case
-  3D structure prediction without OpenMM (disabled) takes 0.9 seconds per pMHC case.
-  3D structure prediction with OpenMM takes 2.2 seconds per case.
+ * BA prediction takes 0.01 seconds per pMHC case
+ * 3D structure prediction without OpenMM (disabled) takes 0.9 seconds per pMHC case.
+ * 3D structure prediction with OpenMM takes 2.2 seconds per case.
 
-## DEPENDENCIES
+## Dependencies
 
  - pip3
  - python >= 3.11.5
@@ -28,7 +32,7 @@ When running on 1/4 A100 card with batch size 64:
 
 CUDA is optional
 
-## INSTALLATION
+## Installation
 
 First install PyTorch. Follow the instructions from https://pytorch.org/get-started/locally/
 
@@ -37,6 +41,8 @@ Then from inside that repo, run:
 
 ```
 pip install -e .
+
+scripts/install_third_party_dependencies.sh
 ```
 
 For preprocessing, pymol is required. Download and install from https://pymol.org
@@ -49,9 +55,10 @@ pip install -e .
 
 SwiftMHC is now installed.
 
-## PREPROCESSING DATA
+## Preprocessing data
 
 Preprocessing means to create a file in HDF5 format, containing info in the peptide and MHC protein.
+This is only needed if you want to use a new MHC structure or if you want to train a new network.
 
 Preprocessing requires a CSV table in IEDB format. See the data directory for an example.
 This table must have the following columns:
@@ -80,7 +87,7 @@ Run `swiftmhc_preprocess --help` for details.
 
 Preprocessing requires data tables, 3D structures and mask files. Check the data directory in this repo for examples.
 
-## TRAINING
+## Training
 
 This requires preprocessed HDF5 files, containing structures of the MHC protein, peptide and binding affinity or classification data.
 
@@ -94,7 +101,7 @@ Run `swiftmhc_run --help` for details.
 
 This will save the network model to `example/best-predictor.pth`
 
-## PREDICTING UNLABELED DATA
+## Predicting unlabelled data
 
 Do this after training a model (pth format).
 This requires preprocessed HDF5 files, containing structures of the MHC protein, for every allele.
