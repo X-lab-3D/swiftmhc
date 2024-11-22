@@ -1,6 +1,10 @@
 # SwiftMHC
 
 A deep learning algorithm for predicting pMHC structure and binding affinity at the same time.
+When running on 1/4 A100 card with batch size 64:
+  BA prediction takes 0.01 seconds per pMHC case
+  3D structure prediction without OpenMM (disabled) takes 0.9 seconds per pMHC case.
+  3D structure prediction with OpenMM takes 2.2 seconds per case.
 
 ## DEPENDENCIES
 
