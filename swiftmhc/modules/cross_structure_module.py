@@ -429,7 +429,7 @@ class CrossStructureModule(torch.nn.Module):
             post omegas sin, cos:  [*, N_res - 1, 2] (normalized)
         """
 
-        # positions in the array where the bakcbone atoms are stored:
+        # positions in the array where the backbone atoms are stored:
         atom_index_N = 0
         atom_index_CA = 1
         atom_index_C = 2
