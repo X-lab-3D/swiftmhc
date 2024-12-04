@@ -6,7 +6,7 @@ It currently works for HLA-A*0201 9-mers only.
 # Estimated speed
 
 When running on 1/4 A100 card with batch size 64:
- * BA prediction takes 0.01 seconds per pMHC case
+ * binding affinity (BA) prediction takes 0.01 seconds per pMHC case
  * 3D structure prediction without OpenMM (disabled) takes 0.9 seconds per pMHC case.
  * 3D structure prediction with OpenMM takes 2.2 seconds per case.
 
@@ -116,6 +116,8 @@ swiftmhc_predict -B1 model.pth table.csv preprocessed_mhcs.hdf5 results/
 ```
 
 The output `results` directory will contain the BA data and the structures.
+The file results/results.csv will hold the BA and class values per MHC,peptide combination.
+Note that the affinities in this file are not IC50 or Kd. They correspond to 1 - log_50000(IC50) or 1 - log_50000(Kd). 
 
 By default, SwiftMHC runs OpenMM with an amber99sb/tip3p forcefield to refine the final structure.
 This can be turned off by adding the `--disable-energy-minimization` argument.
