@@ -181,7 +181,7 @@ class ProteinLoopDataset(Dataset):
 
         if matching_entry_name is None:
             # not a single matching allele name
-            raise ValueError(f"no entry found for {allele_name},{peptide_sequence}")
+            raise ValueError(f"no entry found for {allele_name}")
 
         return matching_entry_name
 
