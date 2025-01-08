@@ -23,7 +23,7 @@ When running on 1/4 A100 card with batch size 64:
  - h5py >= 3.10.0
  - ml-collections >= 0.1.1
  - scikit-learn >= 1.4.1
- - openmm >= 8.1.1
+ - openmm >= 8.1.1 (SwiftMHC needs the cuda version if you were to run on a cuda platform)
  - blosum >= 2.0.3
  - modelcif >= 1.0
  - filelock >= 3.13.1
