@@ -18,7 +18,7 @@ setup(
         "modelcif>=1.0",
         "filelock>=3.13.1",
         "biopython>=1.84",
-        "openmm>=8.1.1",
+        "openmm[cuda12]>=8.1.1",
         "dm-tree>=0.1.8",
         "position-encoding @ git+https://github.com/x-lab-3d/position-encoding.git@v1.0.0",
     ],
