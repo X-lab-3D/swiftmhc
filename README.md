@@ -117,9 +117,8 @@ swiftmhc_predict -B1 model.pth table.csv preprocessed_mhcs.hdf5 results/
 
 The output `results` directory will contain the BA data and the structures.
 The file results/results.csv will hold the BA and class values per MHC,peptide combination.
-Note that the affinities in this file are not IC50 or Kd. They correspond to 1 - log_50000(IC50) or 1 - log_50000(Kd). 
+Note that the affinities in this file are not IC50 or Kd. They correspond to 1 - log_50000(IC50) or 1 - log_50000(Kd).
 
-By default, SwiftMHC runs OpenMM with an amber99sb/tip3p forcefield to refine the final structure.
-This can be turned off by adding the `--disable-energy-minimization` argument.
+If the flag --with-energy-minimization is included, SwiftMHC runs OpenMM with an amber99sb/tip3p forcefield to refine the final structure.
 
 Run `swiftmhc_predict --help` for details.

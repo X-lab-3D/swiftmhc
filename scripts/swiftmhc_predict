@@ -33,10 +33,10 @@ arg_parser.add_argument("model_path", help="pretrained model")
 arg_parser.add_argument("table_path", help="table containing the columns: 'peptide' and 'allele'")
 arg_parser.add_argument("hdf5_path", help="an hdf5 file containing the preprocessed mhc structures, identified by allele")
 arg_parser.add_argument("output_directory", help="directory for the output files: *.pdb and *.csv")
-arg_parser.add_argument("--disable-energy-minimization", help="disable structure OpenMM energy minimization", action="store_const", const=True, default=False)
+arg_parser.add_argument("--with-energy-minimization", help="include structure OpenMM energy minimization", action="store_const", const=True, default=False)
 arg_parser.add_argument("--batch-size", "-b", type=int, default=64, help="number of simultaneous complexes to predict in one batch")
 arg_parser.add_argument("--num-workers", "-w", type=int, default=5, help="number of simulteneous data readers")
-arg_parser.add_argument("--num-builders", "-B", type=int, default=0, help="number of simultaneous structure builders, set to 0 to disable structure prediction")
+arg_parser.add_argument("--num-builders", "-B", type=int, default=1, help="number of simultaneous structure builders, set to 0 to disable structure prediction")
 
 
 def remove_module_prefix(state: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
@@ -195,7 +195,7 @@ if __name__ == "__main__":
                 for batch in data_loader:
                     output = model(batch)
 
-                    store_output(builder_pool, args.output_directory, batch, output, not args.disable_energy_minimization)
+                    store_output(builder_pool, args.output_directory, batch, output, args.with_energy_minimization)
 
             builder_pool.close()
             builder_pool.join()
