@@ -25,18 +25,26 @@ pdb_parser = PDBParser()
 def analyze(
     pdb_path: str,
 ) -> Tuple[pandas.DataFrame, pandas.DataFrame]:
+    """
+    Lets BioPython calculate phi and psi for one PDB structure.
+    """
 
     id_ = os.path.basename(pdb_path)
 
     structure = pdb_parser.get_structure(id_, pdb_path)
 
+    # table rows
     phipsi_pairs = []
+
     for chain in structure[0]:
+
+        # calc torsions (might fail and result in None)
         chain.atom_to_internal_coordinates()
 
         for residue in chain:
             rid = f"{id_} {chain.get_id()} {residue.get_resname()} " + "".join([str(x) for x in residue.get_id()]).strip()
 
+            # populate table row for residue:
             ric = residue.internal_coord
 
             phi_angle = ric.get_angle("phi")
@@ -46,6 +54,7 @@ def analyze(
             phipsi_pairs.append((rid, phi_angle, psi_angle))
 
 
+    # Convert to pandas table:
     names = []
     phis = []
     psis = []
