@@ -7,16 +7,16 @@ import os
 
 from argparse import ArgumentParser
 
-arg_parser = ArgumentParser(description="Given a series of PDB chains, list all clashes between that chain and"
-                                        "other chains within the same PDB structure. Outputs the data in a table named clashes.csv.")
-arg_parser.add_argument("chain_id", help="ID of the chain to investigate in each PDB file.")
-arg_parser.add_argument("pdb_files", nargs="+", help="list of PDB files to investigate for clashes")
-
 import numpy
 
 from Bio.PDB.Atom import Atom
 from Bio.PDB.Residue import Residue
 from Bio.PDB.PDBParser import PDBParser
+
+arg_parser = ArgumentParser(description="Given a series of PDB chains, list all clashes between that chain and"
+                                        "other chains within the same PDB structure. Outputs the data in a table named clashes.csv.")
+arg_parser.add_argument("chain_id", help="ID of the chain to investigate in each PDB file.")
+arg_parser.add_argument("pdb_files", nargs="+", help="list of PDB files to investigate for clashes")
 
 
 _log = logging.getLogger(__name__)
