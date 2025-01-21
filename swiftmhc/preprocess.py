@@ -29,7 +29,7 @@ from openfold.data.data_transforms import (atom37_to_frames,
 from openfold.utils.feats import atom14_to_atom37
 
 from .tools.pdb import get_atom14_positions
-from .domain.amino_acid import amino_acids_by_letter, amino_acids_by_code, canonical_amino_acids
+from .domain.amino_acid import amino_acids_by_letter, amino_acids_by_code, canonical_amino_acids, seleno_methionine, methionine
 from .models.amino_acid import AminoAcid
 from .models.complex import ComplexClass
 
@@ -366,6 +366,27 @@ def _make_sequence_data(sequence: str, device: torch.device) -> Dict[str, torch.
     })
 
 
+def _replace_residue_atom(residue: Residue, atom_name: str, new_atom_name: str, new_element: str) -> Residue:
+    "sets a new name and element for the selected atom"
+
+    for atom in residue.get_atoms():
+        if atom.get_name() == atom_name:
+            atom.name = new_atom_name
+            atom.element = new_element
+
+    return residue
+
+
+def _replace_amino_acid_by_canonical(residue: Residue) -> Residue:
+    "replaces non-canonical amino acids by canonical and replaces the atoms accordingly"
+
+    if residue.get_resname() == "MSE":
+        residue = _replace_residue_atom(residue, "SE", "SD", "S")
+        residue.resname = "MET"
+
+    return residue
+
+
 def _read_residue_data(residues: List[Residue], device: torch.device) -> Dict[str, torch.Tensor]:
     """
     Convert residues from a structure into a format that SwiftMHC can work with.
@@ -388,6 +409,9 @@ def _read_residue_data(residues: List[Residue], device: torch.device) -> Dict[st
         atom14_alt_gt_positions: [len, 14, 3] alternative atom positions (openfold 14 format)
         residx_atom14_to_atom37: [len, 14] per residue, conversion table from openfold 14 to openfold 37 atom format
     """
+
+    # fix problems with non-canonical amino acids by replacing them
+    residues = [_replace_amino_acid_by_canonical(r) for r in residues]
 
     # embed the sequence
     aas = [amino_acids_by_code[r.get_resname()] for r in residues]
@@ -604,7 +628,13 @@ def _get_masked_structure(
     with open(model_path, 'wb') as f:
         f.write(model_bytes)
 
-    if len(list(pdb_parser.get_structure("model", model_path).get_residues())) == 0:
+    try:
+        model_structure = pdb_parser.get_structure("model", model_path)
+    except Exception as e:
+        _log.exception(f"parsing {model_path}")
+        raise
+
+    if len(list(model_structure.get_residues())) == 0:
         os.remove(model_path)
         raise ValueError(f"no residues in {model_path}")
 
