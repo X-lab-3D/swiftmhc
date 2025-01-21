@@ -22,6 +22,16 @@ from Bio.PDB.Model import Model
 _log = logging.getLogger(__name__)
 
 
+def _has_atom(residue: Residue, name: str) -> bool:
+    "check whether an atom is present"
+
+    for atom in residue.get_atoms():
+        if atom.name == name:
+            return True
+
+    return False
+
+
 def _get_atom(residue: Residue, name: str) -> Atom:
     "looks up the atom by name"
 
@@ -52,7 +62,8 @@ def get_atom14_positions(residue: Residue) -> Tuple[torch.Tensor, torch.Tensor]:
     positions = []
     for atom_name in atom_names:
 
-        if len(atom_name) > 0:
+        if len(atom_name) > 0 and _has_atom(residue, atom_name):
+
             atom = _get_atom(residue, atom_name)
             positions.append(atom.coord)
             masks.append(True)
