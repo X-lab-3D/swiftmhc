@@ -248,6 +248,16 @@ def get_blosum_encoding(aa_indexes: List[int], blosum_index: int, device: torch.
     return torch.tensor(encoding)
 
 
+def _has_calpha(residue: Residue) -> bool:
+    "tells whether a residue has a C-alpha atom"
+
+    for atom in residue.get_atoms():
+        if atom.get_name() == "CA":
+            return True
+
+    return False
+
+
 def _get_calpha_position(residue: Residue) -> numpy.ndarray:
     "get xyz for C-alpha atom in residue"
 
@@ -255,7 +265,7 @@ def _get_calpha_position(residue: Residue) -> numpy.ndarray:
         if atom.get_name() == "CA":
             return numpy.array(atom.get_coord())
 
-    raise ValueError("missing C-alpha for {residue}")
+    raise ValueError(f"missing C-alpha for {residue}")
 
 
 def _map_superposed(structure0: Structure, structure1: Structure) ->List[Tuple[Residue, Residue]]:
@@ -267,8 +277,8 @@ def _map_superposed(structure0: Structure, structure1: Structure) ->List[Tuple[R
     """
 
     # index residues and positions
-    residues0 = list(structure0.get_residues())
-    residues1 = list(structure1.get_residues())
+    residues0 = [r for r in structure0.get_residues() if _has_calpha(r)]
+    residues1 = [r for r in structure1.get_residues() if _has_calpha(r)]
     positions0 = numpy.stack([_get_calpha_position(r) for r in residues0])
     positions1 = numpy.stack([_get_calpha_position(r) for r in residues1])
 
