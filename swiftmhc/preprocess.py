@@ -63,8 +63,8 @@ def _write_preprocessed_data(
     Args:
         hdf5_path: path to output file
         storage_id: id to store the entry under as an hdf5 group
-        protein_data: result output by '_read_residue_data' function, on protein residues
-        peptide_data: result output by '_read_residue_data' function, on peptide residues
+        protein_data: result output by '_read_residue_data_from_structure' function, on protein residues
+        peptide_data: result output by '_read_residue_data_from_structure' function, on peptide residues
         affinity: the higher, the more tightly bound
         affinity_lt: a mask, true for <, false for =
         affinity_gt: a mask, true for >, false for =
@@ -387,7 +387,7 @@ def _replace_amino_acid_by_canonical(residue: Residue) -> Residue:
     return residue
 
 
-def _read_residue_data(residues: List[Residue], device: torch.device) -> Dict[str, torch.Tensor]:
+def _read_residue_data_from_structure(residues: List[Residue], device: torch.device) -> Dict[str, torch.Tensor]:
     """
     Convert residues from a structure into a format that SwiftMHC can work with.
     (these are mostly openfold formats, created by openfold code)
@@ -849,7 +849,7 @@ def _generate_structure_data(
         raise ValueError(f"got only {len(protein_residues)} protein residues")
 
     # derive data from protein residues
-    protein_data = _read_residue_data(protein_residues, device)
+    protein_data = _read_residue_data_from_structure(protein_residues, device)
     protein_data["cross_residues_mask"] = cross_residues_mask
     protein_data["self_residues_mask"] = self_residues_mask
 
@@ -878,7 +878,7 @@ def _generate_structure_data(
             if len(peptide_residues) < 3:
                 raise ValueError(f"got only {len(peptide_residues)} peptide residues")
 
-            peptide_data = _read_residue_data(peptide_residues, device)
+            peptide_data = _read_residue_data_from_structure(peptide_residues, device)
 
     return protein_data, peptide_data
 
