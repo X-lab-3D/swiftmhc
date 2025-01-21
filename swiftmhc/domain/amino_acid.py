@@ -19,6 +19,7 @@ histidine = AminoAcid("histidine", "HIS", "H")
 isoleucine = AminoAcid("isoleucine", "ILE", "I")
 leucine = AminoAcid("leucine", "LEU", "L")
 methionine = AminoAcid("methionine", "MET", "M")
+seleno_methionine = AminoAcid("seleno-methionine", "MSE", "#")
 asparagine = AminoAcid("asparagine", "ASN", "N")
 pyrolysine = AminoAcid("pyrolysine", "PYL", "O")
 glutamine = AminoAcid("glutamine", "GLN", "Q")
@@ -44,7 +45,7 @@ canonical_amino_acids = [alanine, cysteine, aspartate, glutamate, phenylalanine,
 all_amino_acids = [alanine, cysteine, aspartate, glutamate, phenylalanine,
                    glycine, histidine, isoleucine, lysine, leucine, methionine,
                    asparagine, pyrolysine, glutamine, arginine, serine, threonine,
-                   selenocysteine, valine, tyrosine, tryptophan, lysine, proline]
+                   seleno_methionine, selenocysteine, valine, tyrosine, tryptophan, lysine, proline]
 
 # dictionaries, for fast lookup
 amino_acids_by_name = {amino_acid.name: amino_acid for amino_acid in all_amino_acids}
