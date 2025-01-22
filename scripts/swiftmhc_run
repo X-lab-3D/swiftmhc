@@ -1001,7 +1001,7 @@ if __name__ == "__main__":
         test_loaders = [trainer.get_data_loader(test_path, args.batch_size, shuffle=False)
                         for test_path in args.data_path]
         trainer.test(test_loaders, run_id, args.animate, pretrained_model_path, args.builders,
-                     not args.disable_energy_minimization)
+                     args.with_energy_minimization)
 
     else:  # train, validate, test
         if len(args.data_path) >= 3:
