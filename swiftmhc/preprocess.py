@@ -290,17 +290,54 @@ def _map_superposed(structure0: Structure, structure1: Structure) ->List[Tuple[R
 
     # pair closest residues
     pairs = []
-    for i in range(len(residues0)):
+    for i0 in range(len(residues0)):
 
-        closest_j = squared_distance_matrix[i].argmin()
-        if squared_distance_matrix[i, closest_j] < max_squared_distance:
+        # it must be the closest pair of neighbours in two directions: 0 -> 1 and 1 -> 0
+        closest_i1 = squared_distance_matrix[i0, :].argmin()
+        closest_i0 = squared_distance_matrix[:, closest_i1].argmin()
 
-            _log.debug(f"pair up residue {residues0[i]} with closest neighbour {residues1[closest_j]}")
+        if closest_i0 == i0 and squared_distance_matrix[i0, closest_i1] < max_squared_distance:
 
-            pairs.append((residues0[i], residues1[closest_j]))
+            _log.debug(f"pair up residue {residues0[i0]} with closest neighbour {residues1[closest_i1]}")
+
+            pairs.append((residues0[i0], residues1[closest_i1]))
 
             # Make sure this residue doesn't pair up again with another residue.
-            squared_distance_matrix[:, closest_j] = max_squared_distance + 100.0
+            squared_distance_matrix[:, closest_i1] = max_squared_distance + 100.0
+
+    # fill obvious gaps
+    gap_pairs = []
+    for j, pair in enumerate(pairs):
+
+        # Two ends?
+        if j < (len(pairs) - 1):
+
+            next_pair = pairs[j + 1]
+
+            prev_i0 = residues0.index(pair[0])
+            next_i0 = residues0.index(next_pair[0])
+
+            prev_i1 = residues1.index(pair[1])
+            next_i1 = residues1.index(next_pair[1])
+
+            n = next_i0 - prev_i0
+            m = next_i1 - prev_i1
+
+            # same distance and ends on the same chain?
+            if n == m and \
+               pair[0].get_parent() == next_pair[0].get_parent() and \
+               pair[1].get_parent() == next_pair[1].get_parent():
+
+                # add the residues in between
+                for i0 in range(prev_i0 + 1, next_i0):
+                    i1 = i0 - prev_i0 + prev_i1
+
+                    _log.debug(f"pair up gap residue {residues0[i0]} with {residues1[i1]}")
+
+                    gap_pairs.append((residues0[i0], residues1[i1]))
+
+    # combine
+    pairs += gap_pairs
 
     return pairs
 
@@ -817,6 +854,9 @@ def _generate_structure_data(
 
     # order by residue number
     protein_residues = [r for r, m in self_masked_protein_residues]
+    protein_residues = sorted(protein_residues, key=lambda r: r.get_id()[1])
+
+    _log.debug(f"ordering protein residues as: {protein_residues}")
 
     # remove the residues that are completely outside of mask range
     combo_mask = numpy.logical_or([m for r, m in self_masked_protein_residues ],
