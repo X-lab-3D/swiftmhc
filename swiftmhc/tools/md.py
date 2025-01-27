@@ -1,16 +1,16 @@
 from importlib import resources
 import logging
-from typing import Dict, Tuple, List
+from typing import Dict, Tuple, List, Set
 
 import torch
-from openmm.app.topology import Topology
+from openmm.app.topology import Topology, Residue
 from openmm.app.modeller import Modeller
 from openmm.app import PDBFile, NoCutoff, Simulation, PDBReporter, StateDataReporter, ForceField, HBonds
 from openmm.unit import *
-from openmm import LangevinIntegrator, Platform, Vec3
+from openmm import LangevinIntegrator, Platform, Vec3, OpenMMException
 from openmm.app.element import Element
 
-from openfold.np.residue_constants import restype_name_to_atom14_names, restypes, restype_1to3, residue_atoms, rigid_group_atom_positions
+from openfold.np.residue_constants import restype_name_to_atom14_names, restypes, restype_atom14_mask, restype_1to3, residue_atoms, rigid_group_atom_positions
 
 
 _log = logging.getLogger(__name__)
@@ -36,7 +36,7 @@ def _load_bond_definitions() -> Dict[str, Tuple[str, str]]:
 
         bond, amino_acid_code, length, stddev = line.split()
         if bond == "Bond":
-            continue  # skip header
+            continue  # skip header lines
 
         atom1_name, atom2_name = bond.split('-')
 
@@ -48,19 +48,111 @@ def _load_bond_definitions() -> Dict[str, Tuple[str, str]]:
 # load this only once
 bonds_per_amino_acid = _load_bond_definitions()
 
+residue_atom_sets = {residue_name: set(atom_names) for residue_name, atom_names in residue_atoms.items()}
+
+
+def _atom_is_present(amino_acid_index: int, atom14_mask: torch.Tensor, atom_name: str) -> bool:
+    """
+    Check whether an atom is masked True or False
+
+    Args:
+        amino_acid_index: openfold aatype, identifies the amino acid
+        atom14_mask: openfold atom-14 format mask
+        atom_name: the atom in question
+    """
+
+    atom14_names = restype_name_to_atom14_names[amino_acid_index]
+    atom14_index = atom14_names.index(atom_name)
+
+    return atom14_mask[atom14_index]
+
+
+def _backbone_is_complete(amino_acid_index: int, atom14_mask: torch.Tensor) -> bool:
+    """
+    Check the heavy atom names to see if all backbone atoms are present.
+
+    Args:
+        amino_acid_index: openfold aatype, identifies the amino acid
+        atom14_mask: openfold atom-14 format mask
+        atom_name: the atom in question
+    """
+
+    for atom_name in ['N', 'CA', 'C', 'O']:
+        if not _atom_is_present(amino_acid_index, atom14_mask, atom_name):
+            return False
+
+    return True
+
+
+alanine_index = restypes.index("A")
+glycine_index = restypes.index("G")
+
+
+def _replace_amino_acid_with_missing_atoms(amino_acid_index: int, atom14_mask: torch.Tensor) -> Tuple[int, torch.Tensor]:
+    """
+    If atoms are missing, replace the amino acid by a smaller one.
+
+    Args:
+        amino_acid_index: openfold aatype, identifies the amino acid
+        atom14_mask: openfold atom-14 format mask
+
+    Returns: the replacement amino acid index and atom-14 format mask
+    """
+
+    expected_atom14_mask = atom14_mask.new_tensor(restype_atom14_mask[amino_acid_index])
+
+    if torch.all(expected_atom14_mask == atom14_mask):
+
+        return amino_acid_index, expected_atom14_mask
+
+    elif torch.all(atom14_mask[:4]):  # backbone complete?
+
+        # incomplete side chain, replace by alanine/glycine
+
+        if atom14_mask[4]:  # C-beta present?
+
+            return alanine_index, atom14_mask.new_tensor(restype_atom14_mask[alanine_index])
+
+        else:
+            return glycine_index, atom14_mask.new_tensor(restype_atom14_mask[glycine_index])
+    else:
+        raise ValueError("backbone atoms missing, residue cannot be fixed")
+
+
+
+def rename_residues(modeler: Modeller, chain_data: List[Tuple[str,
+                                                              torch.Tensor,
+                                                              torch.Tensor,
+                                                              torch.Tensor,
+                                                              torch.Tensor]]):
+    """
+    Rename the residues in the modeller object according to the names in the chain data.
+
+    Args:
+        chain_data: list of chains (id, residue numbers, amino acid type index, atom positions, atom mask)
+    """
+
+    for chain_id, residue_numbers, aatype, atom14_positions, atom14_mask in chain_data:
+        for chain in modeler.topology.chains():
+            if chain.id == chain_id:
+                for residue_index, residue in enumerate(chain.residues()):
+                    amino_acid_index = aatype[residue_index]
+                    amino_acid_code = amino_acid_order[amino_acid_index]
+
+                    residue.name = amino_acid_code
+
 
 def build_modeller(chain_data: List[Tuple[str,
-                   torch.Tensor,
-                   torch.Tensor,
-                   torch.Tensor,
-                   torch.Tensor]]) -> Modeller:
+                                          torch.Tensor,
+                                          torch.Tensor,
+                                          torch.Tensor,
+                                          torch.Tensor]]) -> Modeller:
     """
     Args:
         chain_data: list of chains (id, residue numbers, amino acid type index, atom positions, atom mask)
     Returns:
         OpenMM Modeller object
     """
-
 
     topology = Topology()
     positions = []
@@ -73,20 +165,24 @@ def build_modeller(chain_data: List[Tuple[str,
 
         for residue_index, amino_acid_index in enumerate(aatype):
 
-            # check for at least a C alpha
-            if not atom14_mask[residue_index, 1]:
+            try:
+                adjusted_amino_acid_index, adjusted_atom14_mask = _replace_amino_acid_with_missing_atoms(amino_acid_index, atom14_mask[residue_index])
+
+            except ValueError:
+
+                # missing backbone, skip residue
                 prev_c = None
                 continue
 
-            amino_acid_code = amino_acid_order[amino_acid_index]
+            amino_acid_code = amino_acid_order[adjusted_amino_acid_index]
             bonds = bonds_per_amino_acid[amino_acid_code]
 
-            residue = topology.addResidue(amino_acid_code, chain, str(residue_numbers[residue_index]))
+            residue = topology.addResidue(amino_acid_code, chain, str(residue_numbers[residue_index].item()))
 
             atoms_by_name = {}
             positions_by_name = {}
             for atom_index, atom_name in enumerate(restype_name_to_atom14_names[amino_acid_code]):
-                if atom14_mask[residue_index, atom_index] and len(atom_name) > 0:
+                if adjusted_atom14_mask[atom_index] and len(atom_name) > 0:
 
                     coords = atom14_positions[residue_index, atom_index]
                     pos = 0.1 * Vec3(coords[0].item(), coords[1].item(), coords[2].item())
@@ -132,7 +228,7 @@ def build_modeller(chain_data: List[Tuple[str,
                     pos = 0.1 * Vec3(ha_pos[0].item(), ha_pos[1].item(), ha_pos[2].item())
                     positions.append(pos)
 
-                # C-terminus:
+                # C-terminus, no follow-up N-atom in next residue:
                 if ((residue_index + 1) >= len(aatype) or not atom14_mask[residue_index + 1][0]):
 
                     # compute the terminal oxygen, from the other oxygen
@@ -190,7 +286,13 @@ def minimize(modeller: Modeller) -> Modeller:
     energy_start = state.getPotentialEnergy().value_in_unit_system(md_unit_system)
     _log.debug(f"initial potential energy: {energy_start:10.3f} {md_unit_system}")
 
-    simulation.minimizeEnergy()
+    try:
+        simulation.minimizeEnergy()
+
+    except OpenMMException:
+        # rare NaN position error, cause unknown, just retry
+        simulation.context.setPositions(modeller.positions)
+        simulation.minimizeEnergy()
 
     state = simulation.context.getState(getEnergy=True, getPositions=True)
     energy_final = state.getPotentialEnergy().value_in_unit_system(md_unit_system)

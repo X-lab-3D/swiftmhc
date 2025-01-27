@@ -18,7 +18,7 @@ from swiftmhc.models.types import ModelType
 from swiftmhc.modules.predictor import Predictor
 from swiftmhc.dataset import ProteinLoopDataset
 from swiftmhc.preprocess import affinity_binding_threshold
-from swiftmhc.tools.md import build_modeller, minimize
+from swiftmhc.tools.md import build_modeller, minimize, rename_residues
 import openmm.app
 
 _log = logging.getLogger(__name__)
@@ -40,7 +40,7 @@ arg_parser.add_argument("--num-builders", "-B", type=int, default=1, help="numbe
 
 
 def remove_module_prefix(state: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
-    """  
+    """
     Paralellisation adds a 'module.' prefix in the state's keys.
     Remove those prefixes here.
     """
@@ -76,6 +76,7 @@ def output_structure(path: str, data: List[Tuple[str, torch.Tensor, torch.Tensor
     if minimize_energy:
         modeller = build_modeller(data)
         modeller = minimize(modeller)
+        modeller = rename_residues(modeller, data)
 
         with open(path, 'wt') as f:
             openmm.app.PDBFile.writeFile(modeller.topology, modeller.getPositions(), f, keepIds=True)
@@ -85,11 +86,6 @@ def output_structure(path: str, data: List[Tuple[str, torch.Tensor, torch.Tensor
         io = PDBIO()
         io.set_structure(structure)
         io.save(path)
-
-
-def on_error(e):
-    "callback function, send the error to the logs"
-    _log.error(str(e))
 
 
 def store_output(
@@ -132,7 +128,7 @@ def store_output(
                      ("M", protein_residue_numbers[index], protein_aatype[index], protein_atom14_positions[index], protein_atom14_exists[index])],
                     minimize_energy,
                 ),
-                error_callback=on_error,
+                error_callback=lambda e: _log.exception(f"on {pdb_path}"),
             )
 
     # save affinity/class

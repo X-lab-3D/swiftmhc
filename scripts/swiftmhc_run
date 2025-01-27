@@ -72,7 +72,7 @@ from swiftmhc.tools.pdb import recreate_structure
 from swiftmhc.domain.amino_acid import amino_acids_by_one_hot_index
 from swiftmhc.models.types import ModelType
 from swiftmhc.metrics import MetricsRecord
-from swiftmhc.tools.md import build_modeller, minimize
+from swiftmhc.tools.md import build_modeller, minimize, rename_residues
 from swiftmhc.tools.train import EarlyStopper, TrainingPhase
 import openmm.app
 
@@ -167,6 +167,7 @@ def minimize_structure_to_hdf5(hdf5_path: str, name: str, data: List[Tuple[str, 
     try:
         modeller = build_modeller(data)
         modeller = minimize(modeller)
+        rename_residues(modeller, data)
 
         io = StringIO()
 
@@ -184,12 +185,7 @@ def minimize_structure_to_hdf5(hdf5_path: str, name: str, data: List[Tuple[str, 
                                      data=structure_data,
                                      compression="lzf")
     except:
-        _log.exception("on recreating structure")
-
-
-def on_error(e):
-    "callback function, send the error to the logs"
-    _log.error(str(e))
+        _log.exception(f"on recreating structure {name}")
 
 
 def output_structures_to_directory(
@@ -255,7 +251,7 @@ def output_structures_to_directory(
                         [("P", peptide_residue_numbers[index], peptide_aatype[index], peptide_atom14_positions[index], peptide_atom14_exists[index]),
                          ("M", protein_residue_numbers[index], protein_aatype[index], protein_atom14_gt_positions[index], protein_atom14_exists[index])]
                     ),
-                    error_callback=on_error,
+                    error_callback=lambda e: _log.exception(f"on minimizing {id_}"),
                 )
             else:
                 pool.apply_async(
@@ -265,7 +261,7 @@ def output_structures_to_directory(
                         [("P", peptide_residue_numbers[index], peptide_aatype[index], peptide_atom14_positions[index], peptide_atom14_exists[index]),
                          ("M", protein_residue_numbers[index], protein_aatype[index], protein_atom14_gt_positions[index], protein_atom14_exists[index])]
                     ),
-                    error_callback=on_error,
+                    error_callback=lambda e: _log.exception(f"on recreating {id_}"),
                 )
 
         pool.close()
