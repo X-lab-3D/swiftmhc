@@ -73,7 +73,7 @@ from swiftmhc.tools.pdb import recreate_structure
 from swiftmhc.domain.amino_acid import amino_acids_by_one_hot_index
 from swiftmhc.models.types import ModelType
 from swiftmhc.metrics import MetricsRecord
-from swiftmhc.tools.md import build_modeller, minimize, rename_residues
+from swiftmhc.tools.md import build_modeller, minimize
 from swiftmhc.tools.train import EarlyStopper, TrainingPhase
 import openmm.app
 
@@ -166,9 +166,8 @@ def minimize_structure_to_hdf5(hdf5_path: str, name: str, data: List[Tuple[str, 
     _log.debug(f"minimizing {name}")
 
     try:
-        modeller = build_modeller(data)
-        modeller = minimize(modeller)
-        rename_residues(modeller, data)
+        modeller, residue_templates = build_modeller(data)
+        modeller = minimize(modeller, residue_templates)
 
         io = StringIO()
 

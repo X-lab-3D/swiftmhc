@@ -119,70 +119,50 @@ def _replace_amino_acid_with_missing_atoms(amino_acid_index: int, atom14_mask: t
         raise ValueError("backbone atoms missing, residue cannot be fixed")
 
 
-
-def rename_residues(modeler: Modeller, chain_data: List[Tuple[str,
-                                                              torch.Tensor,
-                                                              torch.Tensor,
-                                                              torch.Tensor,
-                                                              torch.Tensor]]):
-    """
-    Rename the residues in the modeller object according to the names in the chain data.
-
-    Args:
-        chain_data: list of chains (id, residue numbers, amino acid type index, atom positions, atom mask)
-    """
-
-    for chain_id, residue_numbers, aatype, atom14_positions, atom14_mask in chain_data:
-        for chain in modeler.topology.chains():
-            if chain.id == chain_id:
-                for residue_index, residue in enumerate(chain.residues()):
-                    amino_acid_index = aatype[residue_index]
-                    amino_acid_code = amino_acid_order[amino_acid_index]
-
-                    residue.name = amino_acid_code
-
-
 def build_modeller(chain_data: List[Tuple[str,
                                           torch.Tensor,
                                           torch.Tensor,
                                           torch.Tensor,
-                                          torch.Tensor]]) -> Modeller:
+                                          torch.Tensor]]) -> Tuple[Modeller, Dict[Residue, str]]:
     """
     Args:
         chain_data: list of chains (id, residue numbers, amino acid type index, atom positions, atom mask)
     Returns:
-        OpenMM Modeller object
+        the OpenMM Modeller object
+        and a dictionary that holds the chosen residue templates
     """
 
     topology = Topology()
+    residue_templates = {}
     positions = []
 
-    prev_c = None
     atom_nr = 0
     for chain_id, residue_numbers, aatype, atom14_positions, atom14_mask in chain_data:
 
         chain = topology.addChain(chain_id)
+        prev_c = None
 
         for residue_index, amino_acid_index in enumerate(aatype):
 
-            try:
-                adjusted_amino_acid_index, adjusted_atom14_mask = _replace_amino_acid_with_missing_atoms(amino_acid_index, atom14_mask[residue_index])
+            if not atom14_mask[residue_index, 1]:
 
-            except ValueError:
-
-                # missing backbone, skip residue
+                # missing C-alpha, skip residue
                 prev_c = None
                 continue
 
-            amino_acid_code = amino_acid_order[adjusted_amino_acid_index]
-            bonds = bonds_per_amino_acid[amino_acid_code]
+            # The forcefield cannot handle missing atoms.
+            # That's why we must replace some by ALA or GLY
+            replacement_amino_acid_index, replacement_atom14_mask = _replace_amino_acid_with_missing_atoms(amino_acid_index,  atom14_mask[residue_index])
+            replacement_amino_acid_code = amino_acid_order[replacement_amino_acid_index]
 
+            amino_acid_code = amino_acid_order[amino_acid_index]
             residue = topology.addResidue(amino_acid_code, chain, str(residue_numbers[residue_index].item()))
+            residue_templates[residue] = replacement_amino_acid_code
 
             atoms_by_name = {}
             positions_by_name = {}
             for atom_index, atom_name in enumerate(restype_name_to_atom14_names[amino_acid_code]):
-                if adjusted_atom14_mask[atom_index] and len(atom_name) > 0:
+                if replacement_atom14_mask[atom_index] and len(atom_name) > 0:
 
                     coords = atom14_positions[residue_index, atom_index]
                     pos = 0.1 * Vec3(coords[0].item(), coords[1].item(), coords[2].item())
@@ -257,10 +237,13 @@ def build_modeller(chain_data: List[Tuple[str,
     topology.createStandardBonds()
     topology.createDisulfideBonds(positions)
 
-    return Modeller(topology, positions)
+    modeller = Modeller(topology, positions)
+    modeller.addHydrogens(residueTemplates=residue_templates)
+
+    return modeller, residue_templates
 
 
-def minimize(modeller: Modeller) -> Modeller:
+def minimize(modeller: Modeller, residue_templates: Dict[Residue, str]) -> Modeller:
     """
     Do OpenMM energy minimization on the input structure modeller.
     """
@@ -272,9 +255,7 @@ def minimize(modeller: Modeller) -> Modeller:
 
     forcefield = ForceField('amber99sb.xml', 'tip3p.xml')
 
-    modeller.addHydrogens(forcefield, pH=7.0)
-
-    system = forcefield.createSystem(modeller.topology, nonbondedMethod=NoCutoff, nonbondedCutoff=1.0 * nanometer)
+    system = forcefield.createSystem(modeller.topology, nonbondedMethod=NoCutoff, nonbondedCutoff=1.0 * nanometer, residueTemplates=residue_templates)
 
     integrator = LangevinIntegrator(300 * kelvin, 1.0 / picosecond, 2.0 * femtosecond)
 
