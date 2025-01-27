@@ -285,7 +285,9 @@ def _map_superposed(structure0: Structure, structure1: Structure) ->List[Tuple[R
     # calculate squared distances between residues in superposed structures
     squared_distance_matrix = numpy.sum((positions0[:, None, :] - positions1[None, :, :]) ** 2, axis=-1)
 
-    max_distance = 3.0  # Å
+    # Pick a very narrow max distance to make sure that only the obvious matches are made.
+    # We don't want residues to take each other's places.
+    max_distance = 1.5  # Å
     max_squared_distance = max_distance * max_distance
 
     # pair closest residues
