@@ -286,13 +286,7 @@ def minimize(modeller: Modeller) -> Modeller:
     energy_start = state.getPotentialEnergy().value_in_unit_system(md_unit_system)
     _log.debug(f"initial potential energy: {energy_start:10.3f} {md_unit_system}")
 
-    try:
-        simulation.minimizeEnergy()
-
-    except OpenMMException:
-        # rare NaN position error, cause unknown, just retry
-        simulation.context.setPositions(modeller.positions)
-        simulation.minimizeEnergy()
+    simulation.minimizeEnergy()
 
     state = simulation.context.getState(getEnergy=True, getPositions=True)
     energy_final = state.getPotentialEnergy().value_in_unit_system(md_unit_system)
