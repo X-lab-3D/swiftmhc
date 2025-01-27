@@ -39,7 +39,8 @@ from openfold.np.residue_constants import (restype_atom14_ambiguous_atoms as ope
                                            atom_types as openfold_atom_types,
                                            van_der_waals_radius as openfold_van_der_waals_radius,
                                            make_atom14_dists_bounds as openfold_make_atom14_dists_bounds,
-                                           atom_order as openfold_atom_order)
+                                           atom_order as openfold_atom_order,
+                                           restype_atom14_mask)
 from openfold.utils.feats import atom14_to_atom37 as openfold_atom14_to_atom37
 from openfold.utils.loss import (violation_loss as openfold_compute_violation_loss,
                                  within_residue_violations as openfold_within_residue_violations,
@@ -226,10 +227,10 @@ def output_structures_to_directory(
 
         peptide_residue_numbers = data["peptide_residue_numbers"].cpu()
         peptide_aatype = data["peptide_aatype"].cpu()
-        peptide_atom14_gt_positions = data["peptide_atom14_gt_positions"].cpu()
-        peptide_atom14_exists = data["peptide_atom14_gt_exists"].cpu()
 
         peptide_atom14_positions = output["final_positions"].cpu()
+        peptide_mask = data["peptide_self_residues_mask"].cpu()
+        peptide_atom14_mask = peptide_mask.new_tensor(restype_atom14_mask[peptide_aatype]) * peptide_mask[..., None]
 
         protein_residue_numbers = data["protein_residue_numbers"].cpu()
         protein_aatype = data["protein_aatype"].cpu()
@@ -248,7 +249,7 @@ def output_structures_to_directory(
                     minimize_structure_to_hdf5,
                     (
                         pred_path, id_,
-                        [("P", peptide_residue_numbers[index], peptide_aatype[index], peptide_atom14_positions[index], peptide_atom14_exists[index]),
+                        [("P", peptide_residue_numbers[index], peptide_aatype[index], peptide_atom14_positions[index], peptide_atom14_mask[index]),
                          ("M", protein_residue_numbers[index], protein_aatype[index], protein_atom14_gt_positions[index], protein_atom14_exists[index])]
                     ),
                     error_callback=lambda e: _log.exception(f"on minimizing {id_}"),
@@ -258,7 +259,7 @@ def output_structures_to_directory(
                     recreate_structure_to_hdf5,
                     (
                         pred_path, id_,
-                        [("P", peptide_residue_numbers[index], peptide_aatype[index], peptide_atom14_positions[index], peptide_atom14_exists[index]),
+                        [("P", peptide_residue_numbers[index], peptide_aatype[index], peptide_atom14_positions[index], peptide_atom14_mask[index]),
                          ("M", protein_residue_numbers[index], protein_aatype[index], protein_atom14_gt_positions[index], protein_atom14_exists[index])]
                     ),
                     error_callback=lambda e: _log.exception(f"on recreating {id_}"),

@@ -9,6 +9,7 @@ from typing import Dict, List, Tuple, Optional
 
 import pandas
 import torch
+from openfold.np.residue_constants import restype_atom14_mask
 
 from Bio.PDB.PDBIO import PDBIO
 
@@ -106,8 +107,10 @@ def store_output(
 
         peptide_residue_numbers = batch["peptide_residue_numbers"].cpu()
         peptide_aatype = batch["peptide_aatype"].cpu()
+
         peptide_atom14_positions = output["final_positions"].cpu()
-        peptide_atom14_exists = batch["peptide_atom14_gt_exists"].cpu()
+        peptide_mask = batch["peptide_self_residues_mask"].cpu()
+        peptide_atom14_mask = peptide_mask.new_tensor(restype_atom14_mask[peptide_aatype]) * peptide_mask[..., None]
 
         protein_residue_numbers = batch["protein_residue_numbers"].cpu()
         protein_aatype = batch["protein_aatype"].cpu()
@@ -124,7 +127,7 @@ def store_output(
                 output_structure,
                 (
                     pdb_path,
-                    [("P", peptide_residue_numbers[index], peptide_aatype[index], peptide_atom14_positions[index], peptide_atom14_exists[index]),
+                    [("P", peptide_residue_numbers[index], peptide_aatype[index], peptide_atom14_positions[index], peptide_atom14_mask[index]),
                      ("M", protein_residue_numbers[index], protein_aatype[index], protein_atom14_positions[index], protein_atom14_exists[index])],
                     minimize_energy,
                 ),
