@@ -192,9 +192,11 @@ def build_modeller(chain_data: List[Tuple[str,
                     n_ca = ca_pos - n_pos
                     cb_ca = ca_pos - cb_pos
 
-                    h_direction = (torch.nn.functional.normalize(c_ca, dim=-1) +
-                                   torch.nn.functional.normalize(n_ca, dim=-1) +
-                                   torch.nn.functional.normalize(cb_ca, dim=-1)) / 3.0
+                    h_direction = torch.nn.functional.normalize(torch.nn.functional.normalize(c_ca, dim=-1) +
+                                                                torch.nn.functional.normalize(n_ca, dim=-1) +
+                                                                torch.nn.functional.normalize(cb_ca, dim=-1), dim=-1)
+                    if torch.any(h_direction == torch.nan):
+                        raise RuntimeError(f"cannot determine the location of the alpha hydrogen")
 
                     ha_pos = ca_pos + 1.09 * h_direction
 
@@ -252,7 +254,7 @@ def minimize(modeller: Modeller) -> Modeller:
 
     modeller.addHydrogens(forcefield, pH=7.0)
 
-    system = forcefield.createSystem(modeller.topology, nonbondedMethod=NoCutoff, nonbondedCutoff=1.0 * nanometer)
+    system = forcefield.createSystem(modeller.topology, nonbondedMethod=NoCutoff, nonbondedCutoff=1.0 * nanometer, constraints=HBonds)
 
     integrator = LangevinIntegrator(300 * kelvin, 1.0 / picosecond, 2.0 * femtosecond)
 
