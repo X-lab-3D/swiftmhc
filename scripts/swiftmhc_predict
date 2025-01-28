@@ -75,8 +75,8 @@ def create_dataset(table_path: str, hdf5_path: str, device: torch.device, float_
 def output_structure(path: str, data: List[Tuple[str, torch.Tensor, torch.Tensor, torch.Tensor]], minimize_energy: bool):
 
     if minimize_energy:
-        modeller, residue_templates = build_modeller(data)
-        modeller = minimize(modeller, residue_templates)
+        modeller = build_modeller(data)
+        modeller = minimize(modeller)
 
         with open(path, 'wt') as f:
             openmm.app.PDBFile.writeFile(modeller.topology, modeller.getPositions(), f, keepIds=True)

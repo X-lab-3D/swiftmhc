@@ -166,8 +166,8 @@ def minimize_structure_to_hdf5(hdf5_path: str, name: str, data: List[Tuple[str, 
     _log.debug(f"minimizing {name}")
 
     try:
-        modeller, residue_templates = build_modeller(data)
-        modeller = minimize(modeller, residue_templates)
+        modeller = build_modeller(data)
+        modeller = minimize(modeller)
 
         io = StringIO()
 

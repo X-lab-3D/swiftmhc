@@ -129,11 +129,9 @@ def build_modeller(chain_data: List[Tuple[str,
         chain_data: list of chains (id, residue numbers, amino acid type index, atom positions, atom mask)
     Returns:
         the OpenMM Modeller object
-        and a dictionary that holds the chosen residue templates
     """
 
     topology = Topology()
-    residue_templates = {}
     positions = []
 
     atom_nr = 0
@@ -153,11 +151,9 @@ def build_modeller(chain_data: List[Tuple[str,
             # The forcefield cannot handle missing atoms.
             # That's why we must replace some by ALA or GLY
             replacement_amino_acid_index, replacement_atom14_mask = _replace_amino_acid_with_missing_atoms(amino_acid_index,  atom14_mask[residue_index])
-            replacement_amino_acid_code = amino_acid_order[replacement_amino_acid_index]
 
             amino_acid_code = amino_acid_order[amino_acid_index]
             residue = topology.addResidue(amino_acid_code, chain, str(residue_numbers[residue_index].item()))
-            residue_templates[residue] = replacement_amino_acid_code
 
             atoms_by_name = {}
             positions_by_name = {}
@@ -238,12 +234,11 @@ def build_modeller(chain_data: List[Tuple[str,
     topology.createDisulfideBonds(positions)
 
     modeller = Modeller(topology, positions)
-    modeller.addHydrogens(residueTemplates=residue_templates)
 
-    return modeller, residue_templates
+    return modeller
 
 
-def minimize(modeller: Modeller, residue_templates: Dict[Residue, str]) -> Modeller:
+def minimize(modeller: Modeller) -> Modeller:
     """
     Do OpenMM energy minimization on the input structure modeller.
     """
@@ -255,7 +250,9 @@ def minimize(modeller: Modeller, residue_templates: Dict[Residue, str]) -> Model
 
     forcefield = ForceField('amber99sb.xml', 'tip3p.xml')
 
-    system = forcefield.createSystem(modeller.topology, nonbondedMethod=NoCutoff, nonbondedCutoff=1.0 * nanometer, residueTemplates=residue_templates)
+    modeller.addHydrogens(forcefield, pH=7.0)
+
+    system = forcefield.createSystem(modeller.topology, nonbondedMethod=NoCutoff, nonbondedCutoff=1.0 * nanometer)
 
     integrator = LangevinIntegrator(300 * kelvin, 1.0 / picosecond, 2.0 * femtosecond)
 
