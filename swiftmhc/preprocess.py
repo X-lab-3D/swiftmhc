@@ -694,6 +694,9 @@ def _get_masked_structure(
             if len(matching_residues) == 0:
                 raise ValueError(f"The mask has residue {chain_id},{residue_number}, but the reference structure doesn't")
 
+            if len(matching_residues) > 1:
+                raise ValueError(f"Mask residue {chain_id}{residue_number}, found multiple times in the reference structure")
+
             reference_residue = matching_residues[0]
 
             if reference_residue.get_resname() != aa.three_letter_code.upper():
@@ -717,7 +720,7 @@ def _get_masked_structure(
                 masked_residue_index = [i for i in range(len(masked_residues))
                                         if masked_residues[i][0] == superposed_residue][0]
 
-                _log.debug(f"true masking {masked_residue_index}th residue {superposed_residue.get_full_id()} {superposed_residue.get_resname()} in superposed as {chain_id} {residue_number} {aa.three_letter_code}")
+                _log.debug(f"{mask_name}: true masking superposed residue {superposed_residue.get_full_id()} {superposed_residue.get_resname()} in superposed as {chain_id} {residue_number} {aa.three_letter_code}")
 
                 masked_residues[masked_residue_index][1] = True
 
@@ -790,6 +793,24 @@ def _interpret_target(target: Union[str, float]) -> Tuple[Union[float, None], bo
     return affinity, affinity_lt, affinity_gt, class_
 
 
+def _select_sequence_of_masked_residues(masked_residues: List[Tuple[Residue, bool]]) -> List[Tuple[Residue, bool]]:
+    """
+    Orders the list of masked residues by number and discards the flanking parts that are set to False.
+    """
+
+    masked_sequence = sorted(masked_residues, key=lambda x: x[0].get_id()[1])
+
+    mask = numpy.array([m for r, m in masked_sequence])
+    nz = mask.nonzero()[0]
+    i = nz.min()
+    j = nz.max()
+
+    s_order = "\n".join([str(x) for x in masked_sequence])
+    _log.debug(s_order)
+
+    return masked_sequence[i: j]
+
+
 def _generate_structure_data(
     model_bytes: bytes,
     reference_structure_path: str,
@@ -851,37 +872,28 @@ def _generate_structure_data(
         reference_structure_path,
         {"self": protein_residues_self_mask, "cross": protein_residues_cross_mask},
     )
-    self_masked_protein_residues = [(r, m) for r, m in masked_residues_dict["self"] if len(list(r.get_parent().get_residues())) > 80]
-    cross_masked_protein_residues = [(r, m) for r, m in masked_residues_dict["cross"] if len(list(r.get_parent().get_residues())) > 80]
 
-    # order by residue number
-    protein_residues = [r for r, m in self_masked_protein_residues]
-    protein_residues = sorted(protein_residues, key=lambda r: r.get_id()[1])
+    # be sure to maintain the same order in the residues!
+    self_masked_protein_residues = _select_sequence_of_masked_residues(masked_residues_dict["self"])
+    if len(self_masked_protein_residues) < 80:
+        raise ValueError(f"got only {len(self_masked_protein_residues)} protein residues")
 
-    _log.debug(f"ordering protein residues as: {protein_residues}")
+    ordered_protein_residues = [r for r, m in self_masked_protein_residues]
 
-    # remove the residues that are completely outside of mask range
-    combo_mask = numpy.logical_or([m for r, m in self_masked_protein_residues ],
-                                  [m for r, m in cross_masked_protein_residues])
-    combo_mask_nonzero = combo_mask.nonzero()[0]
-
-    mask_start = combo_mask_nonzero.min()
-    mask_end = combo_mask_nonzero.max() + 1
+    cross_masked_protein_residues_dict = {r: m for r, m in masked_residues_dict["cross"]}
+    cross_masked_protein_residues = [(r, cross_masked_protein_residues_dict[r]) for r in ordered_protein_residues]
 
     # apply the limiting protein range, reducing the size of the data that needs to be generated.
-    self_residues_mask = [m for r, m in self_masked_protein_residues[mask_start: mask_end]]
-    cross_residues_mask = [m for r, m in cross_masked_protein_residues[mask_start: mask_end]]
-    protein_residues = protein_residues[mask_start: mask_end]
-    if len(protein_residues) < 80:
-        raise ValueError(f"got only {len(protein_residues)} protein residues")
+    self_residues_mask = [m for r, m in self_masked_protein_residues]
+    cross_residues_mask = [m for r, m in cross_masked_protein_residues]
 
     # derive data from protein residues
-    protein_data = _read_residue_data_from_structure(protein_residues, device)
+    protein_data = _read_residue_data_from_structure(ordered_protein_residues, device)
     protein_data["cross_residues_mask"] = cross_residues_mask
     protein_data["self_residues_mask"] = self_residues_mask
 
     # proximities between residues within protein
-    protein_proximities = _create_proximities(protein_residues, protein_residues, device)
+    protein_proximities = _create_proximities(ordered_protein_residues, ordered_protein_residues, device)
     protein_data["proximities"] = protein_proximities
 
     # allele
