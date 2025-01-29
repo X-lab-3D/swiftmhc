@@ -798,6 +798,9 @@ def _select_sequence_of_masked_residues(masked_residues: List[Tuple[Residue, boo
     Orders the list of masked residues by number and discards the flanking parts that are set to False.
     """
 
+    if len(masked_residues) != len({r for r, m in masked_residues}):
+        raise ValueError("The same residue occurs in the masked list twice")
+
     masked_sequence = sorted(masked_residues, key=lambda x: x[0].get_id()[1])
 
     mask = numpy.array([m for r, m in masked_sequence])
@@ -805,10 +808,12 @@ def _select_sequence_of_masked_residues(masked_residues: List[Tuple[Residue, boo
     i = nz.min()
     j = nz.max()
 
-    s_order = "\n".join([str(x) for x in masked_sequence])
-    _log.debug(s_order)
+    masked_sequence = masked_sequence[i: j]
 
-    return masked_sequence[i: j]
+    s_order = "\n".join([f"{x[0].get_parent()} {x}" for x in masked_sequence])
+    _log.debug(f"selected sequence:\n{s_order}")
+
+    return masked_sequence
 
 
 def _generate_structure_data(
@@ -903,6 +908,8 @@ def _generate_structure_data(
     peptide_data = None
     if len(list(structure.get_chains())) >= 2:
 
+        # pick the shortest chain.
+        # it must be between 3-20 residues long
         shortest_length = 1000000
         shortest_chain = None
         for chain in structure.get_chains():
