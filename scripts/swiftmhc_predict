@@ -9,6 +9,7 @@ from typing import Dict, List, Tuple, Optional
 
 import pandas
 import torch
+from openfold.np.residue_constants import restype_atom14_mask
 
 from Bio.PDB.PDBIO import PDBIO
 
@@ -40,7 +41,7 @@ arg_parser.add_argument("--num-builders", "-B", type=int, default=1, help="numbe
 
 
 def remove_module_prefix(state: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
-    """  
+    """
     Paralellisation adds a 'module.' prefix in the state's keys.
     Remove those prefixes here.
     """
@@ -87,11 +88,6 @@ def output_structure(path: str, data: List[Tuple[str, torch.Tensor, torch.Tensor
         io.save(path)
 
 
-def on_error(e):
-    "callback function, send the error to the logs"
-    _log.error(str(e))
-
-
 def store_output(
     pool: Optional[Pool],
     directory_path: str,
@@ -110,8 +106,10 @@ def store_output(
 
         peptide_residue_numbers = batch["peptide_residue_numbers"].cpu()
         peptide_aatype = batch["peptide_aatype"].cpu()
+
         peptide_atom14_positions = output["final_positions"].cpu()
-        peptide_atom14_exists = batch["peptide_atom14_gt_exists"].cpu()
+        peptide_mask = batch["peptide_self_residues_mask"].cpu()
+        peptide_atom14_mask = peptide_mask.new_tensor(restype_atom14_mask[peptide_aatype]) * peptide_mask[..., None]
 
         protein_residue_numbers = batch["protein_residue_numbers"].cpu()
         protein_aatype = batch["protein_aatype"].cpu()
@@ -128,11 +126,11 @@ def store_output(
                 output_structure,
                 (
                     pdb_path,
-                    [("P", peptide_residue_numbers[index], peptide_aatype[index], peptide_atom14_positions[index], peptide_atom14_exists[index]),
+                    [("P", peptide_residue_numbers[index], peptide_aatype[index], peptide_atom14_positions[index], peptide_atom14_mask[index]),
                      ("M", protein_residue_numbers[index], protein_aatype[index], protein_atom14_positions[index], protein_atom14_exists[index])],
                     minimize_energy,
                 ),
-                error_callback=on_error,
+                error_callback=lambda e: _log.exception(f"on {pdb_path}"),
             )
 
     # save affinity/class
