@@ -219,7 +219,7 @@ class ProteinLoopDataset(Dataset):
         t = get_blosum_encoding([aa.index for aa in amino_acids], 62, device=self._device)
         result[f"{prefix}_blosum62"][:length, :t.shape[1]] = t
 
-        # openfold needs each connected pair of residues to be one index apart
+        # openfold's loss funtions need each connected pair of residues to be one index apart
         result[f"{prefix}_residue_index"] = torch.zeros(max_length, dtype=torch.long, device=self._device)
         result[f"{prefix}_residue_index"][:length] = torch.arange(0, length, 1, device=self._device)
 
