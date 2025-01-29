@@ -15,6 +15,7 @@ from openfold.data.data_pipeline import make_sequence_features
 from openfold.utils.loss import find_structural_violations
 from openfold.utils.feats import atom14_to_atom37
 from openfold.model.primitives import LayerNorm
+from openfold.np.residue_constants import restypes
 
 from ..tools.rigid import Rigid
 from ..domain.amino_acid import AMINO_ACID_DIMENSION
@@ -56,9 +57,6 @@ class Predictor(torch.nn.Module):
             torch.nn.Dropout(p=config.dropout_rate),
             torch.nn.LayerNorm(config.c_s)
         )
-
-        # modules for self attention on protein, updating {s_j}
-        self.protein_dist_norm = torch.nn.LayerNorm((self.protein_maxlen, self.protein_maxlen, 1))
 
         self.protein_ipa = SelfIPA(config)
 
@@ -172,14 +170,13 @@ class Predictor(torch.nn.Module):
         else:
             s_protein = batch["protein_sequence_onehot"]
 
-        z_protein = self.protein_dist_norm(batch["protein_proximities"])
+        z_protein = batch["protein_proximities"]
         sliced_z_protein = z_protein[:, protein_2d_slice].reshape(batch_size, protein_slice_length, protein_slice_length, -1)
 
         for _ in range(self.n_ipa_repeat):
             protein_upd, a = self.protein_ipa(
                 s_protein[:, protein_slice],
                 sliced_z_protein,
-                T_protein[:, protein_slice],
                 batch["protein_self_residues_mask"][:, protein_slice].to(dtype=s_protein.dtype),
             )
             s_protein[:, protein_slice] = self.protein_norm(s_protein[:, protein_slice] + protein_upd)

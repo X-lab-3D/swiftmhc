@@ -75,10 +75,8 @@ class DebuggableInvariantPointAttention(torch.nn.Module):
     def forward(
         self,
         s: torch.Tensor,
-        z: Optional[torch.Tensor],
-        r: Rigid,
+        z: torch.Tensor,
         mask: torch.Tensor,
-        inplace_safe: bool = False,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Performs Invariant Point attention on the residues within one sequence.
@@ -86,7 +84,6 @@ class DebuggableInvariantPointAttention(torch.nn.Module):
         Args:
             s:      [*, N_res, C_s] single representation
             z:      [*, N_res, N_res, C_z] pair representation
-            r:      [*, N_res] transformation object
             mask:   [*, N_res] mask
         Returns:
             [*, N_res, C_s] updated single representation
