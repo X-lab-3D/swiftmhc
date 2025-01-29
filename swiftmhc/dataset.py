@@ -292,16 +292,16 @@ class ProteinLoopDataset(Dataset):
 
                 for interfix in ["self", "cross"]:
                     result[f"{prefix}_{interfix}_residues_mask"] = torch.zeros(max_length, device=self._device, dtype=torch.bool)
-                    key = "{interfix}_residues_mask"
+                    key = f"{interfix}_residues_mask"
 
                     if key in entry_group[prefix]:
                         mask_data = entry_group[prefix][key][:]
-                        result[f"{prefix}_{interfix}_residues_mask"][index] = mask_data
+                        result[f"{prefix}_{interfix}_residues_mask"][index] = torch.tensor(mask_data, device=self._device, dtype=torch.bool)
                     else:
                         # If no mask, then set all present residues to True.
                         result[f"{prefix}_{interfix}_residues_mask"][index] = True
 
-                # openfold needs each connected pair of residues to be one index apart
+                # openfold's loss functions need each connected pair of residues to be one index apart
                 result[f"{prefix}_residue_index"] = torch.zeros(max_length, dtype=torch.long, device=self._device)
                 result[f"{prefix}_residue_index"][index] = torch.arange(start_index,
                                                                         start_index + length,
