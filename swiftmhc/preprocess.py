@@ -884,7 +884,7 @@ def preprocess(
     # - peptide sequence
     # - affinity / class
     # - allele name
-    table = pandas.read_csv(table_path)
+    table = pandas.read_csv(table_path, dtype={'ID':'string', "allele":"string", "peptide": "string"})
 
     # here we store temporary data, to be removed after preprocessing:
     tmp_hdf5_path = os.path.join(gettempdir(), f"preprocess-tmp-{uuid4()}.hdf5")
