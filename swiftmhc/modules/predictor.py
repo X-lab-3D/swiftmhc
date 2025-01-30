@@ -104,7 +104,7 @@ class Predictor(torch.nn.Module):
         """
 
         for module in [self.peptide_transform, self.peptide_norm,
-                       self.protein_dist_norm, self.protein_ipa,
+                       self.protein_ipa,
                        self.protein_norm, self.cross_sm]:
 
             for parameter in module.parameters():
