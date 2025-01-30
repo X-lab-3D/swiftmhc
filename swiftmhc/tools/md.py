@@ -178,7 +178,7 @@ def minimize(modeller: Modeller) -> Modeller:
 
     modeller.addHydrogens(forcefield, pH=7.0)
 
-    system = forcefield.createSystem(modeller.topology, nonbondedMethod=NoCutoff, nonbondedCutoff=1.0 * nanometer)
+    system = forcefield.createSystem(modeller.topology, nonbondedMethod=NoCutoff, nonbondedCutoff=1.0 * nanometer, constraints=HBonds)
 
     integrator = LangevinIntegrator(300 * kelvin, 1.0 / picosecond, 2.0 * femtosecond)
 
