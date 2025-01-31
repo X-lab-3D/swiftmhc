@@ -7,7 +7,7 @@ from openmm.app.topology import Topology
 from openmm.app.modeller import Modeller
 from openmm.app import PDBFile, NoCutoff, Simulation, PDBReporter, StateDataReporter, ForceField, HBonds
 from openmm.unit import *
-from openmm import LangevinIntegrator, Platform, Vec3
+from openmm import LangevinIntegrator, Platform, Vec3, System, HarmonicBondForce, HarmonicAngleForce
 from openmm.app.element import Element
 
 from openfold.np.residue_constants import restype_name_to_atom14_names, restypes, restype_1to3, residue_atoms, rigid_group_atom_positions
@@ -164,6 +164,38 @@ def build_modeller(chain_data: List[Tuple[str,
     return Modeller(topology, positions)
 
 
+def add_chiral_constraints(system: System, topology: Topology):
+    """
+    Sets high constraints around the C-alpha atoms so the geometry around them doesn't change.
+    """
+
+    atoms = list(topology.atoms())
+
+    for force in system.getForces():
+        if isinstance(force, HarmonicBondForce):
+            for bond_index in range(force.getNumBonds()):
+                atom1_index, atom2_index, l, k = force.getBondParameters(bond_index)
+
+                atom1 = atoms[atom1_index]
+                atom2 = atoms[atom2_index]
+
+                if atom1.name == "CA" or atom2.name == "CA":
+
+                    k = 1e10
+                    force.setBondParameters(bond_index, atom1_index, atom2_index, l, k)
+
+        elif isinstance(force, HarmonicAngleForce):
+            for angle_index in range(force.getNumAngles()):
+                atom1_index, atom2_index, atom3_index, angle, k = force.getAngleParameters(angle_index)
+
+                atom2 = atoms[atom2_index]
+
+                if atom2.name == "CA":
+
+                    k = 1e10
+                    force.setAngleParameters(angle_index, atom1_index, atom2_index, atom3_index, angle, k)
+
+
 def minimize(modeller: Modeller) -> Modeller:
     """
     Do OpenMM energy minimization on the input structure modeller.
@@ -180,6 +212,8 @@ def minimize(modeller: Modeller) -> Modeller:
 
     system = forcefield.createSystem(modeller.topology, nonbondedMethod=NoCutoff, nonbondedCutoff=1.0 * nanometer)
 
+    add_chiral_constraints(system, modeller.topology)
+
     integrator = LangevinIntegrator(300 * kelvin, 1.0 / picosecond, 2.0 * femtosecond)
 
     simulation = Simulation(modeller.topology, system, integrator, platform)
@@ -190,7 +224,7 @@ def minimize(modeller: Modeller) -> Modeller:
     energy_start = state.getPotentialEnergy().value_in_unit_system(md_unit_system)
     _log.debug(f"initial potential energy: {energy_start:10.3f} {md_unit_system}")
 
-    simulation.minimizeEnergy()
+    simulation.minimizeEnergy(maxIterations=1000)
 
     state = simulation.context.getState(getEnergy=True, getPositions=True)
     energy_final = state.getPotentialEnergy().value_in_unit_system(md_unit_system)
