@@ -735,7 +735,9 @@ def _k_to_affinity(k: float) -> float:
     """
 
     if k == 0.0:
-        raise ValueError(f"k is zero")
+        # this can happen
+        # just presume it's rounded down
+        return 1.0
 
     return 1.0 - log(k) / log(50000)
 
