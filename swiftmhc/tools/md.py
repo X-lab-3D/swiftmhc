@@ -212,8 +212,6 @@ def minimize(modeller: Modeller) -> Modeller:
 
     system = forcefield.createSystem(modeller.topology, nonbondedMethod=NoCutoff, nonbondedCutoff=1.0 * nanometer)
 
-    add_chiral_constraints(system, modeller.topology)
-
     integrator = LangevinIntegrator(300 * kelvin, 1.0 / picosecond, 2.0 * femtosecond)
 
     simulation = Simulation(modeller.topology, system, integrator, platform)
@@ -224,7 +222,7 @@ def minimize(modeller: Modeller) -> Modeller:
     energy_start = state.getPotentialEnergy().value_in_unit_system(md_unit_system)
     _log.debug(f"initial potential energy: {energy_start:10.3f} {md_unit_system}")
 
-    simulation.minimizeEnergy(maxIterations=1000)
+    simulation.minimizeEnergy()
 
     state = simulation.context.getState(getEnergy=True, getPositions=True)
     energy_final = state.getPotentialEnergy().value_in_unit_system(md_unit_system)
