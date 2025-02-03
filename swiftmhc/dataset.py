@@ -294,11 +294,11 @@ class ProteinLoopDataset(Dataset):
                     result[f"{prefix}_{interfix}_residues_mask"] = torch.zeros(max_length, device=self._device, dtype=torch.bool)
                     key = f"{interfix}_residues_mask"
 
-                    if key in entry_group[prefix]:
+                    if prefix == PREPROCESS_PROTEIN_NAME:
                         mask_data = entry_group[prefix][key][:]
                         result[f"{prefix}_{interfix}_residues_mask"][index] = torch.tensor(mask_data, device=self._device, dtype=torch.bool)
                     else:
-                        # If no mask, then set all present residues to True.
+                        # If handling peptide, then set all present residues to True.
                         result[f"{prefix}_{interfix}_residues_mask"][index] = True
 
                 # openfold's loss functions need each connected pair of residues to be one index apart
