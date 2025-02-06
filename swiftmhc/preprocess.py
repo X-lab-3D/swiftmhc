@@ -268,7 +268,10 @@ def _get_calpha_position(residue: Residue) -> numpy.ndarray:
     raise ValueError(f"missing C-alpha for {residue}")
 
 
-def _map_superposed(structure0: Structure, structure1: Structure) ->List[Tuple[Residue, Residue]]:
+def _map_superposed(
+    structure0: Structure,
+    structure1: Structure,
+) -> List[Tuple[Residue, Residue]]:
     """
     Pairs up residues from superposed structures, by means of closest distance.
 
@@ -625,6 +628,7 @@ def _get_masked_structure(
     model_bytes: bytes,
     reference_structure_path: str,
     reference_masks: Dict[str, List[ResidueMaskType]],
+    renumber_according_to_mask: bool,
 ) -> Tuple[Structure, Dict[str, List[Tuple[Residue, bool]]]]:
     """
     Mask a structure, according to the given mask.
@@ -724,6 +728,11 @@ def _get_masked_structure(
 
                 masked_residues[masked_residue_index][1] = True
 
+                if renumber_according_to_mask:
+                    # put the masks's residue number on the superposed residue
+                    id_ = masked_residues[masked_residue_index][0]._id
+                    masked_residues[masked_residue_index][0]._id = (id_[0], residue_number, id_[2])
+
         mask_result[mask_name] = masked_residues
 
     return superposed_structure, mask_result
@@ -735,7 +744,8 @@ def _k_to_affinity(k: float) -> float:
     """
 
     if k == 0.0:
-        raise ValueError(f"k is zero")
+        # presume it's rounded down
+        return 1.0
 
     return 1.0 - log(k) / log(50000)
 
@@ -871,13 +881,14 @@ def _generate_structure_data(
         model_bytes,
         reference_structure_path,
         {"self": protein_residues_self_mask, "cross": protein_residues_cross_mask},
+        renumber_according_to_mask=True,
     )
 
-    # be sure to maintain the same order in the residues!
     self_masked_protein_residues = _select_sequence_of_masked_residues(masked_residues_dict["self"])
     if len(self_masked_protein_residues) < 80:
         raise ValueError(f"got only {len(self_masked_protein_residues)} protein residues")
 
+    # be sure to maintain the same order in the residues!
     ordered_protein_residues = [r for r, m in self_masked_protein_residues]
 
     cross_masked_protein_residues_dict = {r: m for r, m in masked_residues_dict["cross"]}
