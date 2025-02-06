@@ -19,6 +19,7 @@ from swiftmhc.preprocess import (preprocess,
                                  _find_model_as_bytes)
 from swiftmhc.dataset import ProteinLoopDataset
 from swiftmhc.metrics import get_sequence
+from swiftmhc.domain.amino_acid import amino_acids_by_code
 
 
 def test_preprocess_BA_67447():
@@ -145,6 +146,6 @@ def test_alignment():
 
         residue_number = residue.get_id()[1]
         residue_name = residue.get_resname()
+        amino_acid = amino_acids_by_code[residue_name]
 
-        # verify that the residues have the same numbering:
-        _find_residue(ref_chain_m, residue_number, residue_name)
+        assert any([r[0] == "M" and r[1] == residue_number and r[2] == amino_acid for r in self_mask])
