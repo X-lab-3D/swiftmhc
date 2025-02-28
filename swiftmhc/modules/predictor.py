@@ -171,6 +171,10 @@ class Predictor(torch.nn.Module):
             s_protein = batch["protein_sequence_onehot"]
 
         z_protein = batch["protein_proximities"]
+
+        # normalize
+        z_protein = (z_protein - z_protein.mean(dim=(-3, -2, -1))[..., None, None, None]) / (1e-6 + z_protein.std(dim=(-3, -2, -1))[..., None, None, None])
+
         sliced_z_protein = z_protein[:, protein_2d_slice].reshape(batch_size, protein_slice_length, protein_slice_length, -1)
 
         for _ in range(self.n_ipa_repeat):
