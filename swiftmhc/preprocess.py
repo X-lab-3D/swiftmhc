@@ -29,7 +29,7 @@ from openfold.data.data_transforms import (atom37_to_frames,
 from openfold.utils.feats import atom14_to_atom37
 
 from .tools.pdb import get_atom14_positions
-from .domain.amino_acid import amino_acids_by_letter, amino_acids_by_code, canonical_amino_acids, seleno_methionine, methionine
+from .domain.amino_acid import amino_acids_by_letter, amino_acids_by_code, canonical_amino_acids, seleno_methionine, methionine, AMINO_ACID_DIMENSION
 from .models.amino_acid import AminoAcid
 from .models.complex import ComplexClass
 
@@ -403,6 +403,9 @@ def _replace_residue_atom(residue: Residue, atom_name: str, new_atom_name: str, 
 def _replace_amino_acid_by_canonical(residue: Residue) -> Residue:
     "replaces non-canonical amino acids by canonical and replaces the atoms accordingly"
 
+    if residue is None:  # gap
+        return None
+
     if residue.get_resname() == "MSE":
         residue = _replace_residue_atom(residue, "SE", "SD", "S")
         residue.resname = "MET"
@@ -437,9 +440,9 @@ def _read_residue_data_from_structure(residues: List[Residue], device: torch.dev
     residues = [_replace_amino_acid_by_canonical(r) for r in residues]
 
     # embed the sequence
-    aas = [amino_acids_by_code[r.get_resname()] for r in residues]
-    sequence_onehot = torch.stack([aa.one_hot_code for aa in aas]).to(device=device)
-    aatype = torch.tensor([aa.index for aa in aas], device=device)
+    aas = [amino_acids_by_code[r.get_resname()] if r is not None else None for r in residues]
+    sequence_onehot = torch.stack([aa.one_hot_code if aa is not None else torch.zeros(AMINO_ACID_DIMENSION) for aa in aas]).to(device=device)
+    aatype = torch.tensor([aa.index if aa is not None else 0 for aa in aas], device=device)
     blosum62 = get_blosum_encoding(aatype, 62, device)
 
     # get atom positions and mask
@@ -447,10 +450,15 @@ def _read_residue_data_from_structure(residues: List[Residue], device: torch.dev
     atom14_mask = []
     residue_numbers = []
     for residue_index, residue in enumerate(residues):
-        p, m = get_atom14_positions(residue)
-        atom14_positions.append(p.float())
-        atom14_mask.append(m)
-        residue_numbers.append(residue.get_id()[1])
+        if residue is None:
+            residue_numbers.append(0)
+            atom14_positions.append(torch.zeros((14, 3)))
+            atom14_mask.append(torch.zeros(14, dtype=torch.bool))
+        else:
+            p, m = get_atom14_positions(residue)
+            atom14_positions.append(p.float())
+            atom14_mask.append(m)
+            residue_numbers.append(residue.get_id()[1])
 
     atom14_positions = torch.stack(atom14_positions).to(device=device)
     atom14_mask = torch.stack(atom14_mask).to(device=device)
@@ -503,17 +511,21 @@ def _create_proximities(residues1: List[Residue], residues2: List[Residue], devi
 
     # get atomic coordinates
     atom_positions1 = [torch.tensor(numpy.array([atom.coord for atom in residue.get_atoms() if atom.element != "H"]), device=device)
-                       for residue in residues1]
+                       if residue is not None else None for residue in residues1]
     atom_positions2 = [torch.tensor(numpy.array([atom.coord for atom in residue.get_atoms() if atom.element != "H"]), device=device)
-                       for residue in residues2]
+                       if residue is not None else None for residue in residues2]
 
     # calculate distance matrix, using the shortest interatomic distance between two residues
     for i in range(len(residues1)):
         for j in range(len(residues2)):
 
-            atomic_distances_ij = torch.cdist(atom_positions1[i], atom_positions2[j], p=2)
+            if residues1[i] is None or residues2[j] is None:
 
-            min_distance = torch.min(atomic_distances_ij).item()
+                min_distance = 1e10
+            else:
+                atomic_distances_ij = torch.cdist(atom_positions1[i], atom_positions2[j], p=2)
+
+                min_distance = torch.min(atomic_distances_ij).item()
 
             residue_distances[i, j, 0] = min_distance
 
@@ -640,6 +652,8 @@ def _get_masked_structure(
     Returns:
         the biopython structure, resulting from the model bytes
         and a dictionary, that contains a list of masked residues per structure
+        selected residues will be (Residue, True)
+        masked out residues will be (NoneYype, False)
     """
 
     # need a pdb parser
@@ -685,10 +699,8 @@ def _get_masked_structure(
     mask_result = {}
     for mask_name, reference_mask in reference_masks.items():
 
-        # first, set all to False
-        masked_residues = [[rsup, False] for rref, rsup in alignment if rref is not None and rsup is not None]
-
         # residues, that match with the reference mask, will be set to True
+        masked_residues = []
         for chain_id, residue_number, aa in reference_mask:
 
             # locate the masked residue in the reference structure
@@ -718,20 +730,20 @@ def _get_masked_structure(
             else:
                 _log.warning(f"reference residue {reference_residue} was not aliged to any residue in the superposed model")
 
+            # Add a masked out (False) Nonetype residue, where there's a gap
+            masked_residue = [None, False]
+
+            # if no gap, then set to True
             if superposed_residue is not None:
 
-                # set True on the model residue, that was aligned to the reference residue
-                masked_residue_index = [i for i in range(len(masked_residues))
-                                        if masked_residues[i][0] == superposed_residue][0]
-
-                _log.debug(f"{mask_name}: true masking superposed residue {superposed_residue.get_full_id()} {superposed_residue.get_resname()} in superposed as {chain_id} {residue_number} {aa.three_letter_code}")
-
-                masked_residues[masked_residue_index][1] = True
+                masked_residue = [superposed_residue, True]
 
                 if renumber_according_to_mask:
                     # put the masks's residue number on the superposed residue
-                    id_ = masked_residues[masked_residue_index][0]._id
-                    masked_residues[masked_residue_index][0]._id = (id_[0], residue_number, id_[2])
+                    id_ = superposed_residue._id
+                    masked_residue[0]._id = (id_[0], residue_number, id_[2])
+
+            masked_residues.append(masked_residue)
 
         mask_result[mask_name] = masked_residues
 
@@ -884,15 +896,15 @@ def _generate_structure_data(
         renumber_according_to_mask=True,
     )
 
-    self_masked_protein_residues = _select_sequence_of_masked_residues(masked_residues_dict["self"])
-    if len(self_masked_protein_residues) < 80:
-        raise ValueError(f"got only {len(self_masked_protein_residues)} protein residues")
+    self_masked_protein_residues = masked_residues_dict["self"]
 
     # be sure to maintain the same order in the residues!
     ordered_protein_residues = [r for r, m in self_masked_protein_residues]
 
     cross_masked_protein_residues_dict = {r: m for r, m in masked_residues_dict["cross"]}
-    cross_masked_protein_residues = [(r, cross_masked_protein_residues_dict[r]) for r in ordered_protein_residues]
+    cross_masked_protein_residues = [(r, cross_masked_protein_residues_dict[r])
+                                     if r is not None and r in cross_masked_protein_residues_dict else (None, False)
+                                     for r in ordered_protein_residues]
 
     # apply the limiting protein range, reducing the size of the data that needs to be generated.
     self_residues_mask = [m for r, m in self_masked_protein_residues]
