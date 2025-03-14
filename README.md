@@ -106,13 +106,15 @@ This will save the network model to `example/best-predictor.pth`
 ## Predicting unlabelled data
 
 Do this after training a model (pth format).
-This requires preprocessed HDF5 files, containing structures of the MHC protein, for every allele.
+Alternatively, there are pretrained models in this repository under the directory named `trained-models`.
+
+Prediction requires preprocessed HDF5 files, containing structures of the MHC protein, for every allele.
 The data directory contains a preprocessed hdf5 file for the HLA-A*02:01 allele only.
 Prediction also requires a table, linking the peptides to MHC alleles.
 
 Run
 ```
-swiftmhc_predict -B1 model.pth table.csv preprocessed_mhcs.hdf5 results/
+swiftmhc_predict -B1 trained-models/8k-trained-model.pth table.csv preprocessed_mhcs.hdf5 results/
 ```
 
 The output `results` directory will contain the BA data and the structures.
