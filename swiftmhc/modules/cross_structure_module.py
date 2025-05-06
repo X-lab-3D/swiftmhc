@@ -1,4 +1,4 @@
-from typing import Dict, Union, Optional
+from typing import Dict, Union, Optional, List
 import logging
 
 import torch
@@ -71,6 +71,9 @@ class CrossStructureModule(torch.nn.Module):
         """
         super(CrossStructureModule, self).__init__()
 
+        # flags
+        self.debug_attention_weights = config.debug_attention_weights
+
         # constants
         self.c_s = config.c_s
         self.c_ipa = config.c_hidden
@@ -124,6 +127,7 @@ class CrossStructureModule(torch.nn.Module):
 
     def forward(
         self,
+        ids: List[str],
         peptide_aatype: torch.Tensor,
         s_peptide_initial: torch.Tensor,
         peptide_mask: torch.Tensor,
@@ -193,6 +197,8 @@ class CrossStructureModule(torch.nn.Module):
         for i in range(self.n_blocks):
 
             preds = self._block(
+                i,
+                ids,
                 s_peptide_initial,
                 peptide_aatype,
                 s_peptide, s_protein,
@@ -249,8 +255,25 @@ class CrossStructureModule(torch.nn.Module):
 
         return masked_residue_value
 
+    @staticmethod
+    def _write_attention_weights(name_prefix: str, block_index: int, ids: List[str], attention_weights: torch.Tensor):
+
+        for batch_index in range(attention_weights.shape[0]):
+
+            id_ = ids[batch_index]
+
+            for head_index in range(attention_weights.shape[1]):
+
+                with open(f"{name_prefix}_{id_}_b{block_index}_h{head_index}.txt", 'wt') as f:
+
+                    for row_index in range(attention_weights.shape[-2]):
+
+                        f.write(" ".join([str(x.item()) for x in attention_weights[batch_index, head_index, row_index]]) + "\n")
+
     def _block(
         self,
+        block_index: int,
+        ids: List[str],
         s_peptide_initial: torch.Tensor,
         peptide_aatype: torch.Tensor,
         s_peptide: torch.Tensor,
@@ -271,6 +294,10 @@ class CrossStructureModule(torch.nn.Module):
             T_peptide, T_protein,
             peptide_mask, protein_mask,
         )
+
+        if self.debug_attention_weights:
+            self._write_attention_weights("cross_ipa", block_index, ids, ipa_att)
+
         s_peptide = s_peptide + s_upd
         s_peptide = self.cross_ipa_dropout(s_peptide)
         s_peptide = self.cross_ipa_norm(s_peptide)

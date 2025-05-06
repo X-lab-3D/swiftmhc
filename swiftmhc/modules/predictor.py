@@ -186,6 +186,7 @@ class Predictor(torch.nn.Module):
 
         # cross attention and peptide structure prediction
         output = self.cross_sm(
+            batch["ids"],
             batch["peptide_aatype"],
             s_peptide,
             batch["peptide_cross_residues_mask"],

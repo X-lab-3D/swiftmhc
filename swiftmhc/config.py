@@ -26,5 +26,6 @@ config = mlc.ConfigDict(
         "model_type": ModelType.REGRESSION,
         "peptide_maxlen": 16,
         "protein_maxlen": 200,
+        "debug_attention_weights": False,
     },
 )
