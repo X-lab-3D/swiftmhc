@@ -143,9 +143,9 @@ class Predictor(torch.nn.Module):
 
         # [*, peptide_maxlen, c_s]
         if self.blosum:
-            s_peptide = batch["peptide_blosum62"]
+            s_peptide = batch["peptide_blosum62"].clone()
         else:
-            s_peptide = batch["peptide_sequence_onehot"]
+            s_peptide = batch["peptide_sequence_onehot"].clone()
 
         batch_size, peptide_maxlen, peptide_dim = s_peptide.shape
 
@@ -168,9 +168,9 @@ class Predictor(torch.nn.Module):
 
         # [*, protein_maxlen, c_s]
         if self.blosum:
-            s_protein = batch["protein_blosum62"]
+            s_protein = batch["protein_blosum62"].clone()
         else:
-            s_protein = batch["protein_sequence_onehot"]
+            s_protein = batch["protein_sequence_onehot"].clone()
 
         z_protein = self.protein_dist_norm(batch["protein_proximities"])
         sliced_z_protein = z_protein[:, protein_2d_slice].reshape(batch_size, protein_slice_length, protein_slice_length, -1)
