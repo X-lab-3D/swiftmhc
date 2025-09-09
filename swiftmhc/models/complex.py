@@ -1,31 +1,24 @@
-import sys
 from enum import Enum
-from typing import Union
-
-import torch
-from sklearn.decomposition import PCA
 
 
 class ComplexClass(Enum):
-    """
-    A value to be assigned in classification prediction
-    """
+    """A value to be assigned in classification prediction"""
 
     NONBINDING = 0
     BINDING = 1
 
     @staticmethod
     def from_string(s: str):
-        if s.upper() == 'NONBINDING':
+        if s.upper() == "NONBINDING":
             return ComplexClass.NONBINDING
 
-        elif s.upper() == 'NEGATIVE':
+        elif s.upper() == "NEGATIVE":
             return ComplexClass.NONBINDING
 
-        elif s.upper() == 'BINDING':
+        elif s.upper() == "BINDING":
             return ComplexClass.BINDING
 
-        elif s.upper() == 'POSITIVE':
+        elif s.upper() == "POSITIVE":
             return ComplexClass.BINDING
 
         raise ValueError(s)
@@ -42,5 +35,3 @@ class ComplexClass(Enum):
 
     def __int__(self) -> int:
         return int(self.value)
-
-

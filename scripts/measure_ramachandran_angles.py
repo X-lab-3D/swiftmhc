@@ -1,22 +1,19 @@
 #!/usr/bin/env python
 
-from typing import List, Tuple
 import logging
-from argparse import ArgumentParser
-from math import sqrt, sin, cos, pi
-import sys
 import os
-
+import sys
+from argparse import ArgumentParser
+from typing import Tuple
 import pandas
-
 from Bio.PDB.PDBParser import PDBParser
-
-from glob import glob
 
 
 _log = logging.getLogger(__name__)
 
-arg_parser = ArgumentParser(description="measure ramachandran (phi & psi) angles and stores them in the output file: ramachandran.csv")
+arg_parser = ArgumentParser(
+    description="measure ramachandran (phi & psi) angles and stores them in the output file: ramachandran.csv"
+)
 arg_parser.add_argument("pdb_paths", nargs="+", help="list of pdb files to measure angles on")
 
 pdb_parser = PDBParser()
@@ -25,10 +22,7 @@ pdb_parser = PDBParser()
 def analyze(
     pdb_path: str,
 ) -> Tuple[pandas.DataFrame, pandas.DataFrame]:
-    """
-    Lets BioPython calculate phi and psi for one PDB structure.
-    """
-
+    """Lets BioPython calculate phi and psi for one PDB structure."""
     id_ = os.path.basename(pdb_path)
 
     structure = pdb_parser.get_structure(id_, pdb_path)
@@ -37,12 +31,14 @@ def analyze(
     phipsi_pairs = []
 
     for chain in structure[0]:
-
         # calc torsions (might fail and result in None)
         chain.atom_to_internal_coordinates()
 
         for residue in chain:
-            rid = f"{id_} {chain.get_id()} {residue.get_resname()} " + "".join([str(x) for x in residue.get_id()]).strip()
+            rid = (
+                f"{id_} {chain.get_id()} {residue.get_resname()} "
+                + "".join([str(x) for x in residue.get_id()]).strip()
+            )
 
             # populate table row for residue:
             ric = residue.internal_coord
@@ -53,7 +49,6 @@ def analyze(
 
             phipsi_pairs.append((rid, phi_angle, psi_angle))
 
-
     # Convert to pandas table:
     names = []
     phis = []
@@ -63,16 +58,18 @@ def analyze(
         phis.append(phi)
         psis.append(psi)
 
-    ramachandran_rows = pandas.DataFrame({
-        "name": names,
-        "ϕ(°)": phis,
-        "ψ(°)": psis,
-    })
+    ramachandran_rows = pandas.DataFrame(
+        {
+            "name": names,
+            "ϕ(°)": phis,
+            "ψ(°)": psis,
+        }
+    )
 
-    return (ramachandran_rows)
+    return ramachandran_rows
+
 
 if __name__ == "__main__":
-
     logging.basicConfig(stream=sys.stdout, level=logging.INFO)
 
     args = arg_parser.parse_args()

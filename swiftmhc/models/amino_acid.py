@@ -1,10 +1,5 @@
-import torch
-
-
 class AminoAcid:
-    """
-    Holds data for amino acids
-    """
+    """Holds data for amino acids"""
 
     def __init__(self, name: str, three_letter_code: str, one_letter_code: str):
         self.name = name

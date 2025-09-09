@@ -1,10 +1,12 @@
-from typing import Union, Dict, Optional, Set, Tuple, List
 import logging
-
+from typing import Dict
+from typing import List
+from typing import Optional
+from typing import Set
+from typing import Tuple
+from typing import Union
 import torch
-
 from openfold.utils.rigid_utils import Rotation
-
 from ..tools.rigid import Rigid
 
 
@@ -12,12 +14,9 @@ _log = logging.getLogger(__name__)
 
 
 class TensorDict:
-    """
-    This is like a Dictionary of tensors, but it can undergo math operations.
-    """
+    """This is like a Dictionary of tensors, but it can undergo math operations."""
 
     def __init__(self, data: Optional[Dict[str, Union[torch.Tensor, Rigid, List[str]]]] = None):
-
         if data is None:
             self._data = {}
         else:
@@ -64,16 +63,19 @@ class TensorDict:
         return TensorDict({key: self._data[key] for key in keys})
 
     def append(self, other):
-
         for key, other_value in other.items():
-
             if key in self._data:
                 self_value = self._data[key]
 
                 if isinstance(other_value, Rigid):
-                    self._data[key] = Rigid(Rotation(torch.cat((self_value._rots._rot_mats,
-                                                                other_value._rots._rot_mats), dim=0)),
-                                            torch.cat((self_value._trans, other_value._trans), dim=0))
+                    self._data[key] = Rigid(
+                        Rotation(
+                            torch.cat(
+                                (self_value._rots._rot_mats, other_value._rots._rot_mats), dim=0
+                            )
+                        ),
+                        torch.cat((self_value._trans, other_value._trans), dim=0),
+                    )
 
                 elif isinstance(other_value, torch.Tensor):
                     self._data[key] = torch.cat((self_value, other_value), dim=0)
@@ -83,7 +85,6 @@ class TensorDict:
                 self._data[key] = other_value
 
     def combine(self, other):
-
         d = {}
         for key, value in self._data.items():
             d[key] = value
@@ -94,7 +95,6 @@ class TensorDict:
         return TensorDict(d)
 
     def __add__(self, other):
-
         d = {}
         keys = self.keys() | other.keys()
 
@@ -107,7 +107,6 @@ class TensorDict:
         return TensorDict(d)
 
     def __mul__(self, scalar):
-
         d = {}
         for key in self._data:
             d[key] = scalar * self._data[key]
@@ -115,18 +114,15 @@ class TensorDict:
         return TensorDict(d)
 
     def __truediv__(self, scalar: Union[int, float]):
-        d = {key: self._data[key] / scalar
-             for key in self._data}
+        d = {key: self._data[key] / scalar for key in self._data}
 
         return TensorDict(d)
 
     def detach(self):
-
         d = {}
         for key, value in self._data.items():
             if isinstance(value, Rigid):
-                d[key] = Rigid(Rotation(value._rots._rot_mats.detach()),
-                               value._trans.detach())
+                d[key] = Rigid(Rotation(value._rots._rot_mats.detach()), value._trans.detach())
 
             elif isinstance(value, torch.Tensor):
                 d[key] = value.detach()
@@ -137,7 +133,6 @@ class TensorDict:
         return TensorDict(d)
 
     def to(self, *args, **kwargs):
-
         d = {}
         for key, value in self._data.items():
             if isinstance(value, Rigid) or isinstance(value, torch.Tensor):
@@ -148,7 +143,6 @@ class TensorDict:
         return TensorDict(d)
 
     def __repr__(self):
-
         result = "{\n"
         for key, value in self._data.items():
             if type(value) == Rigid:

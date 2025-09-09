@@ -1,29 +1,24 @@
-from tempfile import mkstemp, gettempdir
 import os
-from numpy import pi
-from uuid import uuid4
 from math import log
-
+from tempfile import gettempdir
+from tempfile import mkstemp
+from uuid import uuid4
 import torch
-
 from Bio.PDB.Chain import Chain
 from Bio.PDB.PDBParser import PDBParser
 from Bio.PDB.Residue import Residue
-
-from swiftmhc.preprocess import (preprocess,
-                                 _get_masked_structure,
-                                 _read_mask_data,
-                                 _save_protein_data,
-                                 _load_protein_data,
-                                 _generate_structure_data,
-                                 _find_model_as_bytes)
 from swiftmhc.dataset import ProteinLoopDataset
-from swiftmhc.metrics import get_sequence
 from swiftmhc.domain.amino_acid import amino_acids_by_code
+from swiftmhc.metrics import get_sequence
+from swiftmhc.preprocess import _generate_structure_data
+from swiftmhc.preprocess import _get_masked_structure
+from swiftmhc.preprocess import _load_protein_data
+from swiftmhc.preprocess import _read_mask_data
+from swiftmhc.preprocess import _save_protein_data
+from swiftmhc.preprocess import preprocess
 
 
 def test_preprocess_BA_67447():
-
     table_path = "tests/data/test-ba.csv"
     models_path = "tests/data"
     self_mask_path = "tests/data/hlaa0201-gdomain.mask"
@@ -55,30 +50,35 @@ def test_preprocess_BA_67447():
 
         # from the table
         assert "affinity" in entry, entry.keys()
-        assert entry['affinity'] == (1.0 - log(6441.2) / log(50000))
+        assert entry["affinity"] == (1.0 - log(6441.2) / log(50000))
 
         # sequence from the table
-        assert get_sequence(entry['peptide_aatype'], entry['peptide_self_residues_mask']) == "GVNNLEHGL"
+        assert (
+            get_sequence(entry["peptide_aatype"], entry["peptide_self_residues_mask"])
+            == "GVNNLEHGL"
+        )
 
         # Verify correct shapes for s and x
-        assert entry['peptide_sequence_onehot'].shape[0] == entry['peptide_all_atom_positions'].shape[0]
-        assert entry['peptide_all_atom_positions'].shape[-1] == 3
+        assert (
+            entry["peptide_sequence_onehot"].shape[0]
+            == entry["peptide_all_atom_positions"].shape[0]
+        )
+        assert entry["peptide_all_atom_positions"].shape[-1] == 3
 
         # Verify correct shape for z.
-        assert entry['protein_proximities'].shape[0] == entry['protein_proximities'].shape[1]
+        assert entry["protein_proximities"].shape[0] == entry["protein_proximities"].shape[1]
     finally:
         os.remove(hdf5_path)
 
 
 def test_protein_data_preserved():
-
     models_path = "tests/data"
     allele = "HLA-A*02:01"
     ref_pdb_path = "tests/data/BA-55224.pdb"
     self_mask_path = "tests/data/hlaa0201-gdomain.mask"
     cross_mask_path = "tests/data/hlaa0201-binding-groove.mask"
 
-    with open(ref_pdb_path, 'rb') as pdb:
+    with open(ref_pdb_path, "rb") as pdb:
         model_bytes = pdb.read()
 
     protein_data, peptide_data = _generate_structure_data(
@@ -92,7 +92,7 @@ def test_protein_data_preserved():
 
     assert "proximities" in protein_data
 
-    tmp_hdf5_path = os.path.join(gettempdir(), f"{uuid4()}.hdf5")   
+    tmp_hdf5_path = os.path.join(gettempdir(), f"{uuid4()}.hdf5")
 
     try:
         _save_protein_data(tmp_hdf5_path, allele, protein_data)
@@ -108,7 +108,6 @@ pdb_parser = PDBParser()
 
 
 def _find_residue(chain: Chain, residue_number: int, residue_name: str) -> Residue:
-
     for residue in chain:
         if residue.get_id()[1] == residue_number and residue.get_resname() == residue_name:
             return residue
@@ -117,7 +116,6 @@ def _find_residue(chain: Chain, residue_number: int, residue_name: str) -> Resid
 
 
 def test_alignment():
-
     xray_path = "tests/data/1AKJ.pdb"
     allele = "HLA-A*02:01"
     ref_path = "data/structures/reference-from-3MRD.pdb"
@@ -127,7 +125,7 @@ def test_alignment():
     self_mask = _read_mask_data(self_mask_path)
     cross_mask = _read_mask_data(cross_mask_path)
 
-    xray_bytes = open(xray_path, 'rb').read()
+    xray_bytes = open(xray_path, "rb").read()
     superposed_structure, masked_residue_dict = _get_masked_structure(
         xray_bytes,
         ref_path,
@@ -140,7 +138,6 @@ def test_alignment():
     ref_chain_m = [chain for chain in ref_model if chain.get_id() == "M"][0]
 
     for residue, mask in masked_residue_dict["self"]:
-
         # verify that only chain M is aligned
         assert residue.get_parent().get_id() == "M"
 
@@ -148,4 +145,6 @@ def test_alignment():
         residue_name = residue.get_resname()
         amino_acid = amino_acids_by_code[residue_name]
 
-        assert any([r[0] == "M" and r[1] == residue_number and r[2] == amino_acid for r in self_mask])
+        assert any(
+            [r[0] == "M" and r[1] == residue_number and r[2] == amino_acid for r in self_mask]
+        )

@@ -1,8 +1,6 @@
-from torch.nn.functional import one_hot
 import torch
-
 from openfold.np.residue_constants import restypes as openfold_one_letter_order
-
+from torch.nn.functional import one_hot
 from ..models.amino_acid import AminoAcid
 
 
@@ -37,15 +35,55 @@ unknown_amino_acid = AminoAcid("unknown", "UNK", "X")
 
 
 # lists, referrring to amino acid objects
-canonical_amino_acids = [alanine, cysteine, aspartate, glutamate, phenylalanine,
-                         glycine, histidine, isoleucine, leucine, methionine,
-                         asparagine, glutamine, arginine, serine, threonine,
-                         valine, tyrosine, tryptophan, lysine, proline]
+canonical_amino_acids = [
+    alanine,
+    cysteine,
+    aspartate,
+    glutamate,
+    phenylalanine,
+    glycine,
+    histidine,
+    isoleucine,
+    leucine,
+    methionine,
+    asparagine,
+    glutamine,
+    arginine,
+    serine,
+    threonine,
+    valine,
+    tyrosine,
+    tryptophan,
+    lysine,
+    proline,
+]
 
-all_amino_acids = [alanine, cysteine, aspartate, glutamate, phenylalanine,
-                   glycine, histidine, isoleucine, lysine, leucine, methionine,
-                   asparagine, pyrolysine, glutamine, arginine, serine, threonine,
-                   seleno_methionine, selenocysteine, valine, tyrosine, tryptophan, lysine, proline]
+all_amino_acids = [
+    alanine,
+    cysteine,
+    aspartate,
+    glutamate,
+    phenylalanine,
+    glycine,
+    histidine,
+    isoleucine,
+    lysine,
+    leucine,
+    methionine,
+    asparagine,
+    pyrolysine,
+    glutamine,
+    arginine,
+    serine,
+    threonine,
+    seleno_methionine,
+    selenocysteine,
+    valine,
+    tyrosine,
+    tryptophan,
+    lysine,
+    proline,
+]
 
 # dictionaries, for fast lookup
 amino_acids_by_name = {amino_acid.name: amino_acid for amino_acid in all_amino_acids}

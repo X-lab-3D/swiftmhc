@@ -1,25 +1,22 @@
-from typing import Dict, Union, Optional, List
 import logging
-
-import torch
-
+from typing import Dict
+from typing import List
+from typing import Optional
 import ml_collections
-
+import torch
+from openfold.model.primitives import LayerNorm
+from openfold.model.primitives import Linear
+from openfold.model.structure_module import AngleResnet
+from openfold.model.structure_module import BackboneUpdate
+from openfold.model.structure_module import StructureModuleTransition
+from openfold.np.residue_constants import restype_atom14_mask
+from openfold.np.residue_constants import restype_atom14_rigid_group_positions
+from openfold.np.residue_constants import restype_atom14_to_rigid_group
+from openfold.np.residue_constants import restype_rigid_group_default_frame
+from openfold.utils.feats import frames_and_literature_positions_to_atom14_pos
+from openfold.utils.feats import torsion_angles_to_frames
 from openfold.utils.rigid_utils import Rotation
-from openfold.model.primitives import Linear, LayerNorm
-from openfold.model.structure_module import AngleResnet, StructureModuleTransition, BackboneUpdate
 from openfold.utils.tensor_utils import dict_multimap
-from openfold.utils.feats import (
-    frames_and_literature_positions_to_atom14_pos,
-    torsion_angles_to_frames,
-)
-from openfold.np.residue_constants import (
-    restype_rigid_group_default_frame,
-    restype_atom14_to_rigid_group,
-    restype_atom14_mask,
-    restype_atom14_rigid_group_positions,
-)
-
 from ..tools.rigid import Rigid
 from .cross_ipa import CrossInvariantPointAttention
 
@@ -28,8 +25,7 @@ _log = logging.getLogger(__name__)
 
 
 class CrossStructureModule(torch.nn.Module):
-    """
-    This is like algorithm 20 in AlphaFold2, but with some modifications:
+    """This is like algorithm 20 in AlphaFold2, but with some modifications:
 
      - omega angles are calculated from predicted frames. They are not predicted directly.
      - It does not predict frames for a complete sequence. It takes a protein structure and peptide sequence as input. The peptide structure is predicted.
@@ -40,34 +36,33 @@ class CrossStructureModule(torch.nn.Module):
     """
 
     def __init__(self, config: ml_collections.ConfigDict):
-        """
-        in config:
-            c_s:
-                Single representation channel dimension
-            c_ipa:
-                IPA hidden channel dimension
-            c_resnet:
-                Angle resnet (Alg. 23 lines 11-14) hidden channel dimension
-            no_heads_ipa:
-                Number of IPA heads
-            no_qk_points:
-                Number of query/key points to generate during IPA
-            no_v_points:
-                Number of value points to generate during IPA
-            dropout_rate:
-                Dropout rate used throughout the layer
-            no_blocks:
-                Number of structure module blocks
-            no_resnet_blocks:
-                Number of blocks in the angle resnet
-            no_angles:
-                Number of angles to generate in the angle resnet
-            no_transition_layers:
-                Number of layers to use for transition
-            trans_scale_factor:
-                Scale of single representation transition hidden dimension
-            epsilon:
-                Small number used in angle resnet normalization
+        """In config:
+        c_s:
+            Single representation channel dimension
+        c_ipa:
+            IPA hidden channel dimension
+        c_resnet:
+            Angle resnet (Alg. 23 lines 11-14) hidden channel dimension
+        no_heads_ipa:
+            Number of IPA heads
+        no_qk_points:
+            Number of query/key points to generate during IPA
+        no_v_points:
+            Number of value points to generate during IPA
+        dropout_rate:
+            Dropout rate used throughout the layer
+        no_blocks:
+            Number of structure module blocks
+        no_resnet_blocks:
+            Number of blocks in the angle resnet
+        no_angles:
+            Number of angles to generate in the angle resnet
+        no_transition_layers:
+            Number of layers to use for transition
+        trans_scale_factor:
+            Scale of single representation transition hidden dimension
+        epsilon:
+            Small number used in angle resnet normalization
         """
         super(CrossStructureModule, self).__init__()
 
@@ -106,9 +101,9 @@ class CrossStructureModule(torch.nn.Module):
         self.cross_ipa = CrossInvariantPointAttention(config)
         self.cross_ipa_dropout = torch.nn.Dropout(self.dropout_rate)
         self.cross_ipa_norm = LayerNorm(self.c_s)
-        self.cross_ipa_transition = StructureModuleTransition(self.c_s,
-                                                              self.n_transition_layers,
-                                                              self.dropout_rate)
+        self.cross_ipa_transition = StructureModuleTransition(
+            self.c_s, self.n_transition_layers, self.dropout_rate
+        )
 
         # for predicting backbone frames from s_i
         self.bb_update = BackboneUpdate(self.c_s)
@@ -133,11 +128,9 @@ class CrossStructureModule(torch.nn.Module):
         peptide_mask: torch.Tensor,
         s_protein_initial: torch.Tensor,
         protein_mask: torch.Tensor,
-        T_protein: Rigid
-
+        T_protein: Rigid,
     ) -> Dict[str, torch.Tensor]:
-        """
-        This method predicts peptide structure.
+        """This method predicts peptide structure.
 
         Args:
             peptide_aatype:         [*, peptide_maxlen] (int, 0 - 19, sequence)
@@ -146,6 +139,7 @@ class CrossStructureModule(torch.nn.Module):
             s_protein_initial:      [*, protein_maxlen, c_s] (sequence embedding)
             protein_mask:           [*, protein_maxlen] (whether to use the residue or not)
             T_protein:              [*, protein_maxlen, 4, 4] (backbone frames)
+
         Returns:
             frames:                 [*, peptide_maxlen, 7] (backbone frames)
             sidechain_frames:       [*, peptide_maxlen, 7, 4, 4] (sidechain frames)
@@ -154,7 +148,6 @@ class CrossStructureModule(torch.nn.Module):
             positions:              [*, peptide_maxlen, 14, 3] (atom positions in 14-atom format)
             single:                 [*, peptide_maxlen, c_s] (sequence embedding)
         """
-
         batch_size, peptide_maxlen, embd_depth = s_peptide_initial.shape
 
         # Ignore residues that are masked all across the batch.
@@ -195,15 +188,17 @@ class CrossStructureModule(torch.nn.Module):
         # update s_i repeatedly
         outputs = []
         for i in range(self.n_blocks):
-
             preds = self._block(
                 i,
                 ids,
                 s_peptide_initial,
                 peptide_aatype,
-                s_peptide, s_protein,
-                T_peptide, T_protein,
-                peptide_mask, protein_mask,
+                s_peptide,
+                s_protein,
+                T_peptide,
+                T_protein,
+                peptide_mask,
+                protein_mask,
             )
 
             # retrieve updated state of s_peptide and T_peptide from block_results
@@ -219,30 +214,39 @@ class CrossStructureModule(torch.nn.Module):
         # unslice the output to a returned dictionary
         result = {}
         result["single"] = self._unslice_and_restore_masked(outputs["states"][-1], peptide_slice)
-        result["final_frames"] = self._unslice_and_restore_masked(outputs["frames"][-1], peptide_slice)
-        result["final_sidechain_frames"] = self._unslice_and_restore_masked(outputs["sidechain_frames"][-1], peptide_slice)
-        result["final_angles"] = self._unslice_and_restore_masked(outputs["angles"][-1], peptide_slice, masked_angles)
-        result["final_unnormalized_angles"] = self._unslice_and_restore_masked(outputs["unnormalized_angles"][-1], peptide_slice, masked_angles)
-        result["final_positions"] = self._unslice_and_restore_masked(outputs["positions"][-1], peptide_slice)
+        result["final_frames"] = self._unslice_and_restore_masked(
+            outputs["frames"][-1], peptide_slice
+        )
+        result["final_sidechain_frames"] = self._unslice_and_restore_masked(
+            outputs["sidechain_frames"][-1], peptide_slice
+        )
+        result["final_angles"] = self._unslice_and_restore_masked(
+            outputs["angles"][-1], peptide_slice, masked_angles
+        )
+        result["final_unnormalized_angles"] = self._unslice_and_restore_masked(
+            outputs["unnormalized_angles"][-1], peptide_slice, masked_angles
+        )
+        result["final_positions"] = self._unslice_and_restore_masked(
+            outputs["positions"][-1], peptide_slice
+        )
         return result
 
     @staticmethod
     def _unslice_and_restore_masked(
         residue_value: torch.Tensor,
         residue_slice: torch.Tensor,
-        masked_value: Optional[torch.Tensor] = None
+        masked_value: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
-        """
-        Undoes the effect of slicing.
+        """Undoes the effect of slicing.
         Expands the data tensor back into its original size, with masks.
 
         Args:
             residue_value:          [*, length, ...]
             residue_slice:          [max_length] (bool)
+
         Returns:
             masked_residue_value:   [*, max_length, ...]
         """
-
         dimensions = list(residue_value.shape)
         dimensions[1] = residue_slice.shape[0]
 
@@ -256,19 +260,24 @@ class CrossStructureModule(torch.nn.Module):
         return masked_residue_value
 
     @staticmethod
-    def _write_attention_weights(name_prefix: str, block_index: int, ids: List[str], attention_weights: torch.Tensor):
-
+    def _write_attention_weights(
+        name_prefix: str, block_index: int, ids: List[str], attention_weights: torch.Tensor
+    ):
         for batch_index in range(attention_weights.shape[0]):
-
             id_ = ids[batch_index]
 
             for head_index in range(attention_weights.shape[1]):
-
-                with open(f"{name_prefix}_{id_}_b{block_index}_h{head_index}.txt", 'wt') as f:
-
+                with open(f"{name_prefix}_{id_}_b{block_index}_h{head_index}.txt", "wt") as f:
                     for row_index in range(attention_weights.shape[-2]):
-
-                        f.write(" ".join([str(x.item()) for x in attention_weights[batch_index, head_index, row_index]]) + "\n")
+                        f.write(
+                            " ".join(
+                                [
+                                    str(x.item())
+                                    for x in attention_weights[batch_index, head_index, row_index]
+                                ]
+                            )
+                            + "\n"
+                        )
 
     def _block(
         self,
@@ -282,17 +291,16 @@ class CrossStructureModule(torch.nn.Module):
         T_protein: Rigid,
         peptide_mask: torch.Tensor,
         protein_mask: torch.Tensor,
-
     ) -> Dict[str, torch.Tensor]:
-        """
-        One iterated block, similar to AlphaFold2 Algorithmn 20, lines 5-31
-        """
-
+        """One iterated block, similar to AlphaFold2 Algorithmn 20, lines 5-31"""
         # [*, peptide_maxlen, c_s]
         s_upd, ipa_att = self.cross_ipa(
-            s_peptide, s_protein,
-            T_peptide, T_protein,
-            peptide_mask, protein_mask,
+            s_peptide,
+            s_protein,
+            T_peptide,
+            T_protein,
+            peptide_mask,
+            protein_mask,
         )
 
         if self.debug_attention_weights:
@@ -310,10 +318,7 @@ class CrossStructureModule(torch.nn.Module):
         # quaternion-based transformations to rotation-matrix ones
         # here
         backb_to_global = Rigid(
-            Rotation(
-                rot_mats=T_peptide.get_rots().get_rot_mats(),
-                quats=None
-            ),
+            Rotation(rot_mats=T_peptide.get_rots().get_rot_mats(), quats=None),
             T_peptide.get_trans(),
         )
 
@@ -343,7 +348,9 @@ class CrossStructureModule(torch.nn.Module):
         omegas = torch.cat([post_omegas_from_xyz, last_omega], dim=-2)
         # insert the omegas in the angle tensors
         angles = torch.cat([omegas.unsqueeze(-2), angles[..., 1:, :]], dim=-2)
-        unnormalized_angles = torch.cat([omegas.unsqueeze(-2), unnormalized_angles[..., 1:, :]], dim=-2)
+        unnormalized_angles = torch.cat(
+            [omegas.unsqueeze(-2), unnormalized_angles[..., 1:, :]], dim=-2
+        )
 
         # apply the scale factor, to get the final backbone frames in the output
         scaled_T_peptide = T_peptide.scale_translation(self.trans_scale_factor)
@@ -364,13 +371,11 @@ class CrossStructureModule(torch.nn.Module):
         return preds
 
     def _init_angle(self):
-        """
-        Sometimes, the angle resnet produces (0,0) sin,cos angles.
+        """Sometimes, the angle resnet produces (0,0) sin,cos angles.
         This results in a zero norm and NaN loss values.
 
         To prevent that, we set the bias to nonzero values.
         """
-
         with torch.no_grad():
             self.angle_resnet.linear_out.bias.fill_(self.epsilon)
 
@@ -421,7 +426,6 @@ class CrossStructureModule(torch.nn.Module):
             )
 
     def torsion_angles_to_frames(self, T, alpha, aatype):
-
         # Lazily initialize the residue constants on the correct device
         self._init_residue_constants(alpha.dtype, alpha.device)
 
@@ -429,7 +433,9 @@ class CrossStructureModule(torch.nn.Module):
         return torsion_angles_to_frames(T, alpha, aatype, self.default_frames)
 
     def frames_and_literature_positions_to_atom14_pos(
-        self, T, aatype  # [*, N, 8]  # [*, N]
+        self,
+        T,
+        aatype,  # [*, N, 8]  # [*, N]
     ):
         # Lazily initialize the residue constants on the correct device
         T_rots = T.get_rots()
@@ -445,17 +451,16 @@ class CrossStructureModule(torch.nn.Module):
         )
 
     def _calculate_omegas_from_positions(self, positions: torch.Tensor, res_mask: torch.Tensor):
-        """
-        The amide's hydrogen is absent.
+        """The amide's hydrogen is absent.
         So we calculate the omega from the Ca-C-N-Ca angle.
 
         Args:
             positions: [*, N_res, 14, 3]
             res_mask:  [*, N_res] (boolean)
+
         Returns:
             post omegas sin, cos:  [*, N_res - 1, 2] (normalized)
         """
-
         # positions in the array where the backbone atoms are stored:
         atom_index_N = 0
         atom_index_CA = 1
@@ -490,10 +495,14 @@ class CrossStructureModule(torch.nn.Module):
         plane_n = torch.nn.functional.normalize(vec_CN, dim=-1)
 
         # [*, N_res - 1, 3]
-        newmann0 = torch.nn.functional.normalize(vec_CCA0 - (plane_n * vec_CCA0).sum(dim=-1).unsqueeze(-1) * plane_n, dim=-1)
+        newmann0 = torch.nn.functional.normalize(
+            vec_CCA0 - (plane_n * vec_CCA0).sum(dim=-1).unsqueeze(-1) * plane_n, dim=-1
+        )
 
         # [*, N_res - 1, 3]
-        newmann1 = torch.nn.functional.normalize(vec_NCA1 - (plane_n * vec_NCA1).sum(dim=-1).unsqueeze(-1) * plane_n, dim=-1)
+        newmann1 = torch.nn.functional.normalize(
+            vec_NCA1 - (plane_n * vec_NCA1).sum(dim=-1).unsqueeze(-1) * plane_n, dim=-1
+        )
 
         # convert the projections to cosine and sine
 
@@ -508,7 +517,7 @@ class CrossStructureModule(torch.nn.Module):
         omega_sin = torch.where((cross01 * plane_n).sum(dim=-1) < 0.0, -omega_sin, omega_sin)
 
         # masked areas get 180 degrees omega
-        omega_cos = torch.where(mask, omega_cos,-1.0)
+        omega_cos = torch.where(mask, omega_cos, -1.0)
         omega_sin = torch.where(mask, omega_sin, 0.0)
 
         return torch.cat([omega_sin[..., None], omega_cos[..., None]], dim=-1)

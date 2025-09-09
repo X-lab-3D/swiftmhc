@@ -1,5 +1,4 @@
 import torch
-
 from swiftmhc.tools.amino_acid import stretch_sequence
 
 

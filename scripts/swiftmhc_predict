@@ -1,26 +1,27 @@
 #!/usr/bin/env python
 
-import sys
-import os
 import logging
+import os
+import sys
 from argparse import ArgumentParser
 from multiprocessing import Pool
-from typing import Dict, List, Tuple, Optional
-
+from typing import Dict
+from typing import List
+from typing import Optional
+from typing import Tuple
+import openmm.app
 import pandas
 import torch
-from openfold.np.residue_constants import restype_atom14_mask
-
 from Bio.PDB.PDBIO import PDBIO
-
+from openfold.np.residue_constants import restype_atom14_mask
 from swiftmhc.config import config
-from swiftmhc.tools.pdb import recreate_structure
-from swiftmhc.models.types import ModelType
-from swiftmhc.modules.predictor import Predictor
 from swiftmhc.dataset import ProteinLoopDataset
+from swiftmhc.modules.predictor import Predictor
 from swiftmhc.preprocess import affinity_binding_threshold
-from swiftmhc.tools.md import build_modeller, minimize
-import openmm.app
+from swiftmhc.tools.md import build_modeller
+from swiftmhc.tools.md import minimize
+from swiftmhc.tools.pdb import recreate_structure
+
 
 _log = logging.getLogger(__name__)
 
@@ -29,24 +30,47 @@ PEPTIDE_MAXLEN = 16
 PROTEIN_MAXLEN = 200
 
 
-arg_parser = ArgumentParser(description="predict peptide structures and binding affinity from peptide sequence and MHC structures")
+arg_parser = ArgumentParser(
+    description="predict peptide structures and binding affinity from peptide sequence and MHC structures"
+)
 arg_parser.add_argument("model_path", help="pretrained model")
 arg_parser.add_argument("table_path", help="table containing the columns: 'peptide' and 'allele'")
-arg_parser.add_argument("hdf5_path", help="an hdf5 file containing the preprocessed mhc structures, identified by allele")
+arg_parser.add_argument(
+    "hdf5_path",
+    help="an hdf5 file containing the preprocessed mhc structures, identified by allele",
+)
 arg_parser.add_argument("output_directory", help="directory for the output files: *.pdb and *.csv")
-arg_parser.add_argument("--with-energy-minimization", help="include structure OpenMM energy minimization", action="store_const", const=True, default=False)
-arg_parser.add_argument("--batch-size", "-b", type=int, default=64, help="number of simultaneous complexes to predict in one batch")
-arg_parser.add_argument("--num-workers", "-w", type=int, default=5, help="number of simulteneous data readers")
-arg_parser.add_argument("--num-builders", "-B", type=int, default=1, help="number of simultaneous structure builders, set to 0 to disable structure prediction")
+arg_parser.add_argument(
+    "--with-energy-minimization",
+    help="include structure OpenMM energy minimization",
+    action="store_const",
+    const=True,
+    default=False,
+)
+arg_parser.add_argument(
+    "--batch-size",
+    "-b",
+    type=int,
+    default=64,
+    help="number of simultaneous complexes to predict in one batch",
+)
+arg_parser.add_argument(
+    "--num-workers", "-w", type=int, default=5, help="number of simulteneous data readers"
+)
+arg_parser.add_argument(
+    "--num-builders",
+    "-B",
+    type=int,
+    default=1,
+    help="number of simultaneous structure builders, set to 0 to disable structure prediction",
+)
 
 
 def remove_module_prefix(state: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
-    """
-    Paralellisation adds a 'module.' prefix in the state's keys.
+    """Paralellisation adds a 'module.' prefix in the state's keys.
     Remove those prefixes here.
     """
-
-    d = {} 
+    d = {}
     for key, value in state.items():
         if key.startswith("module."):
             new_key = key[7:]
@@ -61,25 +85,33 @@ def remove_module_prefix(state: Dict[str, torch.Tensor]) -> Dict[str, torch.Tens
     return d
 
 
-def create_dataset(table_path: str, hdf5_path: str, device: torch.device, float_dtype: torch.dtype) -> ProteinLoopDataset:
-
+def create_dataset(
+    table_path: str, hdf5_path: str, device: torch.device, float_dtype: torch.dtype
+) -> ProteinLoopDataset:
     table = pandas.read_csv(table_path)
     pairs = []
     for _, row in table.iterrows():
         pairs.append((row["peptide"], row["allele"]))
 
-    dataset = ProteinLoopDataset(hdf5_path, device, float_dtype, PEPTIDE_MAXLEN, PROTEIN_MAXLEN, pairs=pairs)
+    dataset = ProteinLoopDataset(
+        hdf5_path, device, float_dtype, PEPTIDE_MAXLEN, PROTEIN_MAXLEN, pairs=pairs
+    )
     return dataset
 
 
-def output_structure(path: str, data: List[Tuple[str, torch.Tensor, torch.Tensor, torch.Tensor]], minimize_energy: bool):
-
+def output_structure(
+    path: str,
+    data: List[Tuple[str, torch.Tensor, torch.Tensor, torch.Tensor]],
+    minimize_energy: bool,
+):
     if minimize_energy:
         modeller = build_modeller(data)
         modeller = minimize(modeller)
 
-        with open(path, 'wt') as f:
-            openmm.app.PDBFile.writeFile(modeller.topology, modeller.getPositions(), f, keepIds=True)
+        with open(path, "wt") as f:
+            openmm.app.PDBFile.writeFile(
+                modeller.topology, modeller.getPositions(), f, keepIds=True
+            )
     else:
         structure = recreate_structure(path, data)
 
@@ -100,8 +132,7 @@ def store_output(
 
     # save structures
     for index, id_ in enumerate(batch["ids"]):
-
-        pdb_name = id_.replace("*","x").replace(":", "_")
+        pdb_name = id_.replace("*", "x").replace(":", "_")
         pdb_path = os.path.join(directory_path, f"{pdb_name}.pdb")
 
         peptide_residue_numbers = batch["peptide_residue_numbers"].cpu()
@@ -109,16 +140,21 @@ def store_output(
 
         peptide_atom14_positions = output["final_positions"].cpu()
         peptide_mask = batch["peptide_self_residues_mask"].cpu()
-        peptide_atom14_mask = peptide_mask.new_tensor(restype_atom14_mask[peptide_aatype]) * peptide_mask[..., None]
+        peptide_atom14_mask = (
+            peptide_mask.new_tensor(restype_atom14_mask[peptide_aatype]) * peptide_mask[..., None]
+        )
 
         protein_residue_numbers = batch["protein_residue_numbers"].cpu()
         protein_aatype = batch["protein_aatype"].cpu()
         protein_atom14_positions = batch["protein_atom14_gt_positions"].cpu()
         protein_atom14_exists = batch["protein_atom14_gt_exists"].cpu()
 
-        if pool is not None and ("class" in output and output["class"][index] > 0 or \
-                                 "affinity" in output and output["affinity"][index] > affinity_binding_threshold):
-
+        if pool is not None and (
+            "class" in output
+            and output["class"][index] > 0
+            or "affinity" in output
+            and output["affinity"][index] > affinity_binding_threshold
+        ):
             _log.info(f"add to build pool: {pdb_path}")
 
             # found a binder case, store the model
@@ -126,8 +162,22 @@ def store_output(
                 output_structure,
                 (
                     pdb_path,
-                    [("P", peptide_residue_numbers[index], peptide_aatype[index], peptide_atom14_positions[index], peptide_atom14_mask[index]),
-                     ("M", protein_residue_numbers[index], protein_aatype[index], protein_atom14_positions[index], protein_atom14_exists[index])],
+                    [
+                        (
+                            "P",
+                            peptide_residue_numbers[index],
+                            peptide_aatype[index],
+                            peptide_atom14_positions[index],
+                            peptide_atom14_mask[index],
+                        ),
+                        (
+                            "M",
+                            protein_residue_numbers[index],
+                            protein_aatype[index],
+                            protein_atom14_positions[index],
+                            protein_atom14_exists[index],
+                        ),
+                    ],
                     minimize_energy,
                 ),
                 error_callback=lambda e: _log.exception(f"on {pdb_path}"),
@@ -142,7 +192,9 @@ def store_output(
     }
     if "affinity" in output:
         data_dict["affinity"] = output["affinity"].cpu()
-        data_dict["class"] = (data_dict["affinity"].cpu() > affinity_binding_threshold).to(dtype=torch.int)
+        data_dict["class"] = (data_dict["affinity"].cpu() > affinity_binding_threshold).to(
+            dtype=torch.int
+        )
 
     elif "class" in output:
         data_dict["class"] = output["class"].cpu()
@@ -154,8 +206,8 @@ def store_output(
         data = pandas.DataFrame(data_dict)
     data.to_csv(table_path, index=False)
 
-if __name__ == "__main__":
 
+if __name__ == "__main__":
     logging.basicConfig(stream=sys.stdout, level=logging.INFO)
 
     if torch.cuda.is_available():
@@ -173,11 +225,11 @@ if __name__ == "__main__":
         collate_fn=ProteinLoopDataset.collate,
         batch_size=args.batch_size,
         shuffle=False,
-        num_workers=args.num_workers
+        num_workers=args.num_workers,
     )
 
     # required for CUDA & multiprocessing
-    torch.multiprocessing.set_start_method('spawn')
+    torch.multiprocessing.set_start_method("spawn")
 
     # Set up the model
     model = Predictor(config)
@@ -193,7 +245,13 @@ if __name__ == "__main__":
                 for batch in data_loader:
                     output = model(batch)
 
-                    store_output(builder_pool, args.output_directory, batch, output, args.with_energy_minimization)
+                    store_output(
+                        builder_pool,
+                        args.output_directory,
+                        batch,
+                        output,
+                        args.with_energy_minimization,
+                    )
 
             builder_pool.close()
             builder_pool.join()

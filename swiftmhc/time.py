@@ -1,14 +1,12 @@
-from time import time
 import logging
+from time import time
 
 
 _log = logging.getLogger(__name__)
 
 
 class Timer:
-    """
-    Used to log the amount of time an operation takes.
-    """
+    """Used to log the amount of time an operation takes."""
 
     def __init__(self, title: str):
         self._title = title

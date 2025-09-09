@@ -1,37 +1,40 @@
-from typing import List, Tuple, Union, Optional, Dict
-import os
 import logging
-from math import isinf, floor, ceil, log, sqrt
+import os
 import tarfile
-from uuid import uuid4
+from math import ceil
+from math import floor
+from math import isinf
+from math import log
 from tempfile import gettempdir
-
+from typing import Dict
+from typing import List
+from typing import Optional
+from typing import Tuple
+from typing import Union
+from uuid import uuid4
 import h5py
-import pandas
 import numpy
+import pandas
 import torch
 from Bio.PDB.PDBParser import PDBParser
-from Bio.PDB.Structure import Structure
-from Bio.PDB.Chain import Chain
 from Bio.PDB.Residue import Residue
-from Bio.Align import PairwiseAligner
-from Bio import SeqIO
-from Bio.PDB.Polypeptide import is_aa
-from Bio.Data.IUPACData import protein_letters_1to3, protein_letters_3to1
+from Bio.PDB.Structure import Structure
 from blosum import BLOSUM
-
-from openfold.np.residue_constants import restype_atom37_mask, restype_atom14_mask, chi_angles_mask, restypes
-from openfold.data.data_transforms import (atom37_to_frames,
-                                           atom37_to_torsion_angles,
-                                           get_backbone_frames,
-                                           make_atom14_masks,
-                                           make_atom14_positions)
+from openfold.data.data_transforms import atom37_to_frames
+from openfold.data.data_transforms import atom37_to_torsion_angles
+from openfold.data.data_transforms import get_backbone_frames
+from openfold.data.data_transforms import make_atom14_masks
+from openfold.data.data_transforms import make_atom14_positions
+from openfold.np.residue_constants import chi_angles_mask
+from openfold.np.residue_constants import restype_atom14_mask
+from openfold.np.residue_constants import restypes
 from openfold.utils.feats import atom14_to_atom37
-
-from .tools.pdb import get_atom14_positions
-from .domain.amino_acid import amino_acids_by_letter, amino_acids_by_code, canonical_amino_acids, seleno_methionine, methionine, AMINO_ACID_DIMENSION
+from .domain.amino_acid import AMINO_ACID_DIMENSION
+from .domain.amino_acid import amino_acids_by_code
+from .domain.amino_acid import amino_acids_by_letter
 from .models.amino_acid import AminoAcid
 from .models.complex import ComplexClass
+from .tools.pdb import get_atom14_positions
 
 
 _log = logging.getLogger(__name__)
@@ -57,8 +60,7 @@ def _write_preprocessed_data(
     affinity_gt: Optional[bool] = False,
     class_: Optional[ComplexClass] = None,
 ):
-    """
-    Output preprocessed protein-peptide data to and hdf5 file.
+    """Output preprocessed protein-peptide data to and hdf5 file.
 
     Args:
         hdf5_path: path to output file
@@ -70,11 +72,9 @@ def _write_preprocessed_data(
         affinity_gt: a mask, true for >, false for =
         class_: BINDING/NONBINDING
     """
-
     _log.debug(f"writing {storage_id} to {hdf5_path}")
 
-    with h5py.File(hdf5_path, 'a') as hdf5_file:
-
+    with h5py.File(hdf5_path, "a") as hdf5_file:
         storage_group = hdf5_file.require_group(storage_id)
 
         # store affinity/class data
@@ -100,7 +100,9 @@ def _write_preprocessed_data(
             peptide_group = storage_group.require_group(PREPROCESS_PEPTIDE_NAME)
             for field_name, field_data in peptide_data.items():
                 if isinstance(field_data, torch.Tensor):
-                    peptide_group.create_dataset(field_name, data=field_data.cpu(), compression="lzf")
+                    peptide_group.create_dataset(
+                        field_name, data=field_data.cpu(), compression="lzf"
+                    )
                 else:
                     peptide_group.create_dataset(field_name, data=field_data)
 
@@ -109,26 +111,24 @@ def _has_protein_data(
     hdf5_path: str,
     name: str,
 ) -> bool:
-    """
-    Check whether the preprocessed protein data is present.
+    """Check whether the preprocessed protein data is present.
 
     Args:
         hdf5_path: where it's stored
         name: the name in the hdf5, that it should be stored under
     """
-
     if not os.path.isfile(hdf5_path):
         return False
 
-    with h5py.File(hdf5_path, 'r') as hdf5_file:
+    with h5py.File(hdf5_path, "r") as hdf5_file:
         return name in hdf5_file and PREPROCESS_PROTEIN_NAME in hdf5_file[name]
+
 
 def _load_protein_data(
     hdf5_path: str,
     name: str,
 ) -> Dict[str, torch.Tensor]:
-    """
-    Load preprocessed protein data.
+    """Load preprocessed protein data.
 
     Args:
         hdf5_path: where it's stored
@@ -136,10 +136,9 @@ def _load_protein_data(
     Returns:
         the stored data
     """
-
     data = {}
 
-    with h5py.File(hdf5_path, 'r') as hdf5_file:
+    with h5py.File(hdf5_path, "r") as hdf5_file:
         entry = hdf5_file[name]
         protein = entry[PREPROCESS_PROTEIN_NAME]
 
@@ -148,7 +147,6 @@ def _load_protein_data(
 
             value = protein[key][()]
             if isinstance(value, numpy.ndarray):
-
                 data[key] = torch.tensor(value)
             else:
                 data[key] = value
@@ -156,21 +154,15 @@ def _load_protein_data(
     return data
 
 
-def _save_protein_data(
-    hdf5_path: str,
-    name: str,
-    data: Dict[str, torch.Tensor]
-):
-    """
-    Save preprocessed protein data.
+def _save_protein_data(hdf5_path: str, name: str, data: Dict[str, torch.Tensor]):
+    """Save preprocessed protein data.
 
     Args:
         hdf5_path: where to store it
         name: name to store it under in the hdf5
         data: to be stored
     """
-
-    with h5py.File(hdf5_path, 'a') as hdf5_file:
+    with h5py.File(hdf5_path, "a") as hdf5_file:
         entry = hdf5_file.require_group(name)
         protein = entry.require_group(PREPROCESS_PROTEIN_NAME)
 
@@ -187,9 +179,9 @@ def _save_protein_data(
 # chain id, residue number, amino acid
 ResidueMaskType = Tuple[str, int, AminoAcid]
 
+
 def _read_mask_data(path: str) -> List[ResidueMaskType]:
-    """
-    Read from the mask TSV file, which residues in the PDB file should be marked as True.
+    """Read from the mask TSV file, which residues in the PDB file should be marked as True.
 
     Format: CHAIN_ID  RESIDUE_NUMBER  AMINO_ACID_THREE_LETTER_CODE
 
@@ -200,10 +192,9 @@ def _read_mask_data(path: str) -> List[ResidueMaskType]:
     Returns:
         list of residues, present in the mask file
     """
-
     mask_data = []
 
-    with open(path, 'r') as f:
+    with open(path, "r") as f:
         for line in f:
             if not line.startswith("#"):
                 row = line.split()
@@ -217,9 +208,10 @@ def _read_mask_data(path: str) -> List[ResidueMaskType]:
     return mask_data
 
 
-def get_blosum_encoding(aa_indexes: List[int], blosum_index: int, device: torch.device) -> torch.Tensor:
-    """
-    Convert amino acids to BLOSUM encoding
+def get_blosum_encoding(
+    aa_indexes: List[int], blosum_index: int, device: torch.device
+) -> torch.Tensor:
+    """Convert amino acids to BLOSUM encoding
 
     Arguments:
         aa_indexes: order of numbers 0 to 19, coding for the amino acids
@@ -228,7 +220,6 @@ def get_blosum_encoding(aa_indexes: List[int], blosum_index: int, device: torch.
     Returns:
         [len, 20] the amino acids encoded by their BLOSUM rows
     """
-
     matrix = BLOSUM(blosum_index)
     encoding = []
     for aa_index in aa_indexes:
@@ -236,7 +227,6 @@ def get_blosum_encoding(aa_indexes: List[int], blosum_index: int, device: torch.
 
         row = []
         for other_aa_letter in restypes:
-
             matrix_value = matrix[aa_letter][other_aa_letter]
             if isinf(matrix_value):
                 raise ValueError(f"not found in blosum matrix: {aa_letter} & {other_aa_letter}")
@@ -249,8 +239,7 @@ def get_blosum_encoding(aa_indexes: List[int], blosum_index: int, device: torch.
 
 
 def _has_calpha(residue: Residue) -> bool:
-    "tells whether a residue has a C-alpha atom"
-
+    """Tells whether a residue has a C-alpha atom"""
     for atom in residue.get_atoms():
         if atom.get_name() == "CA":
             return True
@@ -259,8 +248,7 @@ def _has_calpha(residue: Residue) -> bool:
 
 
 def _get_calpha_position(residue: Residue) -> numpy.ndarray:
-    "get xyz for C-alpha atom in residue"
-
+    """Get xyz for C-alpha atom in residue"""
     for atom in residue.get_atoms():
         if atom.get_name() == "CA":
             return numpy.array(atom.get_coord())
@@ -272,13 +260,11 @@ def _map_superposed(
     structure0: Structure,
     structure1: Structure,
 ) -> List[Tuple[Residue, Residue]]:
-    """
-    Pairs up residues from superposed structures, by means of closest distance.
+    """Pairs up residues from superposed structures, by means of closest distance.
 
     Returns:
         the paired residues from the input structures.
     """
-
     # index residues and positions
     residues0 = [r for r in structure0.get_residues() if _has_calpha(r)]
     residues1 = [r for r in structure1.get_residues() if _has_calpha(r)]
@@ -286,7 +272,9 @@ def _map_superposed(
     positions1 = numpy.stack([_get_calpha_position(r) for r in residues1])
 
     # calculate squared distances between residues in superposed structures
-    squared_distance_matrix = numpy.sum((positions0[:, None, :] - positions1[None, :, :]) ** 2, axis=-1)
+    squared_distance_matrix = numpy.sum(
+        (positions0[:, None, :] - positions1[None, :, :]) ** 2, axis=-1
+    )
 
     # Pick a very narrow max distance to make sure that only the obvious matches are made.
     # We don't want residues to take each other's places.
@@ -296,14 +284,14 @@ def _map_superposed(
     # pair closest residues
     pairs = []
     for i0 in range(len(residues0)):
-
         # it must be the closest pair of neighbours in two directions: 0 -> 1 and 1 -> 0
         closest_i1 = squared_distance_matrix[i0, :].argmin()
         closest_i0 = squared_distance_matrix[:, closest_i1].argmin()
 
         if closest_i0 == i0 and squared_distance_matrix[i0, closest_i1] < max_squared_distance:
-
-            _log.debug(f"pair up residue {residues0[i0]} with closest neighbour {residues1[closest_i1]}")
+            _log.debug(
+                f"pair up residue {residues0[i0]} with closest neighbour {residues1[closest_i1]}"
+            )
 
             pairs.append((residues0[i0], residues1[closest_i1]))
 
@@ -313,10 +301,8 @@ def _map_superposed(
     # fill obvious gaps
     gap_pairs = []
     for j, pair in enumerate(pairs):
-
         # Two ends?
         if j < (len(pairs) - 1):
-
             next_pair = pairs[j + 1]
 
             prev_i0 = residues0.index(pair[0])
@@ -329,10 +315,11 @@ def _map_superposed(
             m = next_i1 - prev_i1
 
             # same distance and ends on the same chain?
-            if n == m and \
-               pair[0].get_parent() == next_pair[0].get_parent() and \
-               pair[1].get_parent() == next_pair[1].get_parent():
-
+            if (
+                n == m
+                and pair[0].get_parent() == next_pair[0].get_parent()
+                and pair[1].get_parent() == next_pair[1].get_parent()
+            ):
                 # add the residues in between
                 for i0 in range(prev_i0 + 1, next_i0):
                     i1 = i0 - prev_i0 + prev_i1
@@ -348,8 +335,7 @@ def _map_superposed(
 
 
 def _make_sequence_data(sequence: str, device: torch.device) -> Dict[str, torch.Tensor]:
-    """
-    Convert a sequence into a format that SwiftMHC can work with.
+    """Convert a sequence into a format that SwiftMHC can work with.
 
     Args:
         sequence: one letter codes of amino acids
@@ -362,7 +348,6 @@ def _make_sequence_data(sequence: str, device: torch.device) -> Dict[str, torch.
         torsion_angles_mask: [len, 7] which torsion angles each residue should have (openfold format)
         atom14_gt_exists: [len, 14] which atom each residue should have (openfold 14 format)
     """
-
     length = len(sequence)
     residue_numbers = torch.arange(length, device=device)
 
@@ -377,21 +362,26 @@ def _make_sequence_data(sequence: str, device: torch.device) -> Dict[str, torch.
     torsion_angles_mask[:, 3:] = torch.tensor([chi_angles_mask[i] for i in aatype], device=device)
 
     # atoms mask
-    atom14_gt_exists = torch.tensor(numpy.array([restype_atom14_mask[i] for i in aatype]), device=device)
+    atom14_gt_exists = torch.tensor(
+        numpy.array([restype_atom14_mask[i] for i in aatype]), device=device
+    )
 
-    return make_atom14_masks({
-        "aatype": aatype,
-        "sequence_onehot": sequence_onehot,
-        "blosum62": blosum62,
-        "residue_numbers": residue_numbers,
-        "torsion_angles_mask": torsion_angles_mask,
-        "atom14_gt_exists": atom14_gt_exists,
-    })
+    return make_atom14_masks(
+        {
+            "aatype": aatype,
+            "sequence_onehot": sequence_onehot,
+            "blosum62": blosum62,
+            "residue_numbers": residue_numbers,
+            "torsion_angles_mask": torsion_angles_mask,
+            "atom14_gt_exists": atom14_gt_exists,
+        }
+    )
 
 
-def _replace_residue_atom(residue: Residue, atom_name: str, new_atom_name: str, new_element: str) -> Residue:
-    "sets a new name and element for the selected atom"
-
+def _replace_residue_atom(
+    residue: Residue, atom_name: str, new_atom_name: str, new_element: str
+) -> Residue:
+    """Sets a new name and element for the selected atom"""
     for atom in residue.get_atoms():
         if atom.get_name() == atom_name:
             atom.name = new_atom_name
@@ -401,8 +391,7 @@ def _replace_residue_atom(residue: Residue, atom_name: str, new_atom_name: str, 
 
 
 def _replace_amino_acid_by_canonical(residue: Residue) -> Residue:
-    "replaces non-canonical amino acids by canonical and replaces the atoms accordingly"
-
+    """Replaces non-canonical amino acids by canonical and replaces the atoms accordingly"""
     if residue is None:  # gap
         return None
 
@@ -413,9 +402,10 @@ def _replace_amino_acid_by_canonical(residue: Residue) -> Residue:
     return residue
 
 
-def _read_residue_data_from_structure(residues: List[Residue], device: torch.device) -> Dict[str, torch.Tensor]:
-    """
-    Convert residues from a structure into a format that SwiftMHC can work with.
+def _read_residue_data_from_structure(
+    residues: List[Residue], device: torch.device
+) -> Dict[str, torch.Tensor]:
+    """Convert residues from a structure into a format that SwiftMHC can work with.
     (these are mostly openfold formats, created by openfold code)
 
     Args:
@@ -435,13 +425,14 @@ def _read_residue_data_from_structure(residues: List[Residue], device: torch.dev
         atom14_alt_gt_positions: [len, 14, 3] alternative atom positions (openfold 14 format)
         residx_atom14_to_atom37: [len, 14] per residue, conversion table from openfold 14 to openfold 37 atom format
     """
-
     # fix problems with non-canonical amino acids by replacing them
     residues = [_replace_amino_acid_by_canonical(r) for r in residues]
 
     # embed the sequence
     aas = [amino_acids_by_code[r.get_resname()] if r is not None else None for r in residues]
-    sequence_onehot = torch.stack([aa.one_hot_code if aa is not None else torch.zeros(AMINO_ACID_DIMENSION) for aa in aas]).to(device=device)
+    sequence_onehot = torch.stack(
+        [aa.one_hot_code if aa is not None else torch.zeros(AMINO_ACID_DIMENSION) for aa in aas]
+    ).to(device=device)
     aatype = torch.tensor([aa.index if aa is not None else 0 for aa in aas], device=device)
     blosum62 = get_blosum_encoding(aatype, 62, device)
 
@@ -492,9 +483,10 @@ def _read_residue_data_from_structure(residues: List[Residue], device: torch.dev
     return protein
 
 
-def _create_proximities(residues1: List[Residue], residues2: List[Residue], device: torch.device) -> torch.Tensor:
-    """
-    Create a proximity matrix from two lists of residues from a structure.
+def _create_proximities(
+    residues1: List[Residue], residues2: List[Residue], device: torch.device
+) -> torch.Tensor:
+    """Create a proximity matrix from two lists of residues from a structure.
     proximity = 1.0 / (1.0 + shortest_interatomic_distance)
 
     Args:
@@ -503,24 +495,37 @@ def _create_proximities(residues1: List[Residue], residues2: List[Residue], devi
     Returns:
         [len1, len2, 1] proximity matrix
     """
-
-    float_dtype=torch.float32
+    float_dtype = torch.float32
 
     # allocate memory
-    residue_distances = torch.empty((len(residues1), len(residues2), 1), dtype=float_dtype, device=device)
+    residue_distances = torch.empty(
+        (len(residues1), len(residues2), 1), dtype=float_dtype, device=device
+    )
 
     # get atomic coordinates
-    atom_positions1 = [torch.tensor(numpy.array([atom.coord for atom in residue.get_atoms() if atom.element != "H"]), device=device)
-                       if residue is not None else None for residue in residues1]
-    atom_positions2 = [torch.tensor(numpy.array([atom.coord for atom in residue.get_atoms() if atom.element != "H"]), device=device)
-                       if residue is not None else None for residue in residues2]
+    atom_positions1 = [
+        torch.tensor(
+            numpy.array([atom.coord for atom in residue.get_atoms() if atom.element != "H"]),
+            device=device,
+        )
+        if residue is not None
+        else None
+        for residue in residues1
+    ]
+    atom_positions2 = [
+        torch.tensor(
+            numpy.array([atom.coord for atom in residue.get_atoms() if atom.element != "H"]),
+            device=device,
+        )
+        if residue is not None
+        else None
+        for residue in residues2
+    ]
 
     # calculate distance matrix, using the shortest interatomic distance between two residues
     for i in range(len(residues1)):
         for j in range(len(residues2)):
-
             if residues1[i] is None or residues2[j] is None:
-
                 min_distance = 1e10
             else:
                 atomic_distances_ij = torch.cdist(atom_positions1[i], atom_positions2[j], p=2)
@@ -534,8 +539,7 @@ def _create_proximities(residues1: List[Residue], residues2: List[Residue], devi
 
 
 def _pymol_superpose(mobile_path: str, target_path: str) -> Tuple[str, str]:
-    """
-    Superpose a structure onto another structure in PYMOL and create an alignment.
+    """Superpose a structure onto another structure in PYMOL and create an alignment.
 
     Args:
         mobile_path: PDB structure, to be superposed
@@ -544,7 +548,6 @@ def _pymol_superpose(mobile_path: str, target_path: str) -> Tuple[str, str]:
         a path to the superposed PDB structure
         and a path to the clustal alignment (.aln) file
     """
-
     from pymol import cmd as pymol_cmd
 
     # define output paths
@@ -555,8 +558,8 @@ def _pymol_superpose(mobile_path: str, target_path: str) -> Tuple[str, str]:
     pymol_cmd.reinitialize()
 
     # load structures
-    pymol_cmd.load(mobile_path, 'mobile')
-    pymol_cmd.load(target_path, 'target')
+    pymol_cmd.load(mobile_path, "mobile")
+    pymol_cmd.load(target_path, "target")
 
     # superpose
     r = pymol_cmd.align("mobile", "target", object="alignment")
@@ -576,8 +579,7 @@ def _find_model_as_bytes(
     models_path: str,
     model_id: str,
 ) -> bytes:
-    """
-    Handles the various ways in which models are stored in directories, subdirectories and tar files.
+    """Handles the various ways in which models are stored in directories, subdirectories and tar files.
     This function searches under the given path for a model identified by the given id.
 
     Args:
@@ -586,7 +588,6 @@ def _find_model_as_bytes(
     Returns:
         the byte contents of the PDB file
     """
-
     # expect the PDB extension
     model_name = f"{model_id}.pdb"
 
@@ -595,11 +596,10 @@ def _find_model_as_bytes(
 
     # search under directory
     if os.path.isdir(models_path):
-
         # search direct children
         model_path = os.path.join(models_path, model_name)
         if os.path.isfile(model_path):
-            with open(model_path, 'rb') as f:
+            with open(model_path, "rb") as f:
                 bs = f.read()
                 if len(bs) < min_bytes:
                     raise ValueError(f"{len(bs)} bytes in {model_path}")
@@ -615,7 +615,7 @@ def _find_model_as_bytes(
             subdir_name = f"{subset_start}_{subset_end}"
             model_path = os.path.join(models_path, subdir_name, model_id, "pdb", f"{model_id}.pdb")
             if os.path.isfile(model_path):
-                with open(model_path, 'rb') as f:
+                with open(model_path, "rb") as f:
                     bs = f.read()
                     if len(bs) < min_bytes:
                         raise ValueError(f"{len(bs)} bytes in {model_path}")
@@ -623,7 +623,7 @@ def _find_model_as_bytes(
 
     # search in tarball (slow)
     elif models_path.endswith("tar"):
-        with tarfile.open(models_path, 'r') as tf:
+        with tarfile.open(models_path, "r") as tf:
             for filename in tf.getnames():
                 if filename.endswith(model_name):
                     with tf.extractfile(filename) as f:
@@ -642,8 +642,7 @@ def _get_masked_structure(
     reference_masks: Dict[str, List[ResidueMaskType]],
     renumber_according_to_mask: bool,
 ) -> Tuple[Structure, Dict[str, List[Tuple[Residue, bool]]]]:
-    """
-    Mask a structure, according to the given mask.
+    """Mask a structure, according to the given mask.
 
     Args:
         model_bytes: contents of the model PDB
@@ -655,18 +654,17 @@ def _get_masked_structure(
         selected residues will be (Residue, True)
         masked out residues will be (NoneYype, False)
     """
-
     # need a pdb parser
     pdb_parser = PDBParser()
 
     # write model to disk
     model_path = f"{uuid4().hex}.pdb"
-    with open(model_path, 'wb') as f:
+    with open(model_path, "wb") as f:
         f.write(model_bytes)
 
     try:
         model_structure = pdb_parser.get_structure("model", model_path)
-    except Exception as e:
+    except Exception:
         _log.exception(f"parsing {model_path}")
         raise
 
@@ -698,20 +696,25 @@ def _get_masked_structure(
     # use the reference structure to map the masks to the model
     mask_result = {}
     for mask_name, reference_mask in reference_masks.items():
-
         # residues, that match with the reference mask, will be set to True
         masked_residues = []
         for chain_id, residue_number, aa in reference_mask:
-
             # locate the masked residue in the reference structure
-            matching_residues = [residue for residue in reference_structure.get_residues()
-                                 if residue.get_parent().get_id() == chain_id and
-                                    residue.get_id() == (' ', residue_number, ' ')]
+            matching_residues = [
+                residue
+                for residue in reference_structure.get_residues()
+                if residue.get_parent().get_id() == chain_id
+                and residue.get_id() == (" ", residue_number, " ")
+            ]
             if len(matching_residues) == 0:
-                raise ValueError(f"The mask has residue {chain_id},{residue_number}, but the reference structure doesn't")
+                raise ValueError(
+                    f"The mask has residue {chain_id},{residue_number}, but the reference structure doesn't"
+                )
 
             if len(matching_residues) > 1:
-                raise ValueError(f"Mask residue {chain_id}{residue_number}, found multiple times in the reference structure")
+                raise ValueError(
+                    f"Mask residue {chain_id}{residue_number}, found multiple times in the reference structure"
+                )
 
             reference_residue = matching_residues[0]
 
@@ -728,14 +731,15 @@ def _get_masked_structure(
                     superposed_residue = rsup
                     break
             else:
-                _log.warning(f"reference residue {reference_residue} was not aliged to any residue in the superposed model")
+                _log.warning(
+                    f"reference residue {reference_residue} was not aliged to any residue in the superposed model"
+                )
 
             # Add a masked out (False) Nonetype residue, where there's a gap
             masked_residue = [None, False]
 
             # if no gap, then set to True
             if superposed_residue is not None:
-
                 masked_residue = [superposed_residue, True]
 
                 if renumber_according_to_mask:
@@ -751,10 +755,7 @@ def _get_masked_structure(
 
 
 def _k_to_affinity(k: float) -> float:
-    """
-    The formula used to comvert Kd / IC50 to affinity.
-    """
-
+    """The formula used to comvert Kd / IC50 to affinity."""
     if k == 0.0:
         # presume it's rounded down
         return 1.0
@@ -766,9 +767,10 @@ def _k_to_affinity(k: float) -> float:
 affinity_binding_threshold = _k_to_affinity(500.0)
 
 
-def _interpret_target(target: Union[str, float]) -> Tuple[Union[float, None], bool, bool, Union[ComplexClass, None]]:
-    """
-    target can be anything, decide that here.
+def _interpret_target(
+    target: Union[str, float],
+) -> Tuple[Union[float, None], bool, bool, Union[ComplexClass, None]]:
+    """Target can be anything, decide that here.
 
     Args:
         target: the target value in the data
@@ -779,7 +781,6 @@ def _interpret_target(target: Union[str, float]) -> Tuple[Union[float, None], bo
         does affinity have a greater-than inequality y/n
         class BINDING/NONBINDING
     """
-
     # init to default
     affinity = None
     affinity_lt = False
@@ -815,11 +816,10 @@ def _interpret_target(target: Union[str, float]) -> Tuple[Union[float, None], bo
     return affinity, affinity_lt, affinity_gt, class_
 
 
-def _select_sequence_of_masked_residues(masked_residues: List[Tuple[Residue, bool]]) -> List[Tuple[Residue, bool]]:
-    """
-    Orders the list of masked residues by number and discards the flanking parts that are set to False.
-    """
-
+def _select_sequence_of_masked_residues(
+    masked_residues: List[Tuple[Residue, bool]],
+) -> List[Tuple[Residue, bool]]:
+    """Orders the list of masked residues by number and discards the flanking parts that are set to False."""
     masked_sequence = sorted(masked_residues, key=lambda x: x[0].get_id()[1])
 
     mask = numpy.array([m for r, m in masked_sequence])
@@ -830,7 +830,7 @@ def _select_sequence_of_masked_residues(masked_residues: List[Tuple[Residue, boo
     s_order = "\n".join([str(x) for x in masked_sequence])
     _log.debug(s_order)
 
-    return masked_sequence[i: j]
+    return masked_sequence[i:j]
 
 
 def _generate_structure_data(
@@ -840,10 +840,8 @@ def _generate_structure_data(
     protein_cross_mask_path: str,
     allele_name: str,
     device: torch.device,
-
 ) -> Tuple[Dict[str, torch.Tensor], Union[Dict[str, torch.Tensor], None]]:
-    """
-    Get all the data from the structure and put it in a hdf5 storable format.
+    """Get all the data from the structure and put it in a hdf5 storable format.
 
     Args:
         model_bytes: the pdb model as bytes sequence
@@ -866,7 +864,7 @@ def _generate_structure_data(
             atom14_alt_gt_positions: [len, 14, 3]
             residx_atom14_to_atom37: [len, 14]
             proximities: [len, len, 1]
-            allele_name: byte sequence 
+            allele_name: byte sequence
 
         the peptide: (optional)
             residue_numbers: [len] numbers of the residue as in the structure
@@ -883,7 +881,6 @@ def _generate_structure_data(
             residx_atom14_to_atom37: [len, 14]
 
     """
-
     # parse the mask files
     protein_residues_self_mask = _read_mask_data(protein_self_mask_path)
     protein_residues_cross_mask = _read_mask_data(protein_cross_mask_path)
@@ -902,9 +899,12 @@ def _generate_structure_data(
     ordered_protein_residues = [r for r, m in self_masked_protein_residues]
 
     cross_masked_protein_residues_dict = {r: m for r, m in masked_residues_dict["cross"]}
-    cross_masked_protein_residues = [(r, cross_masked_protein_residues_dict[r])
-                                     if r is not None and r in cross_masked_protein_residues_dict else (None, False)
-                                     for r in ordered_protein_residues]
+    cross_masked_protein_residues = [
+        (r, cross_masked_protein_residues_dict[r])
+        if r is not None and r in cross_masked_protein_residues_dict
+        else (None, False)
+        for r in ordered_protein_residues
+    ]
 
     # apply the limiting protein range, reducing the size of the data that needs to be generated.
     self_residues_mask = [m for r, m in self_masked_protein_residues]
@@ -916,7 +916,9 @@ def _generate_structure_data(
     protein_data["self_residues_mask"] = self_residues_mask
 
     # proximities between residues within protein
-    protein_proximities = _create_proximities(ordered_protein_residues, ordered_protein_residues, device)
+    protein_proximities = _create_proximities(
+        ordered_protein_residues, ordered_protein_residues, device
+    )
     protein_data["proximities"] = protein_proximities
 
     # allele
@@ -925,7 +927,6 @@ def _generate_structure_data(
     # peptide is optional
     peptide_data = None
     if len(list(structure.get_chains())) >= 2:
-
         shortest_length = 1000000
         shortest_chain = None
         for chain in structure.get_chains():
@@ -954,8 +955,7 @@ def preprocess(
     reference_structure_path: str,
     skip_errors: bool,
 ):
-    """
-    Preprocess p-MHC-I data, to be used in SwiftMHC.
+    """Preprocess p-MHC-I data, to be used in SwiftMHC.
 
     Args:
         table_path: CSV input data table, containing columns: ID (of complex),
@@ -969,21 +969,21 @@ def preprocess(
         reference_structure_path: structure to align the models to and where the masks apply to
         skip_errors: whether to stop if an error occurs or to continue to the next data entry
     """
-
     device = torch.device("cpu")
 
     # the table with non-structural data:
     # - peptide sequence
     # - affinity / class
     # - allele name
-    table = pandas.read_csv(table_path, dtype={'ID':'string', "allele":"string", "peptide": "string"})
+    table = pandas.read_csv(
+        table_path, dtype={"ID": "string", "allele": "string", "peptide": "string"}
+    )
 
     # here we store temporary data, to be removed after preprocessing:
     tmp_hdf5_path = os.path.join(gettempdir(), f"preprocess-tmp-{uuid4()}.hdf5")
 
     # iterate through the table
     for table_index, row in table.iterrows():
-
         # retrieve ID from table
         id_ = row["ID"]
 
@@ -994,7 +994,9 @@ def preprocess(
         class_ = None
         try:
             if "measurement_value" in row:
-                affinity, affinity_lt, affinity_gt, class_ = _interpret_target(row["measurement_value"])
+                affinity, affinity_lt, affinity_gt, class_ = _interpret_target(
+                    row["measurement_value"]
+                )
 
                 # keep in mind that we do 1.0 - log_50000(IC50),
                 # thus the inequality must be flipped
@@ -1028,10 +1030,8 @@ def preprocess(
         try:
             model_bytes = _find_model_as_bytes(models_path, id_)
         except (KeyError, FileNotFoundError):
-
             # at this point, assume that the model is not available
             if class_ == ComplexClass.BINDING:
-
                 _log.exception(f"cannot get structure for binder {id_}")
                 continue
             else:
@@ -1040,7 +1040,6 @@ def preprocess(
 
         try:
             if include_peptide_structure:
-
                 # peptide structure is needed, thus load the entire model
                 protein_data, peptide_data = _generate_structure_data(
                     model_bytes,
@@ -1054,7 +1053,6 @@ def preprocess(
                 # not including the peptide structure,
                 # check whether the protein structure was already preprocessed
                 if _has_protein_data(tmp_hdf5_path, allele):
-
                     # if the protein structure is already there, don't preprocess it again
                     protein_data = _load_protein_data(tmp_hdf5_path, allele)
                 else:

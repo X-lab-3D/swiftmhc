@@ -1,16 +1,13 @@
 from typing import List
-
 import numpy
 
 
 class EarlyStopper:
-    """
-    Keeps track of early stopping variables and checks whether the conditions
+    """Keeps track of early stopping variables and checks whether the conditions
     for early stopping are met.
     """
 
     def __init__(self, patience: int = 50, epsilon: float = 1e-4):
-
         # number of successive epochs matching epsilon
         self._patience = patience
 
@@ -22,7 +19,6 @@ class EarlyStopper:
 
     @staticmethod
     def _filter_outliers(values: List[float]) -> List[float]:
-
         if len(values) == 0:
             return values
 
@@ -50,16 +46,12 @@ class EarlyStopper:
 
         return passed
 
-
     def update(self, validation_loss: float):
-
         self._record.append(validation_loss)
 
     def stops_early(self) -> bool:
-
         if len(self._record) > self._patience:
-
-            recent = numpy.array(self._filter_outliers(self._record[-self._patience:]))
+            recent = numpy.array(self._filter_outliers(self._record[-self._patience :]))
             if recent.shape[0] < 2:
                 return False
 
@@ -77,8 +69,7 @@ class EarlyStopper:
 
 
 class TrainingPhase:
-    """
-    Keeps track of the number of epochs passed,
+    """Keeps track of the number of epochs passed,
     before a maximum is reached.
     """
 
@@ -137,4 +128,3 @@ class TrainingPhase:
 
     def __str__(self):
         return f"max_epoch={self._max_epoch_count}, lr={self._lr}, fape_tune={self._fape_tune}, torsion_tune={self._torsion_tune}, affinity_tune={self._affinity_tune}, fine_tune={self._fine_tune}"
-

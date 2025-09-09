@@ -1,15 +1,12 @@
-from typing import Optional, Tuple, Sequence
-from math import sqrt
-
 import logging
-import torch
-
+from math import sqrt
+from typing import Optional
+from typing import Tuple
 import ml_collections
-
-from openfold.model.primitives import Linear, LayerNorm, ipa_point_weights_init_
-from openfold.utils.precision_utils import is_fp16_enabled
-from openfold.utils.tensor_utils import permute_final_dims, flatten_final_dims, dict_multimap
-
+import torch
+from openfold.model.primitives import Linear
+from openfold.utils.tensor_utils import flatten_final_dims
+from openfold.utils.tensor_utils import permute_final_dims
 from ..tools.rigid import Rigid
 
 
@@ -18,9 +15,7 @@ _log = logging.getLogger(__name__)
 
 class DebuggableInvariantPointAttention(torch.nn.Module):
     def __init__(self, config: ml_collections.ConfigDict):
-
-        """
-        This is like Algorithm 22 in AlphaFold2, but without the third attention weight term.
+        """This is like Algorithm 22 in AlphaFold2, but without the third attention weight term.
         Also, the second attention weight term is made from a proximity matrix.
         The code was taken from OpenFold and then modified.
         The original InvariantPointAttention class is at:
@@ -61,9 +56,7 @@ class DebuggableInvariantPointAttention(torch.nn.Module):
 
         self.linear_b = Linear(self.c_z, self.no_heads, bias=False)
 
-        concat_out_dim = self.no_heads * (
-            self.c_z + self.c_hidden
-        )
+        concat_out_dim = self.no_heads * (self.c_z + self.c_hidden)
         self.linear_out = Linear(concat_out_dim, self.c_s, init="final")
 
         self.softmax = torch.nn.Softmax(dim=-1)
@@ -80,8 +73,7 @@ class DebuggableInvariantPointAttention(torch.nn.Module):
         mask: torch.Tensor,
         inplace_safe: bool = False,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
-        """
-        Performs Invariant Point attention on the residues within one sequence.
+        """Performs Invariant Point attention on the residues within one sequence.
 
         Args:
             s:      [*, N_res, C_s] single representation
@@ -92,7 +84,6 @@ class DebuggableInvariantPointAttention(torch.nn.Module):
             [*, N_res, C_s] updated single representation
             [*, H, N_res, N_res] attention weights
         """
-
         #######################################
         # Generate scalar and point activations
         #######################################
@@ -125,18 +116,18 @@ class DebuggableInvariantPointAttention(torch.nn.Module):
         a_sd = torch.matmul(
             permute_final_dims(q, (1, 0, 2)),  # [*, H, N_res, C_hidden]
             permute_final_dims(k, (1, 2, 0)),  # [*, H, C_hidden, N_res]
-
         ) / sqrt(self.c_hidden)
 
-        a = self.softmax(self.w_L * (a_sd + b) - self.inf * torch.logical_not(square_mask[..., None, :, :]).to(dtype=s.dtype))
+        a = self.softmax(
+            self.w_L * (a_sd + b)
+            - self.inf * torch.logical_not(square_mask[..., None, :, :]).to(dtype=s.dtype)
+        )
 
         ################
         # Compute output
         ################
         # [*, N_res, H, C_hidden]
-        o = torch.matmul(
-            a, v.transpose(-2, -3).to(dtype=a.dtype)
-        ).transpose(-2, -3)
+        o = torch.matmul(a, v.transpose(-2, -3).to(dtype=a.dtype)).transpose(-2, -3)
 
         # [*, N_res, H * C_hidden]
         o = flatten_final_dims(o, 2)
@@ -148,10 +139,6 @@ class DebuggableInvariantPointAttention(torch.nn.Module):
         o_pair = flatten_final_dims(o_pair, 2)
 
         # [*, N_res, C_s]
-        s_upd = self.linear_out(
-            torch.cat(
-                (o, o_pair), dim=-1
-            ).to(dtype=z.dtype)
-        )
+        s_upd = self.linear_out(torch.cat((o, o_pair), dim=-1).to(dtype=z.dtype))
 
         return s_upd, a

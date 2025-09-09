@@ -1,14 +1,11 @@
-from typing import Tuple, Optional
-from math import pi, ceil, floor, log, sqrt
 import logging
-
+from math import sqrt
+from typing import Tuple
+import ml_collections
 import torch
 import torch.nn
-
-import ml_collections
-
-from openfold.model.primitives import Linear, LayerNorm
-
+from openfold.model.primitives import LayerNorm
+from openfold.model.primitives import Linear
 from position_encoding.relative import get_relative_position_encoding_matrix
 
 
@@ -16,21 +13,17 @@ _log = logging.getLogger(__name__)
 
 
 class PeptideSelfAttention(torch.nn.Module):
-    """
-    Gives the input sequence a relative positional encoding and performs multi-headed attention.
-    """
+    """Gives the input sequence a relative positional encoding and performs multi-headed attention."""
 
     def __init__(self, config: ml_collections.ConfigDict):
+        """In config:
+        no_heads:           number of attention heads
+        peptide_maxlen(k):  determines the number of distance bins: [-k, -k + 1, ..., 0, ..., k - 1, k]
+        c_s:                the depth of the input tensor, at shape -1
+        dropout_rate:       for the dropouts before normalisation
+        c_transition:       transition depth in feed forward block
+        c_hidden:           the depth of the hidden tensors: attention query(q), keys(k), values(v)
         """
-        in config:
-            no_heads:           number of attention heads
-            peptide_maxlen(k):  determines the number of distance bins: [-k, -k + 1, ..., 0, ..., k - 1, k]
-            c_s:                the depth of the input tensor, at shape -1
-            dropout_rate:       for the dropouts before normalisation
-            c_transition:       transition depth in feed forward block
-            c_hidden:           the depth of the hidden tensors: attention query(q), keys(k), values(v)
-        """
-
         super(PeptideSelfAttention, self).__init__()
 
         # constants
@@ -53,7 +46,9 @@ class PeptideSelfAttention(torch.nn.Module):
         self.linear_b = Linear(self.no_bins, self.no_heads, bias=False)
 
         # generates the output of the multi-headed attention
-        self.linear_output = Linear((self.no_bins + self.c_hidden) * self.no_heads, self.c_s, init='final')
+        self.linear_output = Linear(
+            (self.no_bins + self.c_hidden) * self.no_heads, self.c_s, init="final"
+        )
 
         # to be used after multi-headed attention
         self.norm1 = torch.nn.Sequential(
@@ -63,9 +58,9 @@ class PeptideSelfAttention(torch.nn.Module):
 
         # to be used after multi-headed attention norm
         self.feed_forward = torch.nn.Sequential(
-            Linear(self.c_s, self.c_transition, init='relu'),
+            Linear(self.c_s, self.c_transition, init="relu"),
             torch.nn.ReLU(),
-            Linear(self.c_transition, self.c_s, init='final'),
+            Linear(self.c_transition, self.c_s, init="final"),
         )
 
         # to be used after feed-forward
@@ -75,8 +70,7 @@ class PeptideSelfAttention(torch.nn.Module):
         )
 
     def forward(self, s: torch.Tensor, mask: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-        """
-        Encodes a sequence, by means of self attention and feed forward MLP
+        """Encodes a sequence, by means of self attention and feed forward MLP
 
         Args:
             s:      [*, N_res, c_s]
@@ -86,7 +80,6 @@ class PeptideSelfAttention(torch.nn.Module):
             updated s:  [*, N_res, c_s]
             attention:  [*, H, N_res, N_res]
         """
-
         s_upd, a = self.attention(s, mask)
         s = self.norm1(s + s_upd)
 
@@ -95,8 +88,7 @@ class PeptideSelfAttention(torch.nn.Module):
         return s, a
 
     def attention(self, s: torch.Tensor, mask: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-        """
-        Performs multi-headed attention, but also takes relative positions into account.
+        """Performs multi-headed attention, but also takes relative positions into account.
 
         Args:
             s:      [*, N_res, c_s]
@@ -106,28 +98,44 @@ class PeptideSelfAttention(torch.nn.Module):
             updated s:  [*, N_res, c_s]
             attention:  [*, H, N_res, N_res]
         """
-
         batch_size, maxlen = mask.shape
 
         # [*, N_res, N_res]
         square_mask = torch.logical_and(mask[..., :, None], mask[..., None, :])
 
         # [*, N_res, N_res, no_bins]
-        z = get_relative_position_encoding_matrix(maxlen, self.no_bins).to(device=s.device, dtype=s.dtype)
+        z = get_relative_position_encoding_matrix(maxlen, self.no_bins).to(
+            device=s.device, dtype=s.dtype
+        )
         z = z[None, ...] * square_mask[..., None]
 
         # [*, H, N_res, N_res]
         b = self.linear_b(z).transpose(-2, -1).transpose(-3, -2)
 
         # [*, H, N_res, c_hidden]
-        q = self.linear_q(s).reshape(batch_size, maxlen, self.c_hidden, self.no_heads).transpose(-2, -1).transpose(-3, -2)
-        k = self.linear_k(s).reshape(batch_size, maxlen, self.c_hidden, self.no_heads).transpose(-2, -1).transpose(-3, -2)
-        v = self.linear_v(s).reshape(batch_size, maxlen, self.c_hidden, self.no_heads).transpose(-2, -1).transpose(-3, -2)
+        q = (
+            self.linear_q(s)
+            .reshape(batch_size, maxlen, self.c_hidden, self.no_heads)
+            .transpose(-2, -1)
+            .transpose(-3, -2)
+        )
+        k = (
+            self.linear_k(s)
+            .reshape(batch_size, maxlen, self.c_hidden, self.no_heads)
+            .transpose(-2, -1)
+            .transpose(-3, -2)
+        )
+        v = (
+            self.linear_v(s)
+            .reshape(batch_size, maxlen, self.c_hidden, self.no_heads)
+            .transpose(-2, -1)
+            .transpose(-3, -2)
+        )
 
         # [*, H, N_res, N_res]
         a = torch.nn.functional.softmax(
             self.w_L * (torch.matmul(q, k.transpose(-2, -1)) / sqrt(self.c_hidden) + b)
-                 - self.inf * torch.logical_not(square_mask[..., None, :, :]).to(dtype=s.dtype),
+            - self.inf * torch.logical_not(square_mask[..., None, :, :]).to(dtype=s.dtype),
             dim=-1,
         )
 
@@ -141,10 +149,12 @@ class PeptideSelfAttention(torch.nn.Module):
         embd = self.linear_output(
             torch.cat(
                 (
-                    o_pair.transpose(-3, -2).reshape(batch_size, maxlen, self.no_heads * self.no_bins),
+                    o_pair.transpose(-3, -2).reshape(
+                        batch_size, maxlen, self.no_heads * self.no_bins
+                    ),
                     o.transpose(-3, -2).reshape(batch_size, maxlen, self.no_heads * self.c_hidden),
                 ),
-                dim=-1
+                dim=-1,
             )
         )
 

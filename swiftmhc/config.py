@@ -1,6 +1,6 @@
 import ml_collections as mlc
-
 from .models.types import ModelType
+
 
 config = mlc.ConfigDict(
     {
