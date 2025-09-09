@@ -6,7 +6,6 @@ import shutil
 from argparse import ArgumentParser
 from math import ceil
 from multiprocessing import Process
-from typing import List
 from uuid import uuid4
 import h5py
 import pandas
@@ -55,7 +54,7 @@ arg_parser.add_argument(
 )
 
 
-def split_table(table_path: str, dir_path: str, split_count: int) -> List[str]:
+def split_table(table_path: str, dir_path: str, split_count: int) -> list[str]:
     """Splits one table into multiple tables.
 
     Args:

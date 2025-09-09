@@ -1,8 +1,5 @@
 import logging
 from importlib import resources
-from typing import Dict
-from typing import List
-from typing import Tuple
 import torch
 from openfold.np.residue_constants import residue_atoms
 from openfold.np.residue_constants import restype_1to3
@@ -29,7 +26,7 @@ _log = logging.getLogger(__name__)
 amino_acid_order = [restype_1to3[letter] for letter in restypes]
 
 
-def _load_bond_definitions() -> Dict[str, Tuple[str, str]]:
+def _load_bond_definitions() -> dict[str, tuple[str, str]]:
     """Load the interatomic bond definitions from the file."""
     stereo_chemical_props = resources.read_text("openfold.resources", "stereo_chemical_props.txt")
 

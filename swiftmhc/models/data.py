@@ -1,10 +1,4 @@
 import logging
-from typing import Dict
-from typing import List
-from typing import Optional
-from typing import Set
-from typing import Tuple
-from typing import Union
 import torch
 from openfold.utils.rigid_utils import Rotation
 from ..tools.rigid import Rigid
@@ -16,13 +10,13 @@ _log = logging.getLogger(__name__)
 class TensorDict:
     """This is like a Dictionary of tensors, but it can undergo math operations."""
 
-    def __init__(self, data: Optional[Dict[str, Union[torch.Tensor, Rigid, List[str]]]] = None):
+    def __init__(self, data: dict[str, torch.Tensor | Rigid | list[str]] | None = None):
         if data is None:
             self._data = {}
         else:
             self._data = data
 
-    def __setitem__(self, key: str, value: Union[torch.Tensor, Rigid, List[str]]):
+    def __setitem__(self, key: str, value: torch.Tensor | Rigid | list[str]):
         self._data[key] = value
 
     def __getitem__(self, key: str):
@@ -53,10 +47,10 @@ class TensorDict:
     def __iter__(self):
         return iter(self._data)
 
-    def keys(self) -> Set[str]:
+    def keys(self) -> set[str]:
         return self._data.keys()
 
-    def items(self) -> Set[Tuple[str, Union[torch.Tensor, Rigid, List[str]]]]:
+    def items(self) -> set[tuple[str, torch.Tensor | Rigid | list[str]]]:
         return self._data.items()
 
     def take(self, *keys):
@@ -113,7 +107,7 @@ class TensorDict:
 
         return TensorDict(d)
 
-    def __truediv__(self, scalar: Union[int, float]):
+    def __truediv__(self, scalar: int | float):
         d = {key: self._data[key] / scalar for key in self._data}
 
         return TensorDict(d)

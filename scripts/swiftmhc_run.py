@@ -7,10 +7,6 @@ from argparse import ArgumentParser
 from copy import copy
 from io import StringIO
 from multiprocessing.pool import Pool
-from typing import Dict
-from typing import List
-from typing import Optional
-from typing import Tuple
 from uuid import uuid4
 import h5py
 import numpy
@@ -158,7 +154,7 @@ def save_structure_to_hdf5(structure: Structure, group: h5py.Group):
 def recreate_structure_to_hdf5(
     hdf5_path: str,
     name: str,
-    data: List[Tuple[str, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]],
+    data: list[tuple[str, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]],
 ):
     """Builds a structure from the atom coordinates and saves it to a hdf5 file
 
@@ -183,7 +179,7 @@ def recreate_structure_to_hdf5(
 def minimize_structure_to_hdf5(
     hdf5_path: str,
     name: str,
-    data: List[Tuple[str, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]],
+    data: list[tuple[str, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]],
 ):
     """Builds a structure from the atom coordinates, minimizes it using OpenMM and saves it to a hdf5 file
 
@@ -223,8 +219,8 @@ def output_structures_to_directory(
     process_count: int,
     output_directory: str,
     filename_prefix: str,
-    data: Dict[str, torch.Tensor],
-    output: Dict[str, torch.Tensor],
+    data: dict[str, torch.Tensor],
+    output: dict[str, torch.Tensor],
     minimize_energy: bool,
 ):
     """Used to save all models (truth) and (prediction) to two hdf5 files
@@ -327,7 +323,7 @@ def output_structures_to_directory(
         pool.join()
 
 
-def remove_module_prefix(state: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+def remove_module_prefix(state: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
     """Paralellisation adds a 'module.' prefix in the state's keys.
     Remove those prefixes here.
     """
@@ -378,7 +374,7 @@ class Trainer:
             return torch.cpu.device_count()
 
     def _snapshot(
-        self, frame_id: str, model: Predictor, output_directory: str, data: Dict[str, torch.Tensor]
+        self, frame_id: str, model: Predictor, output_directory: str, data: dict[str, torch.Tensor]
     ):
         """Use the given model to predict output for the given data and store a snapshot of the output.
 
@@ -454,7 +450,7 @@ class Trainer:
         fape_tune: bool,
         torsion_tune: bool,
         fine_tune: bool,
-    ) -> Tuple[TensorDict, Dict[str, torch.Tensor]]:
+    ) -> tuple[TensorDict, dict[str, torch.Tensor]]:
         """Action performed when training on a single batch.
         This involves backpropagation.
 
@@ -503,7 +499,7 @@ class Trainer:
         torsion_tune: bool,
         fine_tune: bool,
         output_directory: str,
-        animated_data: Optional[Dict[str, torch.Tensor]] = None,
+        animated_data: dict[str, torch.Tensor] | None = None,
     ):
         """Do one training epoch, with backward propagation.
         The model parameters are adjusted per batch.
@@ -553,8 +549,8 @@ class Trainer:
         torsion_tune: bool,
         fine_tune: bool,
         output_directory: str,
-        structure_builders_count: Optional[int] = 0,
-        minimize_energy: Optional[bool] = True,
+        structure_builders_count: int = 0,
+        minimize_energy: bool | None = True,
     ) -> float:
         """Run an evaluation of the model, thus no backward propagation.
         The model parameters stay the same in this call.
@@ -625,9 +621,9 @@ class Trainer:
 
     def test(
         self,
-        test_loaders: [DataLoader],
+        test_loaders: list[DataLoader],
         run_id: str,
-        animated_complex_ids: List[str],
+        animated_complex_ids: list[str],
         model_path: str,
         structure_builders_count: int,
         minimize_energy: bool,
@@ -704,8 +700,8 @@ class Trainer:
 
     @staticmethod
     def _get_selection_data_batch(
-        datasets: List[ProteinLoopDataset], names: List[str]
-    ) -> Dict[str, torch.Tensor]:
+        datasets: list[ProteinLoopDataset], names: list[str]
+    ) -> dict[str, torch.Tensor]:
         """Searches for the requested entries in the datasets and collates them together in a batch.
         This needs to be done when animating structures.
 
@@ -738,13 +734,13 @@ class Trainer:
         self,
         train_loader: DataLoader,
         valid_loader: DataLoader,
-        test_loaders: List[DataLoader],
-        epoch_counts: Tuple[int, int],
+        test_loaders: list[DataLoader],
+        epoch_counts: tuple[int, int],
         disable_ba_loss: bool,
         disable_struct_loss: bool,
         run_id: str,
         pretrained_model_path: str,
-        animated_complex_ids: List[str],
+        animated_complex_ids: list[str],
         patience: int,
     ):
         """Call this method for training a model
@@ -937,9 +933,9 @@ class Trainer:
         self,
         data_path: str,
         batch_size: int,
-        shuffle: Optional[bool] = True,
-        entry_ids: Optional[List[str]] = None,
-        name: Optional[str] = None,
+        shuffle: bool | None = True,
+        entry_ids: list[str] | None = None,
+        name: str | None = None,
     ) -> DataLoader:
         """Builds a data loader from a hdf5 dataset path.
 
@@ -977,7 +973,7 @@ class Trainer:
         return loader
 
 
-def read_ids_from(path: str) -> List[str]:
+def read_ids_from(path: str) -> list[str]:
     """Reads the contents of a text file as a list of data point ids"""
     ids = []
     with open(path) as file_:
@@ -986,7 +982,7 @@ def read_ids_from(path: str) -> List[str]:
     return ids
 
 
-def random_subdivision(ids: List[str], fraction: float) -> Tuple[List[str], List[str]]:
+def random_subdivision(ids: list[str], fraction: float) -> tuple[list[str], list[str]]:
     """Randomly divides a list of ids in two, given a fraction
 
     Args:
@@ -1003,7 +999,7 @@ def random_subdivision(ids: List[str], fraction: float) -> Tuple[List[str], List
     return shuffled[:-n], shuffled[-n:]
 
 
-def get_excluded(names_from: List[str], names_exclude: List[str]) -> List[str]:
+def get_excluded(names_from: list[str], names_exclude: list[str]) -> list[str]:
     """Remove the names from one list from the other list
     Args:
         names_from: list from which names should be removed

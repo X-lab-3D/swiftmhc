@@ -11,9 +11,9 @@ class Rigid(openfold.utils.rigid_utils.Rigid):
 
     @staticmethod
     def identity(
-        shape: Tuple[int],
-        dtype: Optional[torch.dtype] = None,
-        device: Optional[torch.device] = None,
+        shape: tuple[int],
+        dtype: torch.dtype | None = None,
+        device: torch.device | None = None,
         requires_grad: bool = True,
         fmt: str = "quat",
     ) -> Rigid:

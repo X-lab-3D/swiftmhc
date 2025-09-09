@@ -1,6 +1,5 @@
 import logging
 from math import log
-from typing import Dict
 import ml_collections
 import torch
 from openfold.config import config as openfold_config
@@ -33,10 +32,10 @@ _log = logging.getLogger(__name__)
 
 
 def _compute_fape_loss(
-    output: Dict[str, torch.Tensor],
-    batch: Dict[str, torch.Tensor],
+    output: dict[str, torch.Tensor],
+    batch: dict[str, torch.Tensor],
     config: ml_collections.ConfigDict,
-) -> Dict[str, torch.Tensor]:
+) -> dict[str, torch.Tensor]:
     """Compute FAPE loss as in openfold
 
     Returns:
@@ -128,10 +127,10 @@ def _compute_fape_loss(
 
 
 def _compute_cross_violation_loss(
-    output: Dict[str, torch.Tensor],
-    batch: Dict[str, torch.Tensor],
+    output: dict[str, torch.Tensor],
+    batch: dict[str, torch.Tensor],
     config: ml_collections.ConfigDict,
-) -> Dict[str, torch.Tensor]:
+) -> dict[str, torch.Tensor]:
     """Compute violations in the predicted structure.
 
     Returns:
@@ -307,8 +306,8 @@ _regression_loss_function = torch.nn.MSELoss(reduction="none")
 
 def get_loss(
     model_type: ModelType,
-    output: Dict[str, torch.Tensor],
-    batch: Dict[str, torch.Tensor],
+    output: dict[str, torch.Tensor],
+    batch: dict[str, torch.Tensor],
     affinity_tune: bool,
     fape_tune: bool,
     torsion_tune: bool,
@@ -450,8 +449,8 @@ def get_loss(
 
 
 def get_calpha_rmsd(
-    output_data: Dict[str, torch.Tensor], batch_data: Dict[str, torch.Tensor]
-) -> Dict[str, float]:
+    output_data: dict[str, torch.Tensor], batch_data: dict[str, torch.Tensor]
+) -> dict[str, float]:
     """Returns: rmsd per binder id, nonbinders are ignored"""
     # take binders only
     if "class" in batch_data:

@@ -1,14 +1,11 @@
 from math import floor
-from typing import List
-from typing import Tuple
-from typing import Union
 import torch
 from ..domain.amino_acid import amino_acids_by_one_hot_index
 from ..domain.amino_acid import unknown_amino_acid
 from ..models.amino_acid import AminoAcid
 
 
-def one_hot_decode_sequence(encoded_sequence: torch.Tensor) -> List[Union[AminoAcid, None]]:
+def one_hot_decode_sequence(encoded_sequence: torch.Tensor) -> list[AminoAcid | None]:
     """Args:
         encoded_sequence: [sequence_length, AMINO_ACID_DIMENSION]
 
@@ -41,7 +38,7 @@ def one_hot_decode_sequence(encoded_sequence: torch.Tensor) -> List[Union[AminoA
 
 def stretch_sequence(
     encoded_sequence: torch.Tensor, new_length: int
-) -> Tuple[torch.Tensor, torch.Tensor]:
+) -> tuple[torch.Tensor, torch.Tensor]:
     """Encodes a sequence as a masked sequence with given length.
     XXXXXXXXX becomes XXXX----X---XXXX
 

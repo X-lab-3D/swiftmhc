@@ -5,10 +5,6 @@ import os
 import sys
 from argparse import ArgumentParser
 from multiprocessing import Pool
-from typing import Dict
-from typing import List
-from typing import Optional
-from typing import Tuple
 import openmm.app
 import pandas
 import torch
@@ -66,7 +62,7 @@ arg_parser.add_argument(
 )
 
 
-def remove_module_prefix(state: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+def remove_module_prefix(state: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
     """Paralellisation adds a 'module.' prefix in the state's keys.
     Remove those prefixes here.
     """
@@ -101,7 +97,7 @@ def create_dataset(
 
 def output_structure(
     path: str,
-    data: List[Tuple[str, torch.Tensor, torch.Tensor, torch.Tensor]],
+    data: list[tuple[str, torch.Tensor, torch.Tensor, torch.Tensor]],
     minimize_energy: bool,
 ):
     if minimize_energy:
@@ -121,10 +117,10 @@ def output_structure(
 
 
 def store_output(
-    pool: Optional[Pool],
+    pool: Pool | None,
     directory_path: str,
-    batch: Dict[str, torch.Tensor],
-    output: Dict[str, torch.Tensor],
+    batch: dict[str, torch.Tensor],
+    output: dict[str, torch.Tensor],
     minimize_energy: bool,
 ):
     if not os.path.isdir(directory_path):

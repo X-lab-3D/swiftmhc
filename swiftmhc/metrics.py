@@ -1,8 +1,5 @@
 import csv
 import os
-from typing import Dict
-from typing import List
-from typing import Union
 import numpy
 import pandas
 import torch
@@ -14,7 +11,7 @@ from .loss import AFFINITY_BINDING_TRESHOLD
 from .loss import get_calpha_rmsd
 
 
-def get_sequence(aatype: List[int], mask: List[bool]) -> str:
+def get_sequence(aatype: list[int], mask: list[bool]) -> str:
     """Converts aatype tensor to a one letter encoded sequence string."""
     s = ""
     for i, b in enumerate(mask):
@@ -24,7 +21,7 @@ def get_sequence(aatype: List[int], mask: List[bool]) -> str:
     return s
 
 
-def get_accuracy(truth: List[int], pred: List[int]) -> float:
+def get_accuracy(truth: list[int], pred: list[int]) -> float:
     """A simple method to calculate accuracy from two equally long lists of class values"""
     count = 0
     right = 0
@@ -63,9 +60,9 @@ class MetricsRecord:
 
     def add_batch(
         self,
-        losses: Dict[str, torch.Tensor],
-        output: Dict[str, torch.Tensor],
-        truth: Dict[str, torch.Tensor],
+        losses: dict[str, torch.Tensor],
+        output: dict[str, torch.Tensor],
+        truth: dict[str, torch.Tensor],
     ):
         """Call this once per batch, to keep track of the model's output and losses."""
         # count how many datapoints have passed
@@ -192,7 +189,7 @@ class MetricsRecord:
         )
 
     @staticmethod
-    def _has_distribution(values: List[Union[float, int]]) -> bool:
+    def _has_distribution(values: list[float | int]) -> bool:
         """If the values are all the same, returns False
         if there's at least one value different from the others, returns True
         """

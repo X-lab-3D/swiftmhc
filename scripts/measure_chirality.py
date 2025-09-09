@@ -4,7 +4,6 @@ import logging
 import os
 import sys
 from argparse import ArgumentParser
-from typing import Tuple
 import numpy
 import pandas
 from Bio.PDB.Atom import Atom
@@ -33,7 +32,7 @@ def get_atom(residue: Residue, name: str) -> Atom:
 
 def analyze(
     pdb_path: str,
-) -> Tuple[pandas.DataFrame, pandas.DataFrame]:
+) -> tuple[pandas.DataFrame, pandas.DataFrame]:
     """Examine chiralities for one pdb file."""
     id_ = os.path.basename(pdb_path)
 

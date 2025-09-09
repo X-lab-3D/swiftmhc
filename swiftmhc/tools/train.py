@@ -1,4 +1,3 @@
-from typing import List
 import numpy
 
 
@@ -18,7 +17,7 @@ class EarlyStopper:
         self._record = []
 
     @staticmethod
-    def _filter_outliers(values: List[float]) -> List[float]:
+    def _filter_outliers(values: list[float]) -> list[float]:
         if len(values) == 0:
             return values
 

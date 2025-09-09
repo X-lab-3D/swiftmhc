@@ -5,8 +5,6 @@ import os
 import sys
 from argparse import ArgumentParser
 from math import pi
-from typing import List
-from typing import Tuple
 import numpy
 import pandas
 from Bio.PDB.Atom import Atom
@@ -29,7 +27,7 @@ def get_residue_id(residue: Residue) -> str:
     return f"{residue.get_resname()} " + "".join([str(x) for x in residue.get_id()]).strip()
 
 
-def get_torsion_angle(x: List[List[float]]) -> numpy.ndarray:
+def get_torsion_angle(x: list[list[float]]) -> numpy.ndarray:
     """Calculates the torsion angle from 4 atomic positions(x):"""
     p01 = numpy.array(x[1]) - numpy.array(x[0])
     p12 = numpy.array(x[2]) - numpy.array(x[1])
@@ -77,7 +75,7 @@ def get_atom(residue: Residue, name: str) -> Atom:
 
 def analyze(
     pdb_path: str,
-) -> Tuple[pandas.DataFrame, pandas.DataFrame]:
+) -> tuple[pandas.DataFrame, pandas.DataFrame]:
     """Measure angles in one PDB file."""
     id_ = os.path.basename(pdb_path)
 

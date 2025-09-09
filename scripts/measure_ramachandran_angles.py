@@ -4,7 +4,6 @@ import logging
 import os
 import sys
 from argparse import ArgumentParser
-from typing import Tuple
 import pandas
 from Bio.PDB.PDBParser import PDBParser
 
@@ -21,7 +20,7 @@ pdb_parser = PDBParser()
 
 def analyze(
     pdb_path: str,
-) -> Tuple[pandas.DataFrame, pandas.DataFrame]:
+) -> tuple[pandas.DataFrame, pandas.DataFrame]:
     """Lets BioPython calculate phi and psi for one PDB structure."""
     id_ = os.path.basename(pdb_path)
 

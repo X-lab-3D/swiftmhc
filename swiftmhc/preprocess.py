@@ -6,11 +6,6 @@ from math import floor
 from math import isinf
 from math import log
 from tempfile import gettempdir
-from typing import Dict
-from typing import List
-from typing import Optional
-from typing import Tuple
-from typing import Union
 from uuid import uuid4
 import h5py
 import numpy
@@ -53,12 +48,12 @@ PREPROCESS_PEPTIDE_NAME = "peptide"
 def _write_preprocessed_data(
     hdf5_path: str,
     storage_id: str,
-    protein_data: Dict[str, torch.Tensor],
-    peptide_data: Optional[Dict[str, torch.Tensor]] = None,
-    affinity: Optional[float] = None,
-    affinity_lt: Optional[bool] = False,
-    affinity_gt: Optional[bool] = False,
-    class_: Optional[ComplexClass] = None,
+    protein_data: dict[str, torch.Tensor],
+    peptide_data: dict[str, torch.Tensor] | None = None,
+    affinity: float | None = None,
+    affinity_lt: bool | None = False,
+    affinity_gt: bool | None = False,
+    class_: ComplexClass | None = None,
 ):
     """Output preprocessed protein-peptide data to and hdf5 file.
 
@@ -127,7 +122,7 @@ def _has_protein_data(
 def _load_protein_data(
     hdf5_path: str,
     name: str,
-) -> Dict[str, torch.Tensor]:
+) -> dict[str, torch.Tensor]:
     """Load preprocessed protein data.
 
     Args:
@@ -154,7 +149,7 @@ def _load_protein_data(
     return data
 
 
-def _save_protein_data(hdf5_path: str, name: str, data: Dict[str, torch.Tensor]):
+def _save_protein_data(hdf5_path: str, name: str, data: dict[str, torch.Tensor]):
     """Save preprocessed protein data.
 
     Args:
@@ -177,10 +172,10 @@ def _save_protein_data(hdf5_path: str, name: str, data: Dict[str, torch.Tensor])
 
 # Representation of a line in the mask file:
 # chain id, residue number, amino acid
-ResidueMaskType = Tuple[str, int, AminoAcid]
+ResidueMaskType = tuple[str, int, AminoAcid]
 
 
-def _read_mask_data(path: str) -> List[ResidueMaskType]:
+def _read_mask_data(path: str) -> list[ResidueMaskType]:
     """Read from the mask TSV file, which residues in the PDB file should be marked as True.
 
     Format: CHAIN_ID  RESIDUE_NUMBER  AMINO_ACID_THREE_LETTER_CODE
@@ -209,7 +204,7 @@ def _read_mask_data(path: str) -> List[ResidueMaskType]:
 
 
 def get_blosum_encoding(
-    aa_indexes: List[int], blosum_index: int, device: torch.device
+    aa_indexes: list[int], blosum_index: int, device: torch.device
 ) -> torch.Tensor:
     """Convert amino acids to BLOSUM encoding
 
@@ -259,7 +254,7 @@ def _get_calpha_position(residue: Residue) -> numpy.ndarray:
 def _map_superposed(
     structure0: Structure,
     structure1: Structure,
-) -> List[Tuple[Residue, Residue]]:
+) -> list[tuple[Residue, Residue]]:
     """Pairs up residues from superposed structures, by means of closest distance.
 
     Returns:
@@ -334,7 +329,7 @@ def _map_superposed(
     return pairs
 
 
-def _make_sequence_data(sequence: str, device: torch.device) -> Dict[str, torch.Tensor]:
+def _make_sequence_data(sequence: str, device: torch.device) -> dict[str, torch.Tensor]:
     """Convert a sequence into a format that SwiftMHC can work with.
 
     Args:
@@ -403,8 +398,8 @@ def _replace_amino_acid_by_canonical(residue: Residue) -> Residue:
 
 
 def _read_residue_data_from_structure(
-    residues: List[Residue], device: torch.device
-) -> Dict[str, torch.Tensor]:
+    residues: list[Residue], device: torch.device
+) -> dict[str, torch.Tensor]:
     """Convert residues from a structure into a format that SwiftMHC can work with.
     (these are mostly openfold formats, created by openfold code)
 
@@ -484,7 +479,7 @@ def _read_residue_data_from_structure(
 
 
 def _create_proximities(
-    residues1: List[Residue], residues2: List[Residue], device: torch.device
+    residues1: list[Residue], residues2: list[Residue], device: torch.device
 ) -> torch.Tensor:
     """Create a proximity matrix from two lists of residues from a structure.
     proximity = 1.0 / (1.0 + shortest_interatomic_distance)
@@ -538,7 +533,7 @@ def _create_proximities(
     return 1.0 / (1.0 + residue_distances)
 
 
-def _pymol_superpose(mobile_path: str, target_path: str) -> Tuple[str, str]:
+def _pymol_superpose(mobile_path: str, target_path: str) -> tuple[str, str]:
     """Superpose a structure onto another structure in PYMOL and create an alignment.
 
     Args:
@@ -639,9 +634,9 @@ def _find_model_as_bytes(
 def _get_masked_structure(
     model_bytes: bytes,
     reference_structure_path: str,
-    reference_masks: Dict[str, List[ResidueMaskType]],
+    reference_masks: dict[str, list[ResidueMaskType]],
     renumber_according_to_mask: bool,
-) -> Tuple[Structure, Dict[str, List[Tuple[Residue, bool]]]]:
+) -> tuple[Structure, dict[str, list[tuple[Residue, bool]]]]:
     """Mask a structure, according to the given mask.
 
     Args:
@@ -768,8 +763,8 @@ affinity_binding_threshold = _k_to_affinity(500.0)
 
 
 def _interpret_target(
-    target: Union[str, float],
-) -> Tuple[Union[float, None], bool, bool, Union[ComplexClass, None]]:
+    target: str | float,
+) -> tuple[float | None, bool, bool, ComplexClass | None]:
     """Target can be anything, decide that here.
 
     Args:
@@ -817,8 +812,8 @@ def _interpret_target(
 
 
 def _select_sequence_of_masked_residues(
-    masked_residues: List[Tuple[Residue, bool]],
-) -> List[Tuple[Residue, bool]]:
+    masked_residues: list[tuple[Residue, bool]],
+) -> list[tuple[Residue, bool]]:
     """Orders the list of masked residues by number and discards the flanking parts that are set to False."""
     masked_sequence = sorted(masked_residues, key=lambda x: x[0].get_id()[1])
 
@@ -840,7 +835,7 @@ def _generate_structure_data(
     protein_cross_mask_path: str,
     allele_name: str,
     device: torch.device,
-) -> Tuple[Dict[str, torch.Tensor], Union[Dict[str, torch.Tensor], None]]:
+) -> tuple[dict[str, torch.Tensor], dict[str, torch.Tensor] | None]:
     """Get all the data from the structure and put it in a hdf5 storable format.
 
     Args:

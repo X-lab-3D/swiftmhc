@@ -1,6 +1,4 @@
 import logging
-from typing import List
-from typing import Tuple
 import numpy
 import torch
 from Bio.PDB.Atom import Atom
@@ -39,7 +37,7 @@ def _get_atom(residue: Residue, name: str) -> Atom:
     raise ValueError(f"{residue} has no such atom: {name}")
 
 
-def get_atom14_positions(residue: Residue) -> Tuple[torch.Tensor, torch.Tensor]:
+def get_atom14_positions(residue: Residue) -> tuple[torch.Tensor, torch.Tensor]:
     """Get the positions of the atoms for one residue.
 
     Args:
@@ -69,7 +67,7 @@ amino_acid_order = [restype_1to3[letter] for letter in restypes]
 
 def recreate_structure(
     structure_id: str,
-    data_by_chain: List[Tuple[str, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]],
+    data_by_chain: list[tuple[str, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]],
 ) -> Structure:
     """Recreate a PDB structure from swiftmhc model output data.
 

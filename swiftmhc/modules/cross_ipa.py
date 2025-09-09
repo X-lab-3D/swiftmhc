@@ -1,6 +1,5 @@
 import logging
 from math import sqrt
-from typing import Tuple
 import ml_collections
 import torch
 from openfold.model.primitives import Linear
@@ -92,7 +91,7 @@ class CrossInvariantPointAttention(torch.nn.Module):
         T_src: Rigid,
         dst_mask: torch.Tensor,
         src_mask: torch.Tensor,
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         """Perform Invariant Point Attention between two sequences.
         Update the destination(dst) sequence from the source(src) sequence.
 

@@ -1,7 +1,5 @@
 import logging
 from math import sqrt
-from typing import Optional
-from typing import Tuple
 import ml_collections
 import torch
 from openfold.model.primitives import Linear
@@ -68,11 +66,11 @@ class DebuggableInvariantPointAttention(torch.nn.Module):
     def forward(
         self,
         s: torch.Tensor,
-        z: Optional[torch.Tensor],
+        z: torch.Tensor | None,
         r: Rigid,
         mask: torch.Tensor,
         inplace_safe: bool = False,
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         """Performs Invariant Point attention on the residues within one sequence.
 
         Args:

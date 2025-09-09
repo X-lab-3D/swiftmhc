@@ -1,9 +1,5 @@
 import logging
 import os
-from typing import Dict
-from typing import List
-from typing import Optional
-from typing import Tuple
 import h5py
 import numpy
 import torch
@@ -27,7 +23,7 @@ _log = logging.getLogger(__name__)
 
 def get_entry_names(
     hdf5_path: str,
-) -> List[str]:
+) -> list[str]:
     """Get the names of the entry groups directly under the HDF5 data file
 
     Args:
@@ -47,8 +43,8 @@ class ProteinLoopDataset(Dataset):
         float_dtype: torch.dtype,
         peptide_maxlen: int,
         protein_maxlen: int,
-        entry_names: Optional[List[str]] = None,
-        pairs: Optional[List[Tuple[str, str]]] = None,
+        entry_names: list[str] | None = None,
+        pairs: list[tuple[str, str]] | None = None,
     ):
         """This class provides access to preprocessed data stored in HDF5 format.
 
@@ -78,7 +74,7 @@ class ProteinLoopDataset(Dataset):
         self._float_dtype = float_dtype
 
     @property
-    def entry_names(self) -> List[str]:
+    def entry_names(self) -> list[str]:
         return self._entry_names
 
     def __len__(self) -> int:
@@ -89,7 +85,7 @@ class ProteinLoopDataset(Dataset):
             # a set of preprocessed MHC-peptide structures
             return len(self._entry_names)
 
-    def __getitem__(self, index: int) -> Dict[str, torch.Tensor]:
+    def __getitem__(self, index: int) -> dict[str, torch.Tensor]:
         if self._pairs is not None:
             # Pairs have been requested to be predicted, BA or peptide structure could be unknown.
             # We must make the combination.
@@ -130,7 +126,7 @@ class ProteinLoopDataset(Dataset):
 
             return sequence
 
-    def _find_matching_entry(self, allele_name: str, peptide_sequence: Optional[str] = None) -> str:
+    def _find_matching_entry(self, allele_name: str, peptide_sequence: str | None = None) -> str:
         """Find an entry that matches the given allele and returns its name.
         The peptide sequence is optional and will only be matched when there are multiple entries with the matching allele.
         """
@@ -163,7 +159,7 @@ class ProteinLoopDataset(Dataset):
 
         return matching_entry_name
 
-    def _get_sequence_data(self, sequence: str) -> Dict[str, torch.Tensor]:
+    def _get_sequence_data(self, sequence: str) -> dict[str, torch.Tensor]:
         """Converts a peptide sequence into a SwiftMHC-compatible format
 
         Returns:
@@ -247,7 +243,7 @@ class ProteinLoopDataset(Dataset):
 
         return result
 
-    def _get_structural_data(self, entry_name: str, take_peptide: bool) -> Dict[str, torch.Tensor]:
+    def _get_structural_data(self, entry_name: str, take_peptide: bool) -> dict[str, torch.Tensor]:
         """Takes structural data from the HDF5 file.
 
         Args:
@@ -392,8 +388,8 @@ class ProteinLoopDataset(Dataset):
         return result
 
     def _set_zero_peptide_structure(
-        self, result: Dict[str, torch.Tensor]
-    ) -> Dict[str, torch.Tensor]:
+        self, result: dict[str, torch.Tensor]
+    ) -> dict[str, torch.Tensor]:
         """Make sure that for the peptide,
         all frames, atom positions and angles are set to zero.
         This is just to assure that the variables aren't missing during a run and
@@ -436,7 +432,7 @@ class ProteinLoopDataset(Dataset):
 
         return result
 
-    def get_entry(self, entry_name: str) -> Dict[str, torch.Tensor]:
+    def get_entry(self, entry_name: str) -> dict[str, torch.Tensor]:
         """Gets the data entry (usually one pMHC case) with the given name(ID)
 
         Returns:
@@ -501,7 +497,7 @@ class ProteinLoopDataset(Dataset):
         return result
 
     @staticmethod
-    def collate(data_entries: List[Dict[str, torch.Tensor]]) -> Dict[str, torch.Tensor]:
+    def collate(data_entries: list[dict[str, torch.Tensor]]) -> dict[str, torch.Tensor]:
         """Collation function, to pack data of multiple entries in one batch.
 
         Returns:

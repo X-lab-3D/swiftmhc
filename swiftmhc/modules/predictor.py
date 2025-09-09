@@ -1,5 +1,4 @@
 import logging
-from typing import Dict
 import ml_collections
 import torch
 from ..models.types import ModelType
@@ -88,7 +87,7 @@ class Predictor(torch.nn.Module):
             for parameter in module.parameters():
                 parameter.requires_grad = requires_grad
 
-    def forward(self, batch: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+    def forward(self, batch: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
         """This method predicts peptide structure and BA.
 
         Args:

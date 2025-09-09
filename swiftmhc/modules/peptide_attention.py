@@ -1,6 +1,5 @@
 import logging
 from math import sqrt
-from typing import Tuple
 import ml_collections
 import torch
 import torch.nn
@@ -69,7 +68,7 @@ class PeptideSelfAttention(torch.nn.Module):
             LayerNorm(self.c_s),
         )
 
-    def forward(self, s: torch.Tensor, mask: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+    def forward(self, s: torch.Tensor, mask: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """Encodes a sequence, by means of self attention and feed forward MLP
 
         Args:
@@ -87,7 +86,7 @@ class PeptideSelfAttention(torch.nn.Module):
 
         return s, a
 
-    def attention(self, s: torch.Tensor, mask: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+    def attention(self, s: torch.Tensor, mask: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """Performs multi-headed attention, but also takes relative positions into account.
 
         Args:

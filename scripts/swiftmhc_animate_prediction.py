@@ -9,7 +9,6 @@ from argparse import ArgumentParser
 from io import StringIO
 from math import sqrt
 from tempfile import mkdtemp
-from typing import Optional
 import h5py
 import pymol.cmd as pymol_cmd
 from Bio.PDB.Atom import Atom
@@ -86,7 +85,7 @@ def add_text(png_path: str, text: str):
 
 
 def to_frame(
-    structure: Structure, png_path: str, rotation_y: float, ref_align_pdb_path: Optional[str] = None
+    structure: Structure, png_path: str, rotation_y: float, ref_align_pdb_path: str | None = None
 ):
     work_dir = mkdtemp()
 

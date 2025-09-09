@@ -1,7 +1,4 @@
 import logging
-from typing import Dict
-from typing import List
-from typing import Optional
 import ml_collections
 import torch
 from openfold.model.primitives import LayerNorm
@@ -122,14 +119,14 @@ class CrossStructureModule(torch.nn.Module):
 
     def forward(
         self,
-        ids: List[str],
+        ids: list[str],
         peptide_aatype: torch.Tensor,
         s_peptide_initial: torch.Tensor,
         peptide_mask: torch.Tensor,
         s_protein_initial: torch.Tensor,
         protein_mask: torch.Tensor,
         T_protein: Rigid,
-    ) -> Dict[str, torch.Tensor]:
+    ) -> dict[str, torch.Tensor]:
         """This method predicts peptide structure.
 
         Args:
@@ -235,7 +232,7 @@ class CrossStructureModule(torch.nn.Module):
     def _unslice_and_restore_masked(
         residue_value: torch.Tensor,
         residue_slice: torch.Tensor,
-        masked_value: Optional[torch.Tensor] = None,
+        masked_value: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Undoes the effect of slicing.
         Expands the data tensor back into its original size, with masks.
@@ -261,7 +258,7 @@ class CrossStructureModule(torch.nn.Module):
 
     @staticmethod
     def _write_attention_weights(
-        name_prefix: str, block_index: int, ids: List[str], attention_weights: torch.Tensor
+        name_prefix: str, block_index: int, ids: list[str], attention_weights: torch.Tensor
     ):
         for batch_index in range(attention_weights.shape[0]):
             id_ = ids[batch_index]
@@ -282,7 +279,7 @@ class CrossStructureModule(torch.nn.Module):
     def _block(
         self,
         block_index: int,
-        ids: List[str],
+        ids: list[str],
         s_peptide_initial: torch.Tensor,
         peptide_aatype: torch.Tensor,
         s_peptide: torch.Tensor,
@@ -291,7 +288,7 @@ class CrossStructureModule(torch.nn.Module):
         T_protein: Rigid,
         peptide_mask: torch.Tensor,
         protein_mask: torch.Tensor,
-    ) -> Dict[str, torch.Tensor]:
+    ) -> dict[str, torch.Tensor]:
         """One iterated block, similar to AlphaFold2 Algorithmn 20, lines 5-31"""
         # [*, peptide_maxlen, c_s]
         s_upd, ipa_att = self.cross_ipa(

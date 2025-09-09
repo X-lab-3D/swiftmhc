@@ -1,6 +1,5 @@
 import logging
 import random
-from typing import List
 import torch
 from openfold.np import residue_constants as rc
 from swiftmhc.config import config
@@ -11,7 +10,7 @@ from swiftmhc.modules.predictor import Predictor
 _log = logging.getLogger(__name__)
 
 
-def random_mask(maxlen: int) -> List[bool]:
+def random_mask(maxlen: int) -> list[bool]:
     length = random.randrange(maxlen)
     diff = maxlen - length
 

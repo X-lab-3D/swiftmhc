@@ -4,9 +4,6 @@ import logging
 import os
 import sys
 from argparse import ArgumentParser
-from typing import List
-from typing import Tuple
-from typing import Union
 import numpy
 from Bio.PDB.Atom import Atom
 from Bio.PDB.PDBParser import PDBParser
@@ -24,7 +21,7 @@ arg_parser.add_argument("pdb_files", nargs="+", help="list of PDB files to inves
 _log = logging.getLogger(__name__)
 
 
-def find_atom(residue: Residue, name: str) -> Union[Atom, None]:
+def find_atom(residue: Residue, name: str) -> Atom | None:
     """Find a residue's atom by name."""
     for atom in residue.get_atoms():
         if atom.get_name() == name:
@@ -33,7 +30,7 @@ def find_atom(residue: Residue, name: str) -> Union[Atom, None]:
     return None
 
 
-def get_atoms(residues: List[Residue]) -> List[Atom]:
+def get_atoms(residues: list[Residue]) -> list[Atom]:
     """Given a list of residues, return all atoms in those residues."""
     atoms = []
     for residue in residues:
@@ -153,7 +150,7 @@ def must_ignore_clash(atom1: Atom, atom2: Atom) -> bool:
 pdb_parser = PDBParser()
 
 
-def analyse(pdb_path: str, peptide_chain_id: str) -> Tuple[int, float]:
+def analyse(pdb_path: str, peptide_chain_id: str) -> tuple[int, float]:
     """Return clashes for one PDB file, involving the given chain ID."""
     pdb_name = os.path.basename(pdb_path)
 
