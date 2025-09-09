@@ -56,12 +56,12 @@ script-files = [
     "scripts/measure_clashes.py",
     "scripts/measure_omega_angles.py",
     "scripts/measure_ramachandran_angles.py",
-    "scripts/swiftmhc_animate_prediction",
-    "scripts/swiftmhc_hdf5_to_pdb",
-    "scripts/swiftmhc_predict",
-    "scripts/swiftmhc_preprocess",
-    "scripts/swiftmhc_recreate_structure",
-    "scripts/swiftmhc_run"
+    "scripts/swiftmhc_animate_prediction.py",
+    "scripts/swiftmhc_hdf5_to_pdb.py",
+    "scripts/swiftmhc_predict.py",
+    "scripts/swiftmhc_preprocess.py",
+    "scripts/swiftmhc_recreate_structure.py",
+    "scripts/swiftmhc_run.py"
 ]
 
 [tool.setuptools.packages.find]
