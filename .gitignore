@@ -9,3 +9,6 @@
 build/
 dist/
 swiftmhc.egg-info/
+
+# vscode
+.vscode/
