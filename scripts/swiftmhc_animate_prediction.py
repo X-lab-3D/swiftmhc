@@ -35,7 +35,7 @@ font = ImageFont.truetype("DejaVuSans.ttf", 48)
 
 
 def is_frame_id(s: str) -> bool:
-    return re.match("\d+\.\d+", s) is not None
+    return re.match(r"\d+\.\d+", s) is not None
 
 
 def find_atom(residue: Residue, name: str) -> Atom:

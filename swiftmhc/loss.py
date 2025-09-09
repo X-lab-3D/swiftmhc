@@ -23,8 +23,8 @@ from openfold.utils.loss import sidechain_loss as openfold_compute_sidechain_los
 from openfold.utils.loss import within_residue_violations as openfold_within_residue_violations
 from openfold.utils.tensor_utils import batched_gather as openfold_batched_gather
 from openfold.utils.tensor_utils import masked_mean as openfold_masked_mean
-from .models.data import TensorDict
 from swiftmhc.models.model_types import ModelType
+from .models.data import TensorDict
 from .tools.rigid import Rigid
 
 

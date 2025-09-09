@@ -15,7 +15,6 @@ from openmm.app import NoCutoff
 from openmm.app import Simulation
 from openmm.app.element import Element
 from openmm.app.modeller import Modeller
-from openmm.app.topology import Residue
 from openmm.app.topology import Topology
 from openmm.unit import *
 
@@ -94,7 +93,7 @@ glycine_index = restypes.index("G")
 
 def _replace_amino_acid_with_missing_atoms(
     amino_acid_index: int, atom14_mask: torch.Tensor
-) -> Tuple[int, torch.Tensor]:
+) -> tuple[int, torch.Tensor]:
     """If atoms are missing, replace the amino acid by a smaller one.
 
     Args:
@@ -121,8 +120,8 @@ def _replace_amino_acid_with_missing_atoms(
 
 
 def build_modeller(
-    chain_data: List[Tuple[str, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]],
-) -> Tuple[Modeller, Dict[Residue, str]]:
+    chain_data: list[tuple[str, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]],
+) -> Modeller:
     """Args:
         chain_data: list of chains (id, residue numbers, amino acid type index, atom positions, atom mask)
 

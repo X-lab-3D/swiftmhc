@@ -642,7 +642,7 @@ class Trainer:
         _log.info(f"testing {model_path} on {structure_builders_count} structure builders")
 
         # init model
-        model = Predictor(self.config)
+        model: Predictor | DataParallel[Predictor] = Predictor(self.config)
 
         model_state = torch.load(model_path, map_location=self._device)
         model_state = remove_module_prefix(model_state)

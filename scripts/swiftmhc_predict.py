@@ -5,6 +5,7 @@ import os
 import sys
 from argparse import ArgumentParser
 from multiprocessing import Pool
+from multiprocessing.pool import Pool as PoolType
 import openmm.app
 import pandas
 import torch
@@ -97,7 +98,7 @@ def create_dataset(
 
 def output_structure(
     path: str,
-    data: list[tuple[str, torch.Tensor, torch.Tensor, torch.Tensor]],
+    data: list[tuple[str, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]],
     minimize_energy: bool,
 ):
     if minimize_energy:
@@ -117,7 +118,7 @@ def output_structure(
 
 
 def store_output(
-    pool: Pool | None,
+    pool: PoolType | None,
     directory_path: str,
     batch: dict[str, torch.Tensor],
     output: dict[str, torch.Tensor],
