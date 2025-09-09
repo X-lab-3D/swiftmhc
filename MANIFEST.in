@@ -1,7 +1,4 @@
-include LICENSE
-include README.md
-include NOTICE
-include CHANGELOG.md
+include CITATION.cff
 include CODE_OF_CONDUCT.rst
-include setup.py
-prune tests/unit
+include CHANGELOG.md
+prune tests

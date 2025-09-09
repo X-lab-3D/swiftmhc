@@ -1,0 +1,134 @@
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "swiftmhc"
+version = "1.0.0"
+description = "A deep learning algorithm for predicting peptide-MHC structure and binding affinity at the same time"
+readme = "README.md"
+
+requires-python = ">=3.11.5"
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+keywords = ["deep learning", "MHC", "peptide", "structure prediction", "binding affinity"]
+dependencies = [
+    "pandas>=1.5.3",
+    "numpy>=1.26.4",
+    "h5py>=3.10.0",
+    "ml-collections>=0.1.1",
+    "scikit-learn>=1.4.1",
+    "blosum>=2.0.3",
+    "modelcif>=1.0",
+    "filelock>=3.13.1",
+    "biopython>=1.84",
+    "openmm[cuda12]>=8.1.1",
+    "dm-tree>=0.1.8",
+    "position-encoding @ git+https://github.com/x-lab-3d/position-encoding.git@v1.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    # packaging
+    "build",
+    "wheel",
+    # formatting and linting
+    "ruff",
+    # static typing
+    "mypy",
+]
+
+[project.urls]
+Homepage = "https://github.com/X-lab-3D/swiftmhc"
+Repository = "https://github.com/X-lab-3D/swiftmhc"
+Documentation = "https://github.com/X-lab-3D/swiftmhc/blob/main/README.md"
+"Bug Tracker" = "https://github.com/X-lab-3D/swiftmhc/issues"
+
+[tool.setuptools]
+script-files = [
+    "scripts/measure_chirality.py",
+    "scripts/measure_clashes.py",
+    "scripts/measure_omega_angles.py",
+    "scripts/measure_ramachandran_angles.py",
+    "scripts/swiftmhc_animate_prediction",
+    "scripts/swiftmhc_hdf5_to_pdb",
+    "scripts/swiftmhc_predict",
+    "scripts/swiftmhc_preprocess",
+    "scripts/swiftmhc_recreate_structure",
+    "scripts/swiftmhc_run"
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["swiftmhc*"]
+
+
+# Mypy: to check static type
+# see https://mypy.readthedocs.io/en/stable/config_file.html#example-pyproject-toml
+[tool.mypy]
+python_version = "3.12"
+warn_return_any = true
+warn_unused_configs = true
+ignore_missing_imports = true
+
+
+# Ruff, see https://docs.astral.sh/ruff/configuration/
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = [
+    "D", # pydocstyle
+    "E", # pycodestyle (error)
+    "W", # pycodestyle (warning)
+    "F", # Pyflakes
+    "I", # isort
+    "N", # pep8-naming
+]
+ignore = [
+    "E501", # Line too long
+    "D100", # Missing module docstring
+    "D104", # Missing public package docstring
+    "D105", # Missing docstring in magic method
+    "D107", # Missing `__init__` docstring
+    # The following list excludes rules irrelevant to the Google style
+    "D203",
+    "D204",
+    "D213",
+    "D215",
+    "D400",
+    "D401",
+    "D404",
+    "D406",
+    "D407",
+    "D408",
+    "D409",
+    "D413",
+]
+
+# Allow autofix for all enabled rules (when `--fix`) is provided.
+fixable = ["A", "B", "C", "D", "E", "F", "I"]
+ignore-init-module-imports = true
+
+[tool.ruff.lint.per-file-ignores]
+# Ignore docstrings in all test files
+"tests/**py" = ["D"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["swiftmhc"]
+force-single-line = true
+lines-after-imports = 2
+no-lines-before = [
+    "future",
+    "standard-library",
+    "third-party",
+    "first-party",
+    "local-folder",
+]
