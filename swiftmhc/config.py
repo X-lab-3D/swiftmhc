@@ -1,5 +1,5 @@
 import ml_collections as mlc
-from .models.types import ModelType
+from swiftmhc.models.model_types import ModelType
 
 
 config = mlc.ConfigDict(

@@ -27,7 +27,7 @@ from swiftmhc.dataset import get_entry_names
 from swiftmhc.loss import get_loss
 from swiftmhc.metrics import MetricsRecord
 from swiftmhc.models.data import TensorDict
-from swiftmhc.models.types import ModelType
+from swiftmhc.models.model_types import ModelType
 from swiftmhc.modules.predictor import Predictor
 from swiftmhc.time import Timer
 from swiftmhc.tools.md import build_modeller

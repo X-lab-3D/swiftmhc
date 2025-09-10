@@ -1,7 +1,7 @@
 import logging
 import ml_collections
 import torch
-from ..models.types import ModelType
+from swiftmhc.models.model_types import ModelType
 from ..tools.rigid import Rigid
 from .cross_structure_module import CrossStructureModule
 from .ipa import DebuggableInvariantPointAttention as SelfIPA
