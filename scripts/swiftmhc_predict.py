@@ -224,6 +224,7 @@ if __name__ == "__main__":
         shuffle=False,
         num_workers=args.num_workers,
         pin_memory=True,
+        persistent_workers=True if args.num_workers > 0 else False
     )
 
     # required for CUDA & multiprocessing

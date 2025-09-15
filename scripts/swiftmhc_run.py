@@ -1134,6 +1134,7 @@ class Trainer:
             shuffle=shuffle,
             num_workers=self.workers_count,
             pin_memory=True,
+            persistent_workers=True if self.workers_count > 0 else False,
         )
 
         return loader
