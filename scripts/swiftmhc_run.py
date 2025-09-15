@@ -613,6 +613,14 @@ class Trainer:
                 with_stack=with_stack,
             ) as prof:
                 for batch_index, batch_data in enumerate(data_loader):
+                    # Transfer batch to device
+                    batch_data = {
+                        k: v.to(self._device, non_blocking=True)
+                        if isinstance(v, torch.Tensor)
+                        else v
+                        for k, v in batch_data.items()
+                    }
+
                     # Do the training step.
                     batch_loss, batch_output = self._batch(
                         optimizer,
@@ -640,6 +648,12 @@ class Trainer:
                     prof.step()
         else:
             for batch_index, batch_data in enumerate(data_loader):
+                # Transfer batch to device
+                batch_data = {
+                    k: v.to(self._device, non_blocking=True) if isinstance(v, torch.Tensor) else v
+                    for k, v in batch_data.items()
+                }
+
                 # Do the training step.
                 batch_loss, batch_output = self._batch(
                     optimizer, model, batch_data, affinity_tune, fape_tune, torsion_tune, fine_tune
@@ -699,6 +713,12 @@ class Trainer:
 
         with torch.no_grad():
             for batch_index, batch_data in enumerate(data_loader):
+                # Transfer batch to device
+                batch_data = {
+                    k: v.to(self._device, non_blocking=True) if isinstance(v, torch.Tensor) else v
+                    for k, v in batch_data.items()
+                }
+
                 # make the model generate output
                 batch_output = model(batch_data)
 
@@ -1097,7 +1117,7 @@ class Trainer:
         # create dataset as entrypoint to the data hdf5 file
         dataset = ProteinLoopDataset(
             data_path,
-            self._device,
+            torch.device("cpu"),  # Always create on CPU
             self._float_dtype,
             peptide_maxlen=self.config.peptide_maxlen,
             protein_maxlen=self.config.protein_maxlen,
@@ -1113,6 +1133,7 @@ class Trainer:
             batch_size=batch_size,
             shuffle=shuffle,
             num_workers=self.workers_count,
+            pin_memory=True,
         )
 
         return loader

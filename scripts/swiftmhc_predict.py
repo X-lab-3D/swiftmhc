@@ -216,13 +216,14 @@ if __name__ == "__main__":
 
     args = arg_parser.parse_args()
 
-    dataset = create_dataset(args.table_path, args.hdf5_path, device, float_dtype)
+    dataset = create_dataset(args.table_path, args.hdf5_path, torch.device("cpu"), float_dtype)
     data_loader = torch.utils.data.DataLoader(
         dataset,
         collate_fn=ProteinLoopDataset.collate,
         batch_size=args.batch_size,
         shuffle=False,
         num_workers=args.num_workers,
+        pin_memory=True,
     )
 
     # required for CUDA & multiprocessing
@@ -240,6 +241,12 @@ if __name__ == "__main__":
         with Pool(args.num_builders) as builder_pool:
             with torch.no_grad():
                 for batch in data_loader:
+                    # Transfer batch to device
+                    batch = {
+                        k: v.to(device, non_blocking=True) if isinstance(v, torch.Tensor) else v
+                        for k, v in batch.items()
+                    }
+
                     output = model(batch)
 
                     store_output(
@@ -255,6 +262,12 @@ if __name__ == "__main__":
     else:
         with torch.no_grad():
             for batch in data_loader:
+                # Transfer batch to device
+                batch = {
+                    k: v.to(device, non_blocking=True) if isinstance(v, torch.Tensor) else v
+                    for k, v in batch.items()
+                }
+
                 output = model(batch)
 
                 store_output(None, args.output_directory, batch, output, False)
