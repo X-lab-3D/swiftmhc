@@ -111,6 +111,7 @@ ignore = [
     "D408",
     "D409",
     "D413",
+    "D415"
 ]
 
 # Allow autofix for all enabled rules (when `--fix`) is provided.

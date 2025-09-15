@@ -18,8 +18,8 @@ from filelock import FileLock
 from openfold.np.residue_constants import restype_atom14_mask
 from torch.nn import DataParallel
 from torch.nn.utils import clip_grad_norm_
-from torch.optim import Adam
-from torch.optim import Optimizer
+from torch.optim.adam import Adam
+from torch.optim.optimizer import Optimizer
 from torch.utils.data import DataLoader
 from swiftmhc.config import config as default_config
 from swiftmhc.dataset import ProteinLoopDataset
@@ -324,9 +324,7 @@ def output_structures_to_directory(
 
 
 def remove_module_prefix(state: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
-    """Paralellisation adds a 'module.' prefix in the state's keys.
-    Remove those prefixes here.
-    """
+    """Paralellisation adds a 'module.' prefix in the state's keys, remove those prefixes here."""
     d = {}
     for key, value in state.items():
         if key.startswith("module."):
@@ -350,10 +348,13 @@ class Trainer:
         workers_count: int,
         model_type: ModelType,
     ):
-        """Args:
-        device: will be used to load the model parameters on
-        workers_count: number of workers to simultaneously read from the data
-        model_type: regression or classification
+        """Initialize the Trainer.
+
+        Args:
+            device: will be used to load the model parameters on
+            float_dtype: will be used to convert the model parameters to
+            workers_count: number of workers to simultaneously read from the data
+            model_type: regression or classification
         """
         self.config = default_config
         self.config.model_type = model_type
@@ -452,6 +453,7 @@ class Trainer:
         fine_tune: bool,
     ) -> tuple[TensorDict, dict[str, torch.Tensor]]:
         """Action performed when training on a single batch.
+
         This involves backpropagation.
 
         Args:
@@ -502,6 +504,7 @@ class Trainer:
         animated_data: dict[str, torch.Tensor] | None = None,
     ):
         """Do one training epoch, with backward propagation.
+
         The model parameters are adjusted per batch.
 
         Args:
@@ -553,6 +556,7 @@ class Trainer:
         minimize_energy: bool | None = True,
     ) -> float:
         """Run an evaluation of the model, thus no backward propagation.
+
         The model parameters stay the same in this call.
 
         Args:
@@ -629,6 +633,7 @@ class Trainer:
         minimize_energy: bool,
     ):
         """Call this function instead of train, when you just want to test the model.
+
         It saves the generated structures to hdf5 files.
 
         Args:
@@ -703,6 +708,7 @@ class Trainer:
         datasets: list[ProteinLoopDataset], names: list[str]
     ) -> dict[str, torch.Tensor]:
         """Searches for the requested entries in the datasets and collates them together in a batch.
+
         This needs to be done when animating structures.
 
         Args:
@@ -1001,6 +1007,7 @@ def random_subdivision(ids: list[str], fraction: float) -> tuple[list[str], list
 
 def get_excluded(names_from: list[str], names_exclude: list[str]) -> list[str]:
     """Remove the names from one list from the other list
+
     Args:
         names_from: list from which names should be removed
         names_exclude: list of names that should be removed
