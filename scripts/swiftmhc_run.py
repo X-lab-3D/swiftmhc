@@ -1058,9 +1058,18 @@ if __name__ == "__main__":
     # If the user wants to log to stdout, set it.
     # Otherwise log to a file.
     if args.log_stdout:
-        logging.basicConfig(stream=sys.stdout, level=log_level)
+        logging.basicConfig(
+            stream=sys.stdout,
+            level=log_level,
+            format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        )
     else:
-        logging.basicConfig(filename=f"{run_id}/swiftmhc.log", filemode="a", level=log_level)
+        logging.basicConfig(
+            filename=f"{run_id}/swiftmhc.log",
+            filemode="a",
+            level=log_level,
+            format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        )
 
     seed = random.getrandbits(64)
     torch.manual_seed(seed)
