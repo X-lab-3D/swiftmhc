@@ -20,6 +20,9 @@ from torch.nn import DataParallel
 from torch.nn.utils import clip_grad_norm_
 from torch.optim.adam import Adam
 from torch.optim.optimizer import Optimizer
+from torch.profiler import ProfilerActivity
+from torch.profiler import profile
+from torch.profiler import schedule
 from torch.utils.data import DataLoader
 from swiftmhc.config import config as default_config
 from swiftmhc.dataset import ProteinLoopDataset
@@ -97,6 +100,58 @@ arg_parser.add_argument(
 arg_parser.add_argument(
     "--disable-struct-loss",
     help="disable structural loss terms",
+    action="store_const",
+    const=True,
+    default=False,
+)
+arg_parser.add_argument(
+    "--enable-profiling",
+    help="enable PyTorch profiler during training",
+    action="store_const",
+    const=True,
+    default=False,
+)
+arg_parser.add_argument(
+    "--profile-wait",
+    help="profiler schedule wait steps",
+    type=int,
+    default=3,
+)
+arg_parser.add_argument(
+    "--profile-warmup",
+    help="profiler schedule warmup steps",
+    type=int,
+    default=2,
+)
+arg_parser.add_argument(
+    "--profile-active",
+    help="profiler schedule active steps",
+    type=int,
+    default=1,
+)
+arg_parser.add_argument(
+    "--profile-repeat",
+    help="profiler schedule repeat count",
+    type=int,
+    default=1,
+)
+arg_parser.add_argument(
+    "--no-profile-shapes",
+    help="disable recording shapes in profiler",
+    action="store_const",
+    const=True,
+    default=False,
+)
+arg_parser.add_argument(
+    "--no-profile-memory",
+    help="disable memory profiling",
+    action="store_const",
+    const=True,
+    default=False,
+)
+arg_parser.add_argument(
+    "--no-profile-stack",
+    help="disable stack trace recording in profiler",
     action="store_const",
     const=True,
     default=False,
@@ -502,6 +557,14 @@ class Trainer:
         fine_tune: bool,
         output_directory: str,
         animated_data: dict[str, torch.Tensor] | None = None,
+        enable_profiling: bool = False,
+        profile_wait: int = 3,
+        profile_warmup: int = 2,
+        profile_active: int = 1,
+        profile_repeat: int = 1,
+        record_shapes: bool = True,
+        profile_memory: bool = True,
+        with_stack: bool = True,
     ):
         """Do one training epoch, with backward propagation.
 
@@ -518,6 +581,14 @@ class Trainer:
             fine_tune: whether to include fine tuning losses in backward propagation
             output_directory: where to store the results
             animated_data: data to store snapshot structures from, for a given fraction of the batches.
+            enable_profiling: whether to enable PyTorch profiler during training
+            profile_wait: profiler schedule wait steps
+            profile_warmup: profiler schedule warmup steps
+            profile_active: profiler schedule active steps
+            profile_repeat: profiler schedule repeat count
+            record_shapes: whether to record tensor shapes in profiler
+            profile_memory: whether to enable memory profiling
+            with_stack: whether to record stack traces in profiler
         """
         # start with an empty metrics record
         record = MetricsRecord(epoch_index, data_loader.dataset.name, output_directory)
@@ -525,19 +596,63 @@ class Trainer:
         # put model in train mode
         model.train()
 
-        for batch_index, batch_data in enumerate(data_loader):
-            # Do the training step.
-            batch_loss, batch_output = self._batch(
-                optimizer, model, batch_data, affinity_tune, fape_tune, torsion_tune, fine_tune
-            )
-            # make the snapshot, if requested
-            if animated_data is not None and (batch_index + 1) % self._snap_period == 0:
-                self._snapshot(
-                    f"{epoch_index}.{batch_index + 1}", model, output_directory, animated_data
+        if enable_profiling:
+            with profile(
+                activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
+                schedule=schedule(
+                    wait=profile_wait,
+                    warmup=profile_warmup,
+                    active=profile_active,
+                    repeat=profile_repeat,
+                ),
+                on_trace_ready=torch.profiler.tensorboard_trace_handler(
+                    output_directory, use_gzip=True
+                ),
+                record_shapes=record_shapes,
+                profile_memory=profile_memory,
+                with_stack=with_stack,
+            ) as prof:
+                for batch_index, batch_data in enumerate(data_loader):
+                    # Do the training step.
+                    batch_loss, batch_output = self._batch(
+                        optimizer,
+                        model,
+                        batch_data,
+                        affinity_tune,
+                        fape_tune,
+                        torsion_tune,
+                        fine_tune,
+                    )
+
+                    # make the snapshot, if requested
+                    if animated_data is not None and (batch_index + 1) % self._snap_period == 0:
+                        self._snapshot(
+                            f"{epoch_index}.{batch_index + 1}",
+                            model,
+                            output_directory,
+                            animated_data,
+                        )
+
+                    # Save to metrics
+                    record.add_batch(batch_loss, batch_output, batch_data)
+
+                    # Step the profiler
+                    prof.step()
+        else:
+            for batch_index, batch_data in enumerate(data_loader):
+                # Do the training step.
+                batch_loss, batch_output = self._batch(
+                    optimizer, model, batch_data, affinity_tune, fape_tune, torsion_tune, fine_tune
                 )
 
-            # Save to metrics
-            record.add_batch(batch_loss, batch_output, batch_data)
+                # make the snapshot, if requested
+                if animated_data is not None and (batch_index + 1) % self._snap_period == 0:
+                    self._snapshot(
+                        f"{epoch_index}.{batch_index + 1}", model, output_directory, animated_data
+                    )
+
+                # Save to metrics
+                record.add_batch(batch_loss, batch_output, batch_data)
 
         # Create the metrics row for this epoch
         record.save()
@@ -748,6 +863,14 @@ class Trainer:
         pretrained_model_path: str,
         animated_complex_ids: list[str],
         patience: int,
+        enable_profiling: bool = False,
+        profile_wait: int = 3,
+        profile_warmup: int = 2,
+        profile_active: int = 1,
+        profile_repeat: int = 1,
+        record_shapes: bool = True,
+        profile_memory: bool = True,
+        with_stack: bool = True,
     ):
         """Call this method for training a model
 
@@ -762,6 +885,14 @@ class Trainer:
             pretrained_model_path: an optional pretrained model file to start from
             animated_complex_ids: names of complexes to animate during the run. their structure snapshots will be stored in an HDF5
             patience: early stopping patience
+            enable_profiling: whether to enable PyTorch profiler during training
+            profile_wait: profiler schedule wait steps
+            profile_warmup: profiler schedule warmup steps
+            profile_active: profiler schedule active steps
+            profile_repeat: profiler schedule repeat count
+            record_shapes: whether to record tensor shapes in profiler
+            profile_memory: whether to enable memory profiling
+            with_stack: whether to record stack traces in profiler
         """
         # Set up the model
         predictor = Predictor(self.config)
@@ -889,6 +1020,14 @@ class Trainer:
                     training_phases[0].fine_tune,
                     run_id,
                     animated_data,
+                    enable_profiling,
+                    profile_wait,
+                    profile_warmup,
+                    profile_active,
+                    profile_repeat,
+                    record_shapes,
+                    profile_memory,
+                    with_stack,
                 )
                 t.add_to_title(f"on {len(train_loader.dataset)} data points")
 
@@ -1194,4 +1333,12 @@ if __name__ == "__main__":
             pretrained_model_path,
             args.animate,
             args.patience,
+            args.enable_profiling,
+            args.profile_wait,
+            args.profile_warmup,
+            args.profile_active,
+            args.profile_repeat,
+            not args.no_profile_shapes,
+            not args.no_profile_memory,
+            not args.no_profile_stack,
         )
