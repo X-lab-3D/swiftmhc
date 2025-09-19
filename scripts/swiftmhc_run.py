@@ -22,6 +22,7 @@ from torch.optim.adam import Adam
 from torch.optim.optimizer import Optimizer
 from torch.profiler import ProfilerActivity
 from torch.profiler import profile
+from torch.profiler import record_function
 from torch.profiler import schedule
 from torch.utils.data import DataLoader
 from swiftmhc.config import config as default_config
@@ -526,22 +527,33 @@ class Trainer:
         optimizer.zero_grad()
 
         # get model output
-        output = model(data)
+        with record_function("FORWARD"):
+            output = model(data)
 
         # calculate losses
-        losses = get_loss(
-            self.config.model_type, output, data, affinity_tune, fape_tune, torsion_tune, fine_tune
-        )
+        with record_function("LOSS"):
+            losses = get_loss(
+                self.config.model_type,
+                output,
+                data,
+                affinity_tune,
+                fape_tune,
+                torsion_tune,
+                fine_tune,
+            )
 
         # backward propagation
         loss = losses["total"]
-        loss.backward()
+
+        with record_function("BACKWARD"):
+            loss.backward()
 
         # for preventing loss spikes
         clip_grad_norm_(model.parameters(), max_norm=0.5)
 
         # optimize
-        optimizer.step()
+        with record_function("OPTIMIZE"):
+            optimizer.step()
 
         return (losses.detach(), output)
 
