@@ -7,6 +7,7 @@ from argparse import ArgumentParser
 from copy import copy
 from io import StringIO
 from multiprocessing.pool import Pool
+from timeit import default_timer as timer
 from uuid import uuid4
 import h5py
 import numpy
@@ -557,6 +558,83 @@ class Trainer:
 
         return (losses.detach(), output)
 
+    def _epoch_train(
+        self,
+        epoch_index: int,
+        optimizer: Optimizer,
+        model: Predictor,
+        data_loader: DataLoader,
+        affinity_tune: bool,
+        fape_tune: bool,
+        torsion_tune: bool,
+        fine_tune: bool,
+        output_directory: str,
+        animated_data: dict[str, torch.Tensor] | None,
+        record: MetricsRecord,
+        profiler=None,
+    ):
+        """Process all batches in a data loader during training.
+
+        Args:
+            epoch_index: Current epoch number
+            optimizer: The optimizer for training
+            model: The model being trained
+            data_loader: Data loader containing the batches
+            affinity_tune: Whether to include affinity loss
+            fape_tune: Whether to include fape loss
+            torsion_tune: Whether to include torsion loss
+            fine_tune: Whether to include fine tuning losses
+            output_directory: Directory for output files
+            animated_data: Data for animation snapshots
+            record: Metrics record to update
+            profiler: Optional profiler instance to step
+        """
+        batch_time = []
+        for batch_index, batch_data in enumerate(data_loader):
+            time_start = timer()
+
+            # Transfer batch to device
+            batch_data = {
+                k: v.to(self._device, non_blocking=True) if isinstance(v, torch.Tensor) else v
+                for k, v in batch_data.items()
+            }
+
+            # Do the training step.
+            batch_loss, batch_output = self._batch(
+                optimizer,
+                model,
+                batch_data,
+                affinity_tune,
+                fape_tune,
+                torsion_tune,
+                fine_tune,
+            )
+
+            # measure time taken
+            step_time = timer() - time_start
+            batch_time.append(step_time)
+            _log.info(f"batch time (s): {step_time:.6f}")
+
+            # make the snapshot, if requested
+            if animated_data is not None and (batch_index + 1) % self._snap_period == 0:
+                self._snapshot(
+                    f"{epoch_index}.{batch_index + 1}",
+                    model,
+                    output_directory,
+                    animated_data,
+                )
+
+            # Save to metrics
+            record.add_batch(batch_loss, batch_output, batch_data)
+
+            # Step the profiler if provided
+            if profiler is not None:
+                profiler.step()
+
+        _log.info(
+            f"batch time stat (s): mean {numpy.mean(batch_time):.6f}, max {numpy.max(batch_time):.6f}, min {numpy.min(batch_time):.6f}"
+        )
+
     def _epoch(
         self,
         epoch_index: int,
@@ -624,61 +702,34 @@ class Trainer:
                 profile_memory=profile_memory,
                 with_stack=with_stack,
             ) as prof:
-                for batch_index, batch_data in enumerate(data_loader):
-                    # Transfer batch to device
-                    batch_data = {
-                        k: v.to(self._device, non_blocking=True)
-                        if isinstance(v, torch.Tensor)
-                        else v
-                        for k, v in batch_data.items()
-                    }
-
-                    # Do the training step.
-                    batch_loss, batch_output = self._batch(
-                        optimizer,
-                        model,
-                        batch_data,
-                        affinity_tune,
-                        fape_tune,
-                        torsion_tune,
-                        fine_tune,
-                    )
-
-                    # make the snapshot, if requested
-                    if animated_data is not None and (batch_index + 1) % self._snap_period == 0:
-                        self._snapshot(
-                            f"{epoch_index}.{batch_index + 1}",
-                            model,
-                            output_directory,
-                            animated_data,
-                        )
-
-                    # Save to metrics
-                    record.add_batch(batch_loss, batch_output, batch_data)
-
-                    # Step the profiler
-                    prof.step()
-        else:
-            for batch_index, batch_data in enumerate(data_loader):
-                # Transfer batch to device
-                batch_data = {
-                    k: v.to(self._device, non_blocking=True) if isinstance(v, torch.Tensor) else v
-                    for k, v in batch_data.items()
-                }
-
-                # Do the training step.
-                batch_loss, batch_output = self._batch(
-                    optimizer, model, batch_data, affinity_tune, fape_tune, torsion_tune, fine_tune
+                self._epoch_train(
+                    epoch_index,
+                    optimizer,
+                    model,
+                    data_loader,
+                    affinity_tune,
+                    fape_tune,
+                    torsion_tune,
+                    fine_tune,
+                    output_directory,
+                    animated_data,
+                    record,
+                    prof,
                 )
-
-                # make the snapshot, if requested
-                if animated_data is not None and (batch_index + 1) % self._snap_period == 0:
-                    self._snapshot(
-                        f"{epoch_index}.{batch_index + 1}", model, output_directory, animated_data
-                    )
-
-                # Save to metrics
-                record.add_batch(batch_loss, batch_output, batch_data)
+        else:
+            self._epoch_train(
+                epoch_index,
+                optimizer,
+                model,
+                data_loader,
+                affinity_tune,
+                fape_tune,
+                torsion_tune,
+                fine_tune,
+                output_directory,
+                animated_data,
+                record,
+            )
 
         # Create the metrics row for this epoch
         record.save()
