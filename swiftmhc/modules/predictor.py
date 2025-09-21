@@ -31,10 +31,6 @@ class Predictor(torch.nn.Module):
             [PeptideSelfAttention(config) for _ in range(config.num_peptide_blocks)]
         )
 
-        self.peptide_norm = torch.nn.Sequential(
-            torch.nn.Dropout(p=config.dropout_rate), torch.nn.LayerNorm(config.c_s)
-        )
-
         # modules for self attention on protein, updating {s_j}
         self.protein_dist_norm = torch.nn.LayerNorm((self.protein_maxlen, self.protein_maxlen, 1))
 
@@ -78,7 +74,6 @@ class Predictor(torch.nn.Module):
         """Turns gradient on/off for structure modules."""
         for module in [
             self.peptide_transform,
-            self.peptide_norm,
             self.protein_dist_norm,
             self.protein_ipa,
             self.protein_norm,
@@ -130,12 +125,9 @@ class Predictor(torch.nn.Module):
 
         # self attention on the peptide
         for peptide_encoder in self.peptide_transform:
-            peptide_upd, a = peptide_encoder(
+            s_peptide[:, peptide_slice], _ = peptide_encoder(
                 s_peptide[:, peptide_slice],
                 batch["peptide_self_residues_mask"][:, peptide_slice],
-            )
-            s_peptide[:, peptide_slice] = self.peptide_norm(
-                s_peptide[:, peptide_slice] + peptide_upd
             )
 
         # structure-based self-attention on the protein
