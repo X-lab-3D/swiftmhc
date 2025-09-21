@@ -16,7 +16,7 @@ class PeptideSelfAttention(torch.nn.Module):
 
     def __init__(self, config: ml_collections.ConfigDict):
         """In config:
-        no_heads:           number of attention heads
+        num_heads:           number of attention heads
         peptide_maxlen(k):  determines the number of distance bins: [-k, -k + 1, ..., 0, ..., k - 1, k]
         c_s:                the depth of the input tensor, at shape -1
         dropout_rate:       for the dropouts before normalisation
@@ -26,9 +26,9 @@ class PeptideSelfAttention(torch.nn.Module):
         super(PeptideSelfAttention, self).__init__()
 
         # constants
-        self.no_heads = config.no_heads
+        self.num_heads = config.num_heads
         self.relpos_k = config.peptide_maxlen
-        self.no_bins = 2 * self.relpos_k + 1
+        self.num_bins = 2 * self.relpos_k + 1
         self.c_s = config.c_s
         self.c_hidden = config.c_hidden
         self.inf = config.inf
@@ -37,16 +37,16 @@ class PeptideSelfAttention(torch.nn.Module):
         self.c_transition = config.c_transition
 
         # scaled dot multi-headed attention: queries, keys, values
-        self.linear_q = Linear(self.c_s, self.c_hidden * self.no_heads, bias=False)
-        self.linear_k = Linear(self.c_s, self.c_hidden * self.no_heads, bias=False)
-        self.linear_v = Linear(self.c_s, self.c_hidden * self.no_heads, bias=False)
+        self.linear_q = Linear(self.c_s, self.c_hidden * self.num_heads, bias=False)
+        self.linear_k = Linear(self.c_s, self.c_hidden * self.num_heads, bias=False)
+        self.linear_v = Linear(self.c_s, self.c_hidden * self.num_heads, bias=False)
 
         # generates the b term in the attention weight
-        self.linear_b = Linear(self.no_bins, self.no_heads, bias=False)
+        self.linear_b = Linear(self.num_bins, self.num_heads, bias=False)
 
         # generates the output of the multi-headed attention
         self.linear_output = Linear(
-            (self.no_bins + self.c_hidden) * self.no_heads, self.c_s, init="final"
+            (self.num_bins + self.c_hidden) * self.num_heads, self.c_s, init="final"
         )
 
         # to be used after multi-headed attention
@@ -103,7 +103,7 @@ class PeptideSelfAttention(torch.nn.Module):
         square_mask = torch.logical_and(mask[..., :, None], mask[..., None, :])
 
         # [*, N_res, N_res, no_bins]
-        z = get_relative_position_encoding_matrix(maxlen, self.no_bins).to(
+        z = get_relative_position_encoding_matrix(maxlen, self.num_bins).to(
             device=s.device, dtype=s.dtype
         )
         z = z[None, ...] * square_mask[..., None]
@@ -114,19 +114,19 @@ class PeptideSelfAttention(torch.nn.Module):
         # [*, H, N_res, c_hidden]
         q = (
             self.linear_q(s)
-            .reshape(batch_size, maxlen, self.c_hidden, self.no_heads)
+            .reshape(batch_size, maxlen, self.c_hidden, self.num_heads)
             .transpose(-2, -1)
             .transpose(-3, -2)
         )
         k = (
             self.linear_k(s)
-            .reshape(batch_size, maxlen, self.c_hidden, self.no_heads)
+            .reshape(batch_size, maxlen, self.c_hidden, self.num_heads)
             .transpose(-2, -1)
             .transpose(-3, -2)
         )
         v = (
             self.linear_v(s)
-            .reshape(batch_size, maxlen, self.c_hidden, self.no_heads)
+            .reshape(batch_size, maxlen, self.c_hidden, self.num_heads)
             .transpose(-2, -1)
             .transpose(-3, -2)
         )
@@ -149,9 +149,9 @@ class PeptideSelfAttention(torch.nn.Module):
             torch.cat(
                 (
                     o_pair.transpose(-3, -2).reshape(
-                        batch_size, maxlen, self.no_heads * self.no_bins
+                        batch_size, maxlen, self.num_heads * self.num_bins
                     ),
-                    o.transpose(-3, -2).reshape(batch_size, maxlen, self.no_heads * self.c_hidden),
+                    o.transpose(-3, -2).reshape(batch_size, maxlen, self.num_heads * self.c_hidden),
                 ),
                 dim=-1,
             )

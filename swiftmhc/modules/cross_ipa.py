@@ -26,20 +26,20 @@ class CrossInvariantPointAttention(torch.nn.Module):
                 Single representation channel dimension
             c_hidden:
                 Hidden channel dimension
-            no_heads:
+            num_heads:
                 Number of attention heads
-            no_qk_points:
+            num_qk_points:
                 Number of query/key points to generate
-            no_v_points:
+            num_v_points:
                 Number of value points to generate
         """
         super(CrossInvariantPointAttention, self).__init__()
 
         self.c_s = config.c_s
         self.c_hidden = config.c_hidden
-        self.no_heads = config.no_heads
-        self.no_qk_points = config.no_qk_points
-        self.no_v_points = config.no_v_points
+        self.num_heads = config.num_heads
+        self.num_qk_points = config.num_qk_points
+        self.num_v_points = config.num_v_points
         self.eps = config.epsilon
         self.inf = config.inf
 
@@ -47,29 +47,29 @@ class CrossInvariantPointAttention(torch.nn.Module):
         # supplement. There, they lack bias and use Glorot initialization.
         # Here as in the official source, they have bias and use the default
         # Lecun initialization.
-        hc = self.c_hidden * self.no_heads
+        hc = self.c_hidden * self.num_heads
         self.linear_q = Linear(self.c_s, hc, bias=False)
         self.linear_kv = Linear(self.c_s, 2 * hc, bias=False)
 
-        hpq = self.no_heads * self.no_qk_points * 3
+        hpq = self.num_heads * self.num_qk_points * 3
         self.linear_q_points = Linear(self.c_s, hpq, bias=False)
 
-        hpkv = self.no_heads * (self.no_qk_points + self.no_v_points) * 3
+        hpkv = self.num_heads * (self.num_qk_points + self.num_v_points) * 3
         self.linear_kv_points = Linear(self.c_s, hpkv, bias=False)
 
-        hpv = self.no_heads * self.no_v_points * 3
+        hpv = self.num_heads * self.num_v_points * 3
 
-        concat_out_dim = self.no_heads * (self.c_hidden + self.no_v_points * 4)
+        concat_out_dim = self.num_heads * (self.c_hidden + self.num_v_points * 4)
         self.linear_out = Linear(concat_out_dim, self.c_s, init="final")
 
         self.softmax = torch.nn.Softmax(dim=-1)
         self.softplus = torch.nn.Softplus()
 
         # one weight per head: [H]
-        self.head_weights = torch.nn.Parameter(torch.zeros((self.no_heads)))
+        self.head_weights = torch.nn.Parameter(torch.zeros((self.num_heads)))
         ipa_point_weights_init_(self.head_weights)
 
-        self.w_C = sqrt(2.0 / (9.0 * self.no_qk_points))
+        self.w_C = sqrt(2.0 / (9.0 * self.num_qk_points))
 
         # only two terms in attention weight, so divide by two
         self.w_L = sqrt(0.5)
@@ -122,10 +122,10 @@ class CrossInvariantPointAttention(torch.nn.Module):
         kv = self.linear_kv(s_src)
 
         # [*, len_dst, H, C_hidden]
-        q = q.view(q.shape[:-1] + (self.no_heads, -1))
+        q = q.view(q.shape[:-1] + (self.num_heads, -1))
 
         # [*, len_src, H, 2 * C_hidden]
-        kv = kv.view(kv.shape[:-1] + (self.no_heads, -1))
+        kv = kv.view(kv.shape[:-1] + (self.num_heads, -1))
 
         # [*, len_src, H, C_hidden]
         k, v = torch.split(kv, self.c_hidden, dim=-1)
@@ -140,7 +140,7 @@ class CrossInvariantPointAttention(torch.nn.Module):
         q_pts = T_dst[..., None].apply(q_pts)
 
         # [*, len_dst, H, P_q, 3]
-        q_pts = q_pts.view(q_pts.shape[:-2] + (self.no_heads, self.no_qk_points, 3))
+        q_pts = q_pts.view(q_pts.shape[:-2] + (self.num_heads, self.num_qk_points, 3))
 
         # [*, len_dst, H * (P_q + P_v) * 3]
         kv_pts = self.linear_kv_points(s_src)
@@ -151,10 +151,10 @@ class CrossInvariantPointAttention(torch.nn.Module):
         kv_pts = T_src[..., None].apply(kv_pts)
 
         # [*, len_src, H, (P_q + P_v), 3]
-        kv_pts = kv_pts.view(kv_pts.shape[:-2] + (self.no_heads, -1, 3))
+        kv_pts = kv_pts.view(kv_pts.shape[:-2] + (self.num_heads, -1, 3))
 
         # [*, len_src, H, P_q/P_v, 3]
-        k_pts, v_pts = torch.split(kv_pts, [self.no_qk_points, self.no_v_points], dim=-2)
+        k_pts, v_pts = torch.split(kv_pts, [self.num_qk_points, self.num_v_points], dim=-2)
 
         ##########################
         # Compute attention scores : line #7 in alphafold

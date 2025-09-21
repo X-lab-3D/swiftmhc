@@ -23,12 +23,12 @@ class Predictor(torch.nn.Module):
         self.peptide_maxlen = config.peptide_maxlen
         self.protein_maxlen = config.protein_maxlen
 
-        self.n_head = config.no_heads
-        self.n_ipa_repeat = config.no_protein_blocks
+        self.n_head = config.num_heads
+        self.n_ipa_repeat = config.num_protein_blocks
 
         # modules for self attention on peptide, updating {s_i}
         self.peptide_transform = torch.nn.ModuleList(
-            [PeptideSelfAttention(config) for _ in range(config.no_peptide_blocks)]
+            [PeptideSelfAttention(config) for _ in range(config.num_peptide_blocks)]
         )
 
         self.peptide_norm = torch.nn.Sequential(

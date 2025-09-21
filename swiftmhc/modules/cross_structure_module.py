@@ -40,21 +40,21 @@ class CrossStructureModule(torch.nn.Module):
             IPA hidden channel dimension
         c_resnet:
             Angle resnet (Alg. 23 lines 11-14) hidden channel dimension
-        no_heads_ipa:
+        num_heads_ipa:
             Number of IPA heads
-        no_qk_points:
+        num_qk_points:
             Number of query/key points to generate during IPA
-        no_v_points:
+        num_v_points:
             Number of value points to generate during IPA
         dropout_rate:
             Dropout rate used throughout the layer
         no_blocks:
             Number of structure module blocks
-        no_resnet_blocks:
+        num_resnet_blocks:
             Number of blocks in the angle resnet
-        no_angles:
+        num_angles:
             Number of angles to generate in the angle resnet
-        no_transition_layers:
+        num_transition_layers:
             Number of layers to use for transition
         trans_scale_factor:
             Scale of single representation transition hidden dimension
@@ -70,16 +70,16 @@ class CrossStructureModule(torch.nn.Module):
         self.c_s = config.c_s
         self.c_ipa = config.c_hidden
         self.c_resnet = config.c_resnet
-        self.no_heads_ipa = config.no_heads
-        self.no_qk_points = config.no_qk_points
-        self.no_v_points = config.no_v_points
+        self.num_heads_ipa = config.num_heads
+        self.num_qk_points = config.num_qk_points
+        self.num_v_points = config.num_v_points
         self.dropout_rate = config.dropout_rate
-        self.n_blocks = config.no_cross_blocks
-        self.no_resnet_blocks = config.no_resnet_blocks
-        self.no_angles = config.no_angles
+        self.n_blocks = config.num_cross_blocks
+        self.num_resnet_blocks = config.num_resnet_blocks
+        self.num_angles = config.num_angles
         self.trans_scale_factor = config.trans_scale_factor
         self.epsilon = config.epsilon
-        self.n_transition_layers = config.no_transition_layers
+        self.n_transition_layers = config.num_transition_layers
 
         # Buffers to be lazily initialized later in _init_residue_constants once the dtype and device are determined.
         # self.default_frames
@@ -109,8 +109,8 @@ class CrossStructureModule(torch.nn.Module):
         self.angle_resnet = AngleResnet(
             self.c_s,
             self.c_resnet,
-            self.no_resnet_blocks,
-            self.no_angles,
+            self.num_resnet_blocks,
+            self.num_angles,
             self.epsilon,
         )
 

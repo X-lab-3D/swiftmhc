@@ -26,11 +26,11 @@ class DebuggableInvariantPointAttention(torch.nn.Module):
                 Pair representation channel dimension
             c_hidden:
                 Hidden channel dimension
-            no_heads:
+            num_heads:
                 Number of attention heads
-            no_qk_points:
+            num_qk_points:
                 Number of query/key points to generate
-            no_v_points:
+            num_v_points:
                 Number of value points to generate
         """
         super(DebuggableInvariantPointAttention, self).__init__()
@@ -38,9 +38,9 @@ class DebuggableInvariantPointAttention(torch.nn.Module):
         self.c_s = config.c_s
         self.c_z = config.c_z
         self.c_hidden = config.c_hidden
-        self.no_heads = config.no_heads
-        self.no_qk_points = config.no_qk_points
-        self.no_v_points = config.no_v_points
+        self.num_heads = config.num_heads
+        self.num_qk_points = config.num_qk_points
+        self.num_v_points = config.num_v_points
         self.inf = config.inf
         self.eps = config.epsilon
 
@@ -48,13 +48,13 @@ class DebuggableInvariantPointAttention(torch.nn.Module):
         # supplement. There, they lack bias and use Glorot initialization.
         # Here as in the official source, they have bias and use the default
         # Lecun initialization.
-        hc = self.c_hidden * self.no_heads
+        hc = self.c_hidden * self.num_heads
         self.linear_q = Linear(self.c_s, hc, bias=False)
         self.linear_kv = Linear(self.c_s, 2 * hc, bias=False)
 
-        self.linear_b = Linear(self.c_z, self.no_heads, bias=False)
+        self.linear_b = Linear(self.c_z, self.num_heads, bias=False)
 
-        concat_out_dim = self.no_heads * (self.c_z + self.c_hidden)
+        concat_out_dim = self.num_heads * (self.c_z + self.c_hidden)
         self.linear_out = Linear(concat_out_dim, self.c_s, init="final")
 
         self.softmax = torch.nn.Softmax(dim=-1)
@@ -90,10 +90,10 @@ class DebuggableInvariantPointAttention(torch.nn.Module):
         kv = self.linear_kv(s)
 
         # [*, N_res, H, C_hidden]
-        q = q.view(q.shape[:-1] + (self.no_heads, -1))
+        q = q.view(q.shape[:-1] + (self.num_heads, -1))
 
         # [*, N_res, H, 2 * C_hidden]
-        kv = kv.view(kv.shape[:-1] + (self.no_heads, -1))
+        kv = kv.view(kv.shape[:-1] + (self.num_heads, -1))
 
         # [*, N_res, H, C_hidden]
         k, v = torch.split(kv, self.c_hidden, dim=-1)
