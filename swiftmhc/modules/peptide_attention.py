@@ -15,7 +15,9 @@ class PeptideSelfAttention(torch.nn.Module):
     """Gives the input sequence a relative positional encoding and performs multi-headed attention."""
 
     def __init__(self, config: ml_collections.ConfigDict):
-        """In config:
+        """Peptide self attention module.
+
+        In config:
         num_heads:           number of attention heads
         peptide_maxlen(k):  determines the number of distance bins: [-k, -k + 1, ..., 0, ..., k - 1, k]
         c_s:                the depth of the input tensor, at shape -1
