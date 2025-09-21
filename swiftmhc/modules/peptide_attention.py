@@ -27,8 +27,7 @@ class PeptideSelfAttention(torch.nn.Module):
 
         # constants
         self.num_heads = config.num_heads
-        self.relpos_k = config.peptide_maxlen
-        self.num_bins = 2 * self.relpos_k + 1
+        self.num_bins = 2 * config.peptide_maxlen + 1
         self.c_s = config.c_s
         self.c_hidden = config.c_hidden
         self.inf = config.inf
