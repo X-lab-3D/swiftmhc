@@ -19,7 +19,7 @@ class PeptideSelfAttention(torch.nn.Module):
 
         In config:
         num_heads:           number of attention heads
-        peptide_maxlen(k):  determines the number of distance bins: [-k, -k + 1, ..., 0, ..., k - 1, k]
+        peptide_maxlen(k):  determines the number of distance bins: [-k+1, -k+2, ..., 0, ..., k-2, k-1]
         c_s:                the depth of the input tensor, at shape -1
         dropout_rate:       for the dropouts before normalisation
         c_transition:       transition depth in feed forward block
@@ -29,7 +29,7 @@ class PeptideSelfAttention(torch.nn.Module):
 
         # constants
         self.num_heads = config.num_heads
-        self.num_bins = 2 * config.peptide_maxlen + 1
+        self.num_bins = 2 * config.peptide_maxlen - 1
         self.c_s = config.c_s
         self.c_hidden = config.c_hidden
         self.inf = config.inf
