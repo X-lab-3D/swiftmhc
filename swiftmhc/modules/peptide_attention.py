@@ -15,7 +15,9 @@ class PeptideSelfAttention(torch.nn.Module):
     """Gives the input sequence a relative positional encoding and performs multi-headed attention."""
 
     def __init__(self, config: ml_collections.ConfigDict):
-        """In config:
+        """Peptide self attention module.
+
+        In config:
         num_heads:           number of attention heads
         peptide_maxlen(k):  determines the number of distance bins: [-k, -k + 1, ..., 0, ..., k - 1, k]
         c_s:                the depth of the input tensor, at shape -1
@@ -27,8 +29,7 @@ class PeptideSelfAttention(torch.nn.Module):
 
         # constants
         self.num_heads = config.num_heads
-        self.relpos_k = config.peptide_maxlen
-        self.num_bins = 2 * self.relpos_k + 1
+        self.num_bins = 2 * config.peptide_maxlen + 1
         self.c_s = config.c_s
         self.c_hidden = config.c_hidden
         self.inf = config.inf
@@ -50,10 +51,7 @@ class PeptideSelfAttention(torch.nn.Module):
         )
 
         # to be used after multi-headed attention
-        self.norm1 = torch.nn.Sequential(
-            torch.nn.Dropout(self.dropout_rate),
-            LayerNorm(self.c_s),
-        )
+        self.norm1 = torch.nn.Sequential(LayerNorm(self.c_s), torch.nn.Dropout(self.dropout_rate))
 
         # to be used after multi-headed attention norm
         self.feed_forward = torch.nn.Sequential(
@@ -63,10 +61,7 @@ class PeptideSelfAttention(torch.nn.Module):
         )
 
         # to be used after feed-forward
-        self.norm2 = torch.nn.Sequential(
-            torch.nn.Dropout(self.dropout_rate),
-            LayerNorm(self.c_s),
-        )
+        self.norm2 = torch.nn.Sequential(LayerNorm(self.c_s), torch.nn.Dropout(self.dropout_rate))
 
     def forward(self, s: torch.Tensor, mask: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """Encodes a sequence, by means of self attention and feed forward MLP
