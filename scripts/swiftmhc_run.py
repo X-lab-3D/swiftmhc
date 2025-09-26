@@ -589,6 +589,7 @@ class Trainer:
             record: Metrics record to update
             profiler: Optional profiler instance to step
         """
+        torch.cuda.reset_peak_memory_stats()
         batch_time = []
         for batch_index, batch_data in enumerate(data_loader):
             time_start = timer()
@@ -634,6 +635,12 @@ class Trainer:
         _log.info(
             f"batch time stat (s): mean {numpy.mean(batch_time):.6f}, max {numpy.max(batch_time):.6f}, min {numpy.min(batch_time):.6f}"
         )
+
+        peak_mem = torch.cuda.max_memory_allocated() / 1024**3
+        _log.info(f"Epoch peak allocated memory: {peak_mem:.2f} GB")
+
+        peak_reserved = torch.cuda.max_memory_reserved() / 1024**3
+        _log.info(f"Epoch peak reserved memory: {peak_reserved:.2f} GB")
 
     def _epoch(
         self,
