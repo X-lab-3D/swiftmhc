@@ -145,20 +145,6 @@ class CrossStructureModule(torch.nn.Module):
             positions:              [*, peptide_maxlen, 14, 3] (atom positions in 14-atom format)
             single:                 [*, peptide_maxlen, c_s] (sequence embedding)
         """
-        batch_size, peptide_maxlen, embd_depth = s_peptide_initial.shape
-
-        # Ignore residues that are masked all across the batch.
-        peptide_slice = peptide_mask.sum(dim=0).bool()
-        protein_slice = protein_mask.sum(dim=0).bool()
-
-        # slice out those masked residues, for performance reasons.
-        s_peptide_initial = s_peptide_initial[:, peptide_slice]
-        s_protein_initial = s_protein_initial[:, protein_slice]
-        T_protein = T_protein[:, protein_slice]
-        protein_mask = protein_mask[:, protein_slice]
-        peptide_mask = peptide_mask[:, peptide_slice]
-        peptide_aatype = peptide_aatype[:, peptide_slice]
-
         # [*, peptide_maxlen, c_s]
         s_peptide_initial = self.layer_norm_s_peptide(s_peptide_initial)
 
@@ -206,55 +192,15 @@ class CrossStructureModule(torch.nn.Module):
 
         outputs = dict_multimap(torch.stack, outputs)
 
-        # fill in an angle vector of length 1.0 for masked out parts, to prevent NaN in the loss function's normalization
-        masked_angles = torch.tensor([[1.0, 0.0] for _ in range(7)], device=s_peptide.device)
         # unslice the output to a returned dictionary
         result = {}
-        result["single"] = self._unslice_and_restore_masked(outputs["states"][-1], peptide_slice)
-        result["final_frames"] = self._unslice_and_restore_masked(
-            outputs["frames"][-1], peptide_slice
-        )
-        result["final_sidechain_frames"] = self._unslice_and_restore_masked(
-            outputs["sidechain_frames"][-1], peptide_slice
-        )
-        result["final_angles"] = self._unslice_and_restore_masked(
-            outputs["angles"][-1], peptide_slice, masked_angles
-        )
-        result["final_unnormalized_angles"] = self._unslice_and_restore_masked(
-            outputs["unnormalized_angles"][-1], peptide_slice, masked_angles
-        )
-        result["final_positions"] = self._unslice_and_restore_masked(
-            outputs["positions"][-1], peptide_slice
-        )
+        result["single"] = outputs["states"][-1]
+        result["final_frames"] = outputs["frames"][-1]
+        result["final_sidechain_frames"] = outputs["sidechain_frames"][-1]
+        result["final_angles"] = outputs["angles"][-1]
+        result["final_unnormalized_angles"] = outputs["unnormalized_angles"][-1]
+        result["final_positions"] = outputs["positions"][-1]
         return result
-
-    @staticmethod
-    def _unslice_and_restore_masked(
-        residue_value: torch.Tensor,
-        residue_slice: torch.Tensor,
-        masked_value: torch.Tensor | None = None,
-    ) -> torch.Tensor:
-        """Undoes the effect of slicing.
-        Expands the data tensor back into its original size, with masks.
-
-        Args:
-            residue_value:          [*, length, ...]
-            residue_slice:          [max_length] (bool)
-
-        Returns:
-            masked_residue_value:   [*, max_length, ...]
-        """
-        dimensions = list(residue_value.shape)
-        dimensions[1] = residue_slice.shape[0]
-
-        if masked_value is None:
-            masked_residue_value = residue_value.new_zeros(dimensions)
-        else:
-            masked_residue_value = masked_value.unsqueeze(0).unsqueeze(1).expand(dimensions).clone()
-
-        masked_residue_value[:, residue_slice] = residue_value
-
-        return masked_residue_value
 
     @staticmethod
     def _write_attention_weights(
