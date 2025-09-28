@@ -119,16 +119,18 @@ class Predictor(torch.nn.Module):
 
         # Ignore residues that are masked all over the batch.
         peptide_slice = batch["peptide_self_residues_mask"].sum(dim=0).bool()
+        peptide_mask = peptide_slice.view(1, -1, 1)
         protein_slice = batch["protein_self_residues_mask"].sum(dim=0).bool()
+        protein_mask = protein_slice.view(1, -1, 1)
+
         protein_slice_length = protein_slice.sum()
         protein_2d_slice = torch.logical_and(protein_slice[None, :], protein_slice[:, None])
 
         # self attention on the peptide
+        s_peptide = s_peptide.masked_fill(~peptide_mask, 0)
         for peptide_encoder in self.peptide_transform:
-            s_peptide[:, peptide_slice], _ = peptide_encoder(
-                s_peptide[:, peptide_slice],
-                batch["peptide_self_residues_mask"][:, peptide_slice],
-            )
+            s_peptide, _ = peptide_encoder(s_peptide, batch["peptide_self_residues_mask"])
+            s_peptide = s_peptide.masked_fill(~peptide_mask, 0)
 
         # structure-based self-attention on the protein
         T_protein = Rigid.from_tensor_4x4(batch["protein_backbone_rigid_tensor"])
