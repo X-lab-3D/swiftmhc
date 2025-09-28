@@ -5,7 +5,6 @@ import torch
 from openfold.model.primitives import Linear
 from openfold.utils.tensor_utils import flatten_final_dims
 from openfold.utils.tensor_utils import permute_final_dims
-from ..tools.rigid import Rigid
 
 
 _log = logging.getLogger(__name__)
@@ -67,16 +66,13 @@ class DebuggableInvariantPointAttention(torch.nn.Module):
         self,
         s: torch.Tensor,
         z: torch.Tensor | None,
-        r: Rigid,
         mask: torch.Tensor,
-        inplace_safe: bool = False,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """Performs Invariant Point attention on the residues within one sequence.
 
         Args:
             s:      [*, N_res, C_s] single representation
             z:      [*, N_res, N_res, C_z] pair representation
-            r:      [*, N_res] transformation object
             mask:   [*, N_res] mask
         Returns:
             [*, N_res, C_s] updated single representation
