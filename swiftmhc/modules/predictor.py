@@ -109,8 +109,6 @@ class Predictor(torch.nn.Module):
             logits:                     [*, 2] (BA, for classification only)
             class:                      [*] (BA, binary 0 / 1, for classification only)
         """
-        batch_size, peptide_maxlen, peptide_dim = s_peptide.shape
-
         # [*, peptide_maxlen, c_s]
         if self.blosum:
             s_peptide = batch["peptide_blosum62"].clone()
@@ -174,6 +172,7 @@ class Predictor(torch.nn.Module):
         if self.model_type == ModelType.REGRESSION:
             # reshape a 1-dimensional vector into a scalar
             # [*]
+            batch_size = s_peptide.shape[0]
             output["affinity"] = ba.reshape(batch_size)
 
         elif self.model_type == ModelType.CLASSIFICATION:
@@ -202,4 +201,5 @@ class Predictor(torch.nn.Module):
         # [*, output_size]
         ba = masked_scores.sum(dim=-2)
 
+        return ba
         return ba
