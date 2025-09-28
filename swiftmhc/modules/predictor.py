@@ -109,22 +109,17 @@ class Predictor(torch.nn.Module):
             logits:                     [*, 2] (BA, for classification only)
             class:                      [*] (BA, binary 0 / 1, for classification only)
         """
+        batch_size, peptide_maxlen, peptide_dim = s_peptide.shape
+
         # [*, peptide_maxlen, c_s]
         if self.blosum:
             s_peptide = batch["peptide_blosum62"].clone()
         else:
             s_peptide = batch["peptide_sequence_onehot"].clone()
 
-        batch_size, peptide_maxlen, peptide_dim = s_peptide.shape
-
         # Ignore residues that are masked all over the batch.
         peptide_slice = batch["peptide_self_residues_mask"].sum(dim=0).bool()
         peptide_mask = peptide_slice.view(1, -1, 1)
-        protein_slice = batch["protein_self_residues_mask"].sum(dim=0).bool()
-        protein_mask = protein_slice.view(1, -1, 1)
-
-        protein_slice_length = protein_slice.sum()
-        protein_2d_slice = torch.logical_and(protein_slice[None, :], protein_slice[:, None])
 
         # self attention on the peptide
         s_peptide = s_peptide.masked_fill(~peptide_mask, 0)
@@ -132,31 +127,27 @@ class Predictor(torch.nn.Module):
             s_peptide, _ = peptide_encoder(s_peptide, batch["peptide_self_residues_mask"])
             s_peptide = s_peptide.masked_fill(~peptide_mask, 0)
 
-        # structure-based self-attention on the protein
-        T_protein = Rigid.from_tensor_4x4(batch["protein_backbone_rigid_tensor"])
-
         # [*, protein_maxlen, c_s]
         if self.blosum:
             s_protein = batch["protein_blosum62"].clone()
         else:
             s_protein = batch["protein_sequence_onehot"].clone()
 
+        protein_slice = batch["protein_self_residues_mask"].sum(dim=0).bool()
+        protein_mask = protein_slice.view(1, -1, 1)
+
+        s_protein = s_protein.masked_fill(~protein_mask, 0)
         z_protein = self.protein_dist_norm(batch["protein_proximities"])
-        sliced_z_protein = z_protein[:, protein_2d_slice].reshape(
-            batch_size, protein_slice_length, protein_slice_length, -1
-        )
-
         for _ in range(self.n_ipa_repeat):
-            protein_upd, a = self.protein_ipa(
-                s_protein[:, protein_slice],
-                sliced_z_protein,
-                T_protein[:, protein_slice],
-                batch["protein_self_residues_mask"][:, protein_slice].to(dtype=s_protein.dtype),
+            protein_upd, _ = self.protein_ipa(
+                s_protein, z_protein, batch["protein_self_residues_mask"]
             )
-            s_protein[:, protein_slice] = self.protein_norm(
-                s_protein[:, protein_slice] + protein_upd
-            )
+            protein_upd = protein_upd.masked_fill(~protein_mask, 0)
+            s_protein = self.protein_norm(s_protein + protein_upd)
+            s_protein = s_protein.masked_fill(~protein_mask, 0)
 
+        # structure-based self-attention on the protein
+        T_protein = Rigid.from_tensor_4x4(batch["protein_backbone_rigid_tensor"])
         # cross attention and peptide structure prediction
         output = self.cross_sm(
             batch["ids"],
