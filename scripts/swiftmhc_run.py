@@ -1217,6 +1217,7 @@ class Trainer:
             num_workers=self.workers_count,
             pin_memory=True,
             persistent_workers=True if self.workers_count > 0 else False,
+            drop_last=True,
         )
 
         return loader
