@@ -107,6 +107,13 @@ arg_parser.add_argument(
     default=False,
 )
 arg_parser.add_argument(
+    "--enable-compile",
+    help="enable PyTorch compile during training",
+    action="store_const",
+    const=True,
+    default=False,
+)
+arg_parser.add_argument(
     "--enable-profiling",
     help="enable PyTorch profiler during training",
     action="store_const",
@@ -953,6 +960,7 @@ class Trainer:
         pretrained_model_path: str,
         animated_complex_ids: list[str],
         patience: int,
+        enable_compile: bool = False,
         enable_profiling: bool = False,
         profile_wait: int = 3,
         profile_warmup: int = 2,
@@ -1055,6 +1063,10 @@ class Trainer:
         early_stop = EarlyStopper(patience=patience)
 
         _log.info(f"begin with training phase: {training_phases[0]}")
+
+        # Compile the model
+        if enable_compile:
+            model.compile()
 
         # do the actual learning iteration
         total_epoch_count = 0
@@ -1425,6 +1437,7 @@ if __name__ == "__main__":
             pretrained_model_path,
             args.animate,
             args.patience,
+            args.enable_compile,
             args.enable_profiling,
             args.profile_wait,
             args.profile_warmup,
