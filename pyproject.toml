@@ -42,6 +42,8 @@ dev = [
     "ruff",
     # static typing
     "mypy",
+    # testing
+    "pytest",
 ]
 
 [project.urls]
