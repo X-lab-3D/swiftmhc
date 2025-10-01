@@ -5,54 +5,59 @@
 SwiftMHC is a deep learning algorithm for predicting pMHC structure and binding affinity at the same time.
 It currently works for HLA-A*0201 9-mers only.
 
-# Estimated speed
+## Speed performance
 
 When running on 1/4 A100 card with batch size 64:
  * binding affinity (BA) prediction takes 0.01 seconds per pMHC case
  * 3D structure prediction without OpenMM (disabled) takes 0.9 seconds per pMHC case.
  * 3D structure prediction with OpenMM takes 2.2 seconds per case.
 
-## Dependencies
+## Requirements and installation
 
- - pip3
- - python >= 3.11.5
- - setuptools >= 75.5.0
- - openfold >= 1.0.0
- - position-encoding >= 1.0.0 (github.com/X-lab-3D/position-encoding)
- - PyTorch >= 2.0.1
- - pandas >= 1.5.3
- - numpy >= 1.26.4
- - h5py >= 3.10.0
- - ml-collections >= 0.1.1
- - scikit-learn >= 1.4.1
- - openmm >= 8.1.1 (SwiftMHC needs the cuda version if you were to run on a cuda platform)
- - blosum >= 2.0.3
- - modelcif >= 1.0
- - filelock >= 3.13.1
- - biopython >= 1.8.4
- - PyMol >= 3.1
+### Requirements
+- Linux only (due to restriction of OpenFold)
+- Python ≥3.11
+- [PyTorch](https://pytorch.org/get-started/locally/) ≥2.5
+    - CUDA is optional, but recommended for training and inference speed.
+- [OpenFold](https://github.com/aqlaboratory/openfold)
+- [PyMOL](https://pymol.org)
 
-CUDA is optional
+### Installation
 
-## Installation
+#### 1. Install PyTorch
+Follow the instructions from PyTorch website https://pytorch.org/get-started/locally/
 
-First install PyTorch. Follow the instructions from https://pytorch.org/get-started/locally/
-
-Then install openfold, clone this repo: https://github.com/aqlaboratory/openfold
-Then from inside that repo, run:
+#### 2. Install OpenFold
 
 ```
-pip install -e .
+# Clone OpenFold repository
+git clone https://github.com/aqlaboratory/openfold.git
 
+# Enter the OpenFold directory
+cd openfold
+
+# Install OpenFold
+pip install .
+
+# Install third party dependencies required by OpenFold
 scripts/install_third_party_dependencies.sh
 ```
 
-For preprocessing, pymol is required. Download and install this from https://pymol.org
+#### 3. PyMOL
 
-To install SwiftMHC, clone the SwiftMHC repo (this repo)
-From this repositiry run:
+For data preprocessing in SwiftMHC, pymol is required. Download and install it from https://pymol.org
+
+#### 4. Install SwiftMHC
+
 ```
-pip install -e .
+# Clone SwiftMHC repository
+git clone https://github.com/X-lab-3D/swiftmhc.git
+
+# Enter the SwiftMHC directory
+cd swiftmhc
+
+# Install SwiftMHC
+pip install .
 ```
 
 SwiftMHC is now installed.
