@@ -120,7 +120,6 @@ The preprocessing command is `swiftmhc_preprocess`. Run `swiftmhc_preprocess --h
 To create training, validation and test sets, run:
 ```
 swiftmhc_preprocess IEDB_table.csv ref_mhc.pdb mhcp_binder_models/ \
-  mhc_self_attention.mask mhc_cross_attention.mask preprocessed_data.hdf5
 ```
 
 To preprocess just the MHC allele structures, for predicting unlabeled data, run:
