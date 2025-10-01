@@ -103,16 +103,23 @@ swiftmhc_preprocess allele_table.csv ref_mhc.pdb mhc_models/ \
 
 ## Training
 
-This requires preprocessed HDF5 files, containing structures of the MHC protein, peptide and binding affinity or classification data.
-We have these available at ...
+### Input files
+
+Training a new network from scratch requires the following input files:
+- a training set in HDF5 format (e.g. `train.hdf5`)
+- a validation set in HDF5 format (e.g. `valid.hdf5`)
+- a test set in HDF5 format (e.g. `test.hdf5`)
+
+These files can be created using the preprocessing step above.
+
+### Run training
+
+The training command is `swiftmhc_run`. For example:
 
 Run
 ```
 swiftmhc_run -r example train.hdf5 valid.hdf5 test.hdf5
 ```
-
-Run `swiftmhc_run --help` for details.
-
 
 This will save the network model to `example/best-predictor.pth`
 
