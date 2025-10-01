@@ -47,9 +47,9 @@ pip install -e .
 scripts/install_third_party_dependencies.sh
 ```
 
-For preprocessing, pymol is required. Download and install from https://pymol.org
+For preprocessing, pymol is required. Download and install this from https://pymol.org
 
-Then clone the SwiftMHC repo (this repo)
+To install SwiftMHC, clone the SwiftMHC repo (this repo)
 From this repositiry run:
 ```
 pip install -e .
@@ -94,6 +94,7 @@ Preprocessing requires data tables, 3D structures and mask files. Check the data
 ## Training
 
 This requires preprocessed HDF5 files, containing structures of the MHC protein, peptide and binding affinity or classification data.
+We have these available at ...
 
 Run
 ```
@@ -112,14 +113,19 @@ Alternatively, there are pretrained models in this repository under the director
 
 Prediction requires preprocessed HDF5 files, containing structures of the MHC protein, for every allele.
 The data directory contains a preprocessed hdf5 file for the HLA-A*02:01 allele only.
+
 Prediction also requires a table, linking the peptides to MHC alleles.
+It needs to be in CSV format and have the following two columns:
+ - a column named 'peptide', holding the sequence of the epitope peptide. Example: LAYYNSCML
+ - a column named 'allele', holding the name of the MHC allele. Example: HLA-A*02:01
 
-Run
+For example:
+To predict unlabeled data, run
 ```
-swiftmhc_predict -B1 trained-models/8k-trained-model.pth table.csv preprocessed_mhcs.hdf5 results/
+swiftmhc_predict -B1 trained-models/8k-trained-model.pth data/example-data-table.csv data/HLA-A0201-from-3MRD.hdf5 results/
 ```
 
-The output `results` directory will contain the BA data and the structures.
+The output `results` directory will contain the BA data and the structures for the peptides that were predicted binding.
 The file results/results.csv will hold the BA and class values per MHC,peptide combination.
 Note that the affinities in this file are not IC50 or Kd. They correspond to 1 - log_50000(IC50) or 1 - log_50000(Kd).
 
