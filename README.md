@@ -125,8 +125,12 @@ swiftmhc_preprocess IEDB_table.csv ref_mhc.pdb mhcp_binder_models/ \
 
 To preprocess just the MHC allele structures, for predicting unlabeled data, run:
 ```
-swiftmhc_preprocess allele_table.csv ref_mhc.pdb mhc_models/ \
-  mhc_self_attention.mask mhc_cross_attention.mask preprocessed_mhcs.hdf5
+swiftmhc_preprocess data/example-data-table.csv \
+    data/structures/reference-from-3MRD.pdb \
+    data/structures/ \
+    data/HLA-A0201-GDOMAIN.mask \
+    data/HLA-A0201-CROSS.mask \
+    example_preprocessed_data.hdf5
 ```
 
 
