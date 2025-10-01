@@ -117,11 +117,6 @@ The PDB structures must always contain an MHC structure, and optionally a peptid
 
 The preprocessing command is `swiftmhc_preprocess`. Run `swiftmhc_preprocess --help` for details.
 
-To create training, validation and test sets, run:
-```
-swiftmhc_preprocess IEDB_table.csv ref_mhc.pdb mhcp_binder_models/ \
-```
-
 To preprocess just the MHC allele structures, for predicting unlabeled data, run:
 ```
 swiftmhc_preprocess data/example-data-table.csv \
