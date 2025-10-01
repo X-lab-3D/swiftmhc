@@ -151,3 +151,5 @@ swiftmhc_run -r example train.hdf5 valid.hdf5 test.hdf5
 ```
 
 This will save the network model to `example/best-predictor.pth`
+
+Run `swiftmhc_run --help` for details and options.
