@@ -62,6 +62,35 @@ pip install .
 
 SwiftMHC is now installed.
 
+## Inference / Prediction
+
+### Input files
+
+Inference requires the following input files:
+- a trained model ([trained-models/8k-trained-model.pth](trained-models/8k-trained-model.pth))
+- a CSV file linking the peptides to MHC alleles ([data/example-data-table.csv](data/example-data-table.csv))
+- a preprocessed HDF5 file containing MHC structures for every allele ([data/HLA-A0201-from-3MRD.hdf5](data/HLA-A0201-from-3MRD.hdf5))
+- an output directory (e.g. `results/`)
+
+The CSV file must have the following columns:
+- `peptide` column: holding the sequence of the epitope peptide, e.g. `LAYYNSCML`
+- `allele` column: holding the name of the MHC allele, e.g. `HLA-A*02:01`
+
+### Run inference
+
+To run inference, use the command `swiftmhc_predict`. Run `swiftmhc_predict --help` for details.
+
+For example, to predict binding affinity and structure for the peptides in `data/example-data-table.csv` with MHC allele `HLA-A*02:01`, run:
+```
+swiftmhc_predict --batch-size 1 trained-models/8k-trained-model.pth data/example-data-table.csv data/HLA-A0201-from-3MRD.hdf5 results/
+```
+
+The output `results` directory will contain the binding affinity (BA) data and the structures for the peptides that were predicted to bind the MHC.
+The file `results/results.csv` will hold the BA and class values per MHC-peptide combination.
+Note that the affinities in this file are not IC50 or Kd. They correspond to `1 - log_50000(IC50)` or `1 - log_50000(Kd)`.
+
+If the flag `--with-energy-minimization` is used for the command `swiftmhc_predict`, SwiftMHC will run OpenMM with an amber99sb/tip3p forcefield to refine the final structure.
+
 ## Preprocessing data
 
 Preprocessing means to create a file in [HDF5](https://www.hdfgroup.org/solutions/hdf5/) format, containing info in the peptide and MHC protein. This is only needed if you want to use a new MHC structure or train a new network.
@@ -122,30 +151,3 @@ swiftmhc_run -r example train.hdf5 valid.hdf5 test.hdf5
 ```
 
 This will save the network model to `example/best-predictor.pth`
-
-## Predicting unlabelled data
-
-Do this after training a model (pth format).
-Alternatively, there are pretrained models in this repository under the directory named `trained-models`.
-
-Prediction requires preprocessed HDF5 files, containing structures of the MHC protein, for every allele.
-The data directory contains a preprocessed hdf5 file for the HLA-A*02:01 allele only.
-
-Prediction also requires a table, linking the peptides to MHC alleles.
-It needs to be in CSV format and have the following two columns:
- - a column named 'peptide', holding the sequence of the epitope peptide. Example: LAYYNSCML
- - a column named 'allele', holding the name of the MHC allele. Example: HLA-A*02:01
-
-For example:
-To predict unlabeled data, run
-```
-swiftmhc_predict -B1 trained-models/8k-trained-model.pth data/example-data-table.csv data/HLA-A0201-from-3MRD.hdf5 results/
-```
-
-The output `results` directory will contain the BA data and the structures for the peptides that were predicted binding.
-The file results/results.csv will hold the BA and class values per MHC,peptide combination.
-Note that the affinities in this file are not IC50 or Kd. They correspond to 1 - log_50000(IC50) or 1 - log_50000(Kd).
-
-If the flag --with-energy-minimization is included, SwiftMHC runs OpenMM with an amber99sb/tip3p forcefield to refine the final structure.
-
-Run `swiftmhc_predict --help` for details.
