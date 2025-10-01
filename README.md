@@ -64,23 +64,31 @@ SwiftMHC is now installed.
 
 ## Preprocessing data
 
-Preprocessing means to create a file in HDF5 format, containing info in the peptide and MHC protein.
-This is only needed if you want to use a new MHC structure or if you want to train a new network.
+Preprocessing means to create a file in [HDF5](https://www.hdfgroup.org/solutions/hdf5/) format, containing info in the peptide and MHC protein. This is only needed if you want to use a new MHC structure or train a new network.
 
-Preprocessing requires a CSV table in IEDB format. See the data directory for an example.
-This table must have the following columns:
-- ID (required) : the id under which the row's data will be stored in the HDF5 file. This must correspond to the name of a structure in PDB format.
-- allele (required): the name of the MHC allele. (example: HLA-A*02:01) SwiftMHC will use this to identify MHC structures when predicting unlabeled data.
-- peptide (optional): the sequence of the peptide. This is used in training, validation, test and not in predicting unlabeled data.
-- measurement_value (optional): binding affinity data or classification (BINDING/NONBINDING). This is used in training, validation, test and not in predicting unlabeled data.
+### Input files
+Preprocessing requires the following files:
+- a CSV table in IEDB format ([data/example-data-table.csv](data/example-data-table.csv))
+- a reference MHC structure in PDB format ([data/structures/reference-from-3MRD.pdb](data/structures/reference-from-3MRD.pdb))
+- a directory containing all other MHC structures in PDB format ([data/structures](data/structures))
+- two mask files
+    - G-domain mask ([data/HLA-A0201-GDOMAIN.mask](data/HLA-A0201-GDOMAIN.mask))
+    - CROSS mask (pocket residue only) ([data/HLA-A0201-CROSS.mask](data/HLA-A0201-CROSS.mask))
 
-Preprocessing requires a reference structure, to align all MHC molecules to.
-It also requires a directory containing all the other structures. These may have a peptide in them, but must always contain an MHC structure.
+The IEDB CSV file must have the following columns:
+- `ID` (required) : the id under which the row's data will be stored in the HDF5 file. This must correspond to the name of a structure in PDB format.
+- `allele` (required): the name of the MHC allele (e.g. HLA-A*02:01). SwiftMHC will use this to identify MHC structures when predicting unlabeled data.
+- `peptide` (optional): the sequence of the peptide. This is used in training, validation and test but not in predicting unlabeled data.
+- `measurement_value` (optional): binding affinity data or classification (BINDING/NONBINDING). This is used in training, validation and test but not in predicting unlabeled data.
 
-Preprocessing also requires two mask files: a G-domain and a CROSS mask (pocket residues only). See the data directory for examples.
-These masks have to be compatible to the reference structure.
+The PDB structures must always contain an MHC structure, and optionally a peptide structure. And the two mask files must be compatible to the reference structure.
 
-To create training, validation, test sets, run:
+
+### Run preprocessing
+
+The preprocessing command is `swiftmhc_preprocess`. Run `swiftmhc_preprocess --help` for details.
+
+To create training, validation and test sets, run:
 ```
 swiftmhc_preprocess IEDB_table.csv ref_mhc.pdb mhcp_binder_models/ \
   mhc_self_attention.mask mhc_cross_attention.mask preprocessed_data.hdf5
@@ -92,9 +100,6 @@ swiftmhc_preprocess allele_table.csv ref_mhc.pdb mhc_models/ \
   mhc_self_attention.mask mhc_cross_attention.mask preprocessed_mhcs.hdf5
 ```
 
-Run `swiftmhc_preprocess --help` for details.
-
-Preprocessing requires data tables, 3D structures and mask files. Check the data directory in this repo for examples.
 
 ## Training
 
