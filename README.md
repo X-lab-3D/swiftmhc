@@ -93,7 +93,7 @@ If the flag `--with-energy-minimization` is used for the command `swiftmhc_predi
 
 ## Preprocessing data
 
-Preprocessing means to create a file in [HDF5](https://www.hdfgroup.org/solutions/hdf5/) format, containing info in the peptide and MHC protein. This is only needed if you want to use a new MHC structure or train a new network.
+Preprocessing means to create a file in [HDF5](https://www.hdfgroup.org/solutions/hdf5/) format, containing info in the peptide and MHC protein. This is only needed if you want to use a new MHC structure for **inference** or train a new network.
 
 ### Input files
 Preprocessing requires the following files:
