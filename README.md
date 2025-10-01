@@ -107,10 +107,10 @@ Preprocessing requires the following files:
 The IEDB CSV file must have the following columns:
 - `ID` (required) : the id under which the row's data will be stored in the HDF5 file. This must correspond to the name of a structure in PDB format.
 - `allele` (required): the name of the MHC allele (e.g. HLA-A*02:01). SwiftMHC will use this to identify MHC structures when predicting unlabeled data.
-- `peptide` (optional): the sequence of the peptide. This is used in training, validation and test but not in predicting unlabeled data.
+- `peptide` (optional): the sequence of the peptide. This is used for preprocessing training data, but it's not required when preprocessing an MHC structure for predicting unlabeled data.
 - `measurement_value` (optional): binding affinity data or classification (BINDING/NONBINDING). This is used in training, validation and test but not in predicting unlabeled data.
 
-The PDB structures must always contain an MHC structure, and optionally a peptide structure. And the two mask files must be compatible to the reference structure.
+The PDB structures must always contain an MHC structure, and optionally a peptide structure. And the two mask files must be compatible to the reference structure in terms of the number and types of residues.
 
 
 ### Run preprocessing
