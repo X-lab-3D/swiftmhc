@@ -94,7 +94,8 @@ Preprocessing requires data tables, 3D structures and mask files. Check the data
 ## Training
 
 This requires preprocessed HDF5 files, containing structures of the MHC protein, peptide and binding affinity or classification data.
-We have these available at ...
+We have these available at zenodo. They are accessible with DOI 10.5281/zenodo.14968655. The preprocessed files are located within the archive
+under the preprocessed subdirectory.
 
 Run
 ```
