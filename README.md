@@ -206,28 +206,17 @@ Preprocessing MHC structures for inference requires the following files:
 
 #### Run preprocessing MHC structures for inference
 
-
-Let's take the the `HLA-A*02:01` structure [data/structures/reference-from-3MRD.pdb](data/structures/reference-from-3MRD.pdb) in this repo as an example.
-
-First copy the pdb file to an assigned directory and create the input table:
-
-```
-mkdir preprocess-HLA-A0201
-cp data/structures/reference-from-3MRD.pdb preprocess-HLA-A0201/HLA-A0201.pdb
-
-echo ID,allele > preprocess-HLA-A0201.csv
-echo HLA-A0201,HLA-A0201 >> preprocess-HLA-A0201.csv
-```
+Let's take the the `HLA-A*02:01` structure [data/structures/example-preprocess-HLA-A0201/HLA-A0201.pdb](data/structures/example-preprocess-HLA-A0201/HLA-A0201.pdb) in this repo as an example.
 
 Then, to preprocess the MHC structure, run:
 
 ```
-swiftmhc_preprocess preprocess-HLA-A0201.csv \
+swiftmhc_preprocess data/example-preprocess-HLA-A0201.csv \
                     data/structures/reference-from-3MRD.pdb \
-                    preprocess-HLA-A0201 \
+                    data/structures/example-preprocess-HLA-A0201/ \
                     data/HLA-A0201-GDOMAIN.mask \
                     data/HLA-A0201-CROSS.mask \
-                    preprocessed-HLA-A0201.hdf5
+                    example-preprocessed-HLA-A0201.hdf5
 ```
 
 This will generate a HDF5 file `preprocessed-HLA-A0201.hdf5`, that can be used for predicting pMHC structures and binding affinities on the user-specified `HLA-A*02:01` structure.
