@@ -562,6 +562,7 @@ def get_loss(
         backbone fape:              [*] backbone frame aligned point error, per batch entry
         sidechain fape:             [*] sidechain frame aligned point error, per batch entry
     """
+    violation_losses = None
     # compute our own affinity-based loss
     affinity_loss = None
     non_binders_index = None
@@ -615,9 +616,6 @@ def get_loss(
     # compute fape loss, as in openfold
     fape_losses = _compute_fape_loss(output, batch, openfold_config.loss.fape)
 
-    # compute violations loss, using an adjusted function
-    violation_losses = _compute_cross_violation_loss(output, batch, openfold_config.loss.violation)
-
     # init total loss at zero
     total_loss = torch.zeros(
         batch["peptide_aatype"].shape[0],
@@ -639,6 +637,10 @@ def get_loss(
 
     # add all fine tune losses (bond lengths, angles, torsions, clashes)
     if fine_tune:
+        # compute violations loss, using an adjusted function
+        violation_losses = _compute_cross_violation_loss(
+            output, batch, openfold_config.loss.violation
+        )
         total_loss += 1.0 * violation_losses["total"]
 
     # for true non-binders, the total loss is simply affinity-based
@@ -662,8 +664,9 @@ def get_loss(
     for component_id, loss_tensor in fape_losses.items():
         result[f"{component_id} fape"] = loss_tensor.mean(dim=0)
 
-    for component_id, loss_tensor in violation_losses.items():
-        result[f"{component_id} violation"] = loss_tensor.mean(dim=0)
+    if violation_losses is not None:
+        for component_id, loss_tensor in violation_losses.items():
+            result[f"{component_id} violation"] = loss_tensor.mean(dim=0)
 
     for key in result:
         if "total" not in key and result[key].isnan():
