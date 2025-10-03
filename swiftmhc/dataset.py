@@ -503,29 +503,41 @@ class ProteinLoopDataset(Dataset):
         Returns:
             a dictionary, containing the batch data
         """
-        # only take data that both entries have
-        keys = None
-        for e in data_entries:
-            if keys is None:
-                keys = e.keys()
+        if not data_entries:
+            return {}
+
+        if len(data_entries) == 1:
+            return data_entries[0]
+
+        # Get common keys more efficiently - start with first entry's keys
+        # then filter out keys that don't exist in all entries
+        common_keys = set(data_entries[0].keys())
+        for entry in data_entries[1:]:
+            common_keys &= entry.keys()
+
+        # Pre-determine data types by checking the first entry only
+        tensor_keys = set()
+        list_keys = set()
+        first_entry = data_entries[0]
+
+        for key in common_keys:
+            value = first_entry[key]
+            if isinstance(value, torch.Tensor):
+                tensor_keys.add(key)
             else:
-                keys &= e.keys()
+                list_keys.add(key)
 
         result = {}
-        for key in keys:
-            try:
-                if (
-                    isinstance(e[key], torch.Tensor)
-                    or isinstance(e[key], float)
-                    or isinstance(e[key], int)
-                ):
-                    # tensors can be stacked
-                    result[key] = torch.stack([e[key] for e in data_entries])
-                else:
-                    # probably a string, put this in a list
-                    result[key] = [e[key] for e in data_entries]
 
+        # Batch process tensor keys (most common case)
+        for key in tensor_keys:
+            try:
+                result[key] = torch.stack([entry[key] for entry in data_entries])
             except RuntimeError as e:
                 raise RuntimeError(f"on {key}: {str(e)}")
+
+        # Batch process list keys
+        for key in list_keys:
+            result[key] = [entry[key] for entry in data_entries]
 
         return result
