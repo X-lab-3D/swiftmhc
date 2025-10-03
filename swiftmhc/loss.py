@@ -563,6 +563,7 @@ def get_loss(
         sidechain fape:             [*] sidechain frame aligned point error, per batch entry
     """
     violation_losses = None
+    fape_losses = None
     # compute our own affinity-based loss
     affinity_loss = None
     non_binders_index = None
@@ -613,9 +614,6 @@ def get_loss(
     batch["peptide_residx_atom14_to_atom37"] = peptide_data["residx_atom14_to_atom37"]
     batch["protein_residx_atom14_to_atom37"] = protein_data["residx_atom14_to_atom37"]
 
-    # compute fape loss, as in openfold
-    fape_losses = _compute_fape_loss(output, batch, openfold_config.loss.fape)
-
     # init total loss at zero
     total_loss = torch.zeros(
         batch["peptide_aatype"].shape[0],
@@ -623,8 +621,9 @@ def get_loss(
         device=batch["peptide_aatype"].device,
     )
 
-    # add fape loss (backbone, sidechain)
+    # compute fape loss (backbone, sidechain), as in openfold
     if fape_tune:
+        fape_losses = _compute_fape_loss(output, batch, openfold_config.loss.fape)
         total_loss += 1.0 * fape_losses["total"]
 
     # add torsion loss
@@ -661,8 +660,9 @@ def get_loss(
         result["affinity"] = affinity_loss.mean(dim=0)
 
     # add these separate components to the result too:
-    for component_id, loss_tensor in fape_losses.items():
-        result[f"{component_id} fape"] = loss_tensor.mean(dim=0)
+    if fape_losses is not None:
+        for component_id, loss_tensor in fape_losses.items():
+            result[f"{component_id} fape"] = loss_tensor.mean(dim=0)
 
     if violation_losses is not None:
         for component_id, loss_tensor in violation_losses.items():
