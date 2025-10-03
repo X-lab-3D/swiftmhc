@@ -21,22 +21,6 @@ from .preprocess import get_blosum_encoding
 _log = logging.getLogger(__name__)
 
 
-def get_entry_names(
-    hdf5_path: str,
-) -> list[str]:
-    """Get the names of the entry groups directly under the HDF5 data file
-
-    Args:
-        hdf5_path: data file to get the entry names from
-    Returns:
-        the entry names in the data file
-    """
-    # Note: This function maintains the original behavior for standalone usage
-    # The dataset class will use its own cached file handle for better performance
-    with h5py.File(hdf5_path, "r") as hdf5_file:
-        return list(hdf5_file.keys())
-
-
 class ProteinLoopDataset(Dataset):
     def __init__(
         self,
@@ -65,18 +49,17 @@ class ProteinLoopDataset(Dataset):
         self._peptide_maxlen = peptide_maxlen
         self._protein_maxlen = protein_maxlen
 
+        self._hdf5_file = self._get_hdf5_file()
+
         if entry_names is not None:
             self._entry_names = entry_names
         else:
             # list all entries in the file
-            self._entry_names = get_entry_names(self._hdf5_path)
+            self._entry_names = list(self._hdf5_file.keys())
 
         self._pairs = pairs
 
         self._float_dtype = float_dtype
-
-        # HDF5 file handle management for performance optimization
-        self._hdf5_file = None
 
     def _get_hdf5_file(self):
         """Get or create HDF5 file handle for this worker process.
@@ -85,7 +68,9 @@ class ProteinLoopDataset(Dataset):
         one file handle per worker process, avoiding the overhead of repeatedly
         opening and closing the file.
         """
-        if self._hdf5_file is None:
+        if hasattr(self, "_hdf5_file"):
+            return self._hdf5_file
+        else:
             try:
                 self._hdf5_file = h5py.File(self._hdf5_path, "r")
             except Exception as e:
