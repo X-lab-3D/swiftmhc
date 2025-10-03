@@ -84,7 +84,7 @@ arg_parser.add_argument("--debug", "-d", help="generate debug files", action='st
 arg_parser.add_argument("--log-stdout", "-l", help="log to stdout", action='store_const', const=True, default=False)
 arg_parser.add_argument("--pretrained-model", "-p", help="use a given pretrained model state")
 arg_parser.add_argument("--workers", "-w", help="number of worker processes to load batches", type=int, default=5)
-arg_parser.add_argument("--builders", "-B", help="number of simultaneous structure builder processes, it has no effect setting this higher than the number of models produced per batch", type=int, default=1)
+arg_parser.add_argument("--num-builders", "-B", help="number of simultaneous structure builder processes, it has no effect setting this higher than the number of models produced per batch", type=int, default=1)
 arg_parser.add_argument("--batch-size", "-b", help="batch size to use during training/validation/testing", type=int, default=20)
 arg_parser.add_argument("--phase-1-epoch-count", "-1", help="how many epochs to run during phase 1 training (structure + BA loss)", type=int, default=1000)
 arg_parser.add_argument("--phase-2-epoch-count", "-2", help="how many epochs to run during phase 2 training (structure + BA loss + fine tuning loss)", type=int, default=100)
