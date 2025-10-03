@@ -3,7 +3,6 @@ from enum import Enum
 from typing import Union
 
 import torch
-from sklearn.decomposition import PCA
 
 
 class ComplexClass(Enum):
