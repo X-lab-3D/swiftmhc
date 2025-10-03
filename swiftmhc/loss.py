@@ -601,6 +601,7 @@ def get_loss(
         raise TypeError(f"unknown model type {model_type}")
 
     # mapping 14-atoms to 37-atoms format, because several openfold functions use the 37 format
+    # required by fape_loss and violation_loss
     peptide_data = openfold_make_atom14_masks({"aatype": batch["peptide_aatype"]})
     protein_data = openfold_make_atom14_masks({"aatype": batch["protein_aatype"]})
     batch["peptide_residx_atom37_to_atom14"] = peptide_data["residx_atom37_to_atom14"]
@@ -652,21 +653,20 @@ def get_loss(
             "total": total_loss.mean(dim=0),
         }
     )
-
-    if affinity_loss is not None:
-        result["affinity"] = affinity_loss.mean(dim=0)
-
-    if torsion_loss is not None:
-        result["torsion"] = torsion_loss.mean(dim=0)
-
     # add these separate components to the result too:
     if fape_losses is not None:
         for component_id, loss_tensor in fape_losses.items():
             result[f"{component_id} fape"] = loss_tensor.mean(dim=0)
 
+    if torsion_loss is not None:
+        result["torsion"] = torsion_loss.mean(dim=0)
+
     if violation_losses is not None:
         for component_id, loss_tensor in violation_losses.items():
             result[f"{component_id} violation"] = loss_tensor.mean(dim=0)
+
+    if affinity_loss is not None:
+        result["affinity"] = affinity_loss.mean(dim=0)
 
     for key in result:
         if "total" not in key and result[key].isnan():
