@@ -565,6 +565,7 @@ def get_loss(
     torsion_loss = None
     violation_losses = None
     fape_losses = None
+
     # compute our own affinity-based loss
     affinity_loss = None
     non_binders_index = None
@@ -629,10 +630,6 @@ def get_loss(
         )
         total_loss += 1.0 * torsion_loss
 
-    # incorporate affinity loss
-    if affinity_tune:
-        total_loss += 1.0 * affinity_loss
-
     # add all fine tune losses (bond lengths, angles, torsions, clashes)
     if fine_tune:
         # compute violations loss, using an adjusted function
@@ -641,10 +638,12 @@ def get_loss(
         )
         total_loss += 1.0 * violation_losses["total"]
 
-    # for true non-binders, the total loss is simply affinity-based
+    # add affinity loss
     if affinity_tune:
+        total_loss += 1.0 * affinity_loss
         total_loss[non_binders_index] = 1.0 * affinity_loss[non_binders_index]
     else:
+        # for true non-binders, the total loss is simply affinity-based
         total_loss[non_binders_index] = 0.0
 
     # average losses over batch dimension
