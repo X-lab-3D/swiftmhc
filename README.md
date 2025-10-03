@@ -89,7 +89,8 @@ To run inference, use the command `swiftmhc_predict`. Run `swiftmhc_predict --he
 
 For example, to predict binding affinity and structure for the peptides in `data/example-inference-data-table.csv` with MHC allele `HLA-A*02:01`, run:
 ```
-swiftmhc_predict --num-builders 1 --batch-size 1 \
+swiftmhc_predict --num-builders 1 \
+    --batch-size 1 \
     trained-models/8k-trained-model.pth \
     data/example-inference-data-table.csv \
     data/HLA-A0201-from-3MRD.hdf5 \
