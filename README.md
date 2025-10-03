@@ -43,7 +43,7 @@ pip install .
 scripts/install_third_party_dependencies.sh
 ```
 
-#### 3. PyMOL
+#### 3. Install PyMOL
 
 PyMOL is required for data preprocessing in SwiftMHC. You can install the open-source version via conda:
 
