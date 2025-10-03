@@ -7,7 +7,7 @@ It currently works for HLA-A*02:01 9-mers only.
 
 ## Speed performance
 
-When running on 1/4 A100 card with batch size 64:
+When running on one A100 card with batch size 64:
  * binding affinity (BA) prediction takes 0.01 seconds per pMHC case
  * 3D structure prediction without OpenMM (disabled) takes 0.9 seconds per pMHC case.
  * 3D structure prediction with OpenMM takes 2.2 seconds per case.
@@ -101,41 +101,50 @@ swiftmhc_predict --num-builders 0 --batch-size 1 trained-models/8k-trained-model
 ## Preprocessing data
 
 Preprocessing is the process of creating a file in [HDF5](https://www.hdfgroup.org/solutions/hdf5/) format, containing info in the peptide and MHC protein.
-This is only needed if you want to use a new MHC structure for **inference** or train a new network.
+This is only needed if you want to 1) use a new MHC structure for inference or 2) retrain SwiftMHC.
 
-There are two ways of preprocessing:
- 1. Preprocessing training datasets. This requires that structures are provided that contain the MHC (as PDB chain M) and the peptide (as PDB chain P).
-    Binding affinity data must also be provided, as this information is used in the training process.
+Three required input files are already included in this repository:
 
- 2. Preprocessing MHC structures for inference. In this case only the MHC structures must be provided as PDB chain M.
+A **reference structure** is provided at: [data/structures/reference-from-3MRD.pdb](data/structures/reference-from-3MRD.pdb)
 
-In both cases a reference structure must be provided, so that all the structures can be aligned and superposed to it. This is done using pymol.
-A reference structure is available in this repository: [data/structures/reference-from-3MRD.pdb](data/structures/reference-from-3MRD.pdb).
-This reference structure has been tested to work with HLA-A*02:01 structures, but other alleles likely work as well.
+This structure has been tested with HLA-A*02:01 but is likely suitable for other alleles as well. It is used to align and superpose all structures (using PyMOL).
 
-Additionally to the reference structure, two mask files must be provided: one mask file specifies which residues are considered G-domain residues and the other specifies which residues are groove residues that lie close to the peptide.
-The G-domain mask is used for MHC self attention and the groove residues are used for cross attention between the peptide and the MHC.
-For the reference structure [data/structures/reference-from-3MRD.pdb](data/structures/reference-from-3MRD.pdb), two mask files are available in this repository:
- - [data/HLA-A0201-GDOMAIN.mask](data/HLA-A0201-GDOMAIN.mask)
- - [data/HLA-A0201-CROSS.mask](data/HLA-A0201-CROSS.mask)
+In addition, two **mask files** are provided, which define the residues used for different attention mechanisms:
+ -**MHC G-domain residues:** [data/HLA-A0201-GDOMAIN.mask](data/HLA-A0201-GDOMAIN.mask)
+ -**CROSS residues (MHC groove residues):** [data/HLA-A0201-CROSS.mask](data/HLA-A0201-CROSS.mask)
+
+ These files correspond to the provided reference structure and are ready to use.
 
 ### Preprocessing training datasets
 
 #### Input files
 
-Preprocessing training data requires the following files:
- - CSV table in IEDB format, see for an example: [data/example-data-table.csv](data/example-data-table.csv)
- - a reference MHC structure in PDB format, for example: [data/structures/reference-from-3MRD.pdb](data/structures/reference-from-3MRD.pdb)
- - a directory containing all training pMHC structures in PDB format. The contents of this directory must be PDB files that are named corresponding to the ID column in the CSV table.
-   Furthermore the PDB files must have the extension .pdb. For example: `BA-74141.pdb`, where BA-74141 corresponds to an ID in the table.
- - two mask files: G-domain and CROSS, containing residues corresponding to residues in the reference MHC structure.
-   For example: [data/HLA-A0201-GDOMAIN.mask](data/HLA-A0201-GDOMAIN.mask) and [data/HLA-A0201-CROSS.mask](data/HLA-A0201-CROSS.mask)
+### Preprocessing training data  
 
-For preprocessing training datasets, the IEDB CSV file must have the following columns:
- - `ID`: the id under which the row's data will be stored in the HDF5 file. This must correspond to the name of a structure in PDB format.
- - `allele`: the name of the MHC allele (e.g. HLA-A*02:01). SwiftMHC will use this to identify MHC structures when predicting unlabeled data.
+The following input files are required:  
+
+1. **CSV table containing the binding affinity data in IEDB format**  
+   - Example: [`data/example-data-table.csv`](data/example-data-table.csv)
+  
+     For preprocessing training datasets, the data CSV file must have the following columns:
+ - `ID`: the id under which the row's data will be stored in the HDF5 file. This must correspond to the PDB file name (see below).
+ - `allele`: the name of the MHC allele (e.g. HLA-A*02:01). This is added to the data for administrative puposes.
  - `peptide`: the amino acid sequence of the peptide.
- - `measurement_value`: binding affinity data or classification (BINDING/NONBINDING).
+ - `measurement_value`: binding affinity data (IC50 or Kd in nM) or classification (BINDING/NONBINDING as string).
+
+
+2. **Directory of training pMHC structures (PDB format)**  
+   - The directory must contain PDB files named according to the **ID** column in the CSV table.  
+   - Filenames must end with `.pdb` (e.g., `BA-74141.pdb`, where `BA-74141` is an ID from the CSV table).  
+   - Each PDB file must contain:  
+     - the **MHC molecule** as chain **M**  
+     - the **peptide** as chain **P**  
+   - If your PDB files use different chain IDs, we recommend adjusting them using [pdb-tools](https://www.bonvinlab.org/pdb-tools/).  
+     Example:  
+     ```bash
+     python pdb_chain.py -M 1AKJ.pdb
+     ```  
+
 
 #### Run preprocessing for training datasets
 
@@ -158,25 +167,32 @@ swiftmhc_preprocess /path/to/extracted/input-data/IEDB-BA-with-clusters.csv \
                     --processes 32
 ```
 
-This will generate a HDF5 file `example_preprocessed_training_data.hdf5`, that can be used for training.
+This process generates an HDF5 file, example_preprocessed_training_data.hdf5, which can be used for model training.
+The file contains structural information for both the peptide and the MHC, including the proximity matrix, transformation matrices, atom positions, amino acid types, and torsion angles.
+In addition, binding affinity values are stored for each pMHC complex.
 
 ### Preprocessing MHC structures for inference
 
+
+In case during the inference the user wants to use a different MHC structure other than what we provided  [data/HLA-A0201-from-3MRD.hdf5](data/HLA-A0201-from-3MRD.hdf5),they can generate a preprocessed hdf5 for their MHC structure. This section shows how.
+
 #### Input files
+
+Only the MHC structures are required with chain ID as ** M**.
 
 Preprocessing MHC structures for inference requires the following files:
 
- - CSV table, with columns: `ID` and `allele`. The ID column will contain the identifiers under which the MHC structures will be stored in the HDF5 file.
-   The allele column must contain allele names, which will be used to look up the MHC structure in the HDF5 file during inference.
- - a reference MHC structure in PDB format, for example: [data/structures/reference-from-3MRD.pdb](data/structures/reference-from-3MRD.pdb)
+ - CSV table, with columns: `ID` and `allele`. The ID column will contain the user-defined identifiers, under which the MHC structures will be stored in the HDF5 file.
+   The allele column must contain allele names, which will be stored in the HDF5 file to be used to look up the MHC structure in the HDF5 file during inference.
+
  - a directory containing all MHC structures in PDB format. The contents of this directory must be PDB files that are named corresponding to the allele column in the CSV table.
    Furthermore the PDB files must have the extension .pdb. For example: `HLA-A0201.pdb`, where HLA-A0201 corresponde to a name under the allele column.
- - two mask files: G-domain and CROSS, containing residues corresponding to residues in the reference MHC structure.
-   For example: [data/HLA-A0201-GDOMAIN.mask](data/HLA-A0201-GDOMAIN.mask) and [data/HLA-A0201-CROSS.mask](data/HLA-A0201-CROSS.mask)
+
 
 #### Run preprocessing MHC structures for inference
 
-For preprocessing MHC structures for inference. Let's take the the HLA-A*02:01 structure [data/structures/reference-from-3MRD.pdb](data/structures/reference-from-3MRD.pdb) in this repo as an example.
+
+Let's take the the HLA-A*02:01 structure [data/structures/reference-from-3MRD.pdb](data/structures/reference-from-3MRD.pdb) in this repo as an example.
 
 First copy the pdb file to an assigned directory and create the input table:
 
@@ -199,7 +215,7 @@ swiftmhc_preprocess preprocess-HLA-A0201.csv \
                     preprocessed-HLA-A0201.hdf5
 ```
 
-This will generate a HDF5 file `preprocessed-HLA-A0201.hdf5`, that can be used for predicting pMHC structures and binding affinities on the HLA-A*02:01 allele.
+This will generate a HDF5 file `preprocessed-HLA-A0201.hdf5`, that can be used for predicting pMHC structures and binding affinities on the user-specified HLA-A*02:01 structure.
 
 ## Training
 
@@ -235,10 +251,7 @@ Run `swiftmhc_run --help` for details and options.
 
 ### Run evaluation on a pretrained model
 
-Evaluation runs the same script as training, but it doesn't alter the network model.
-The difference between evaluation and inference is that evaluation is done using a separate X-ray structure or homology model for
-every pMHC combination, where inference uses the same MHC structure for every pMHC on a particular allele.
-Evaluation is typically used for cross validation.
+Evaluation runs the same script as training but does not update model weights. Unlike inference, which uses a single MHC structure per allele and no target values, evaluation uses  one HDF5 file that includes target values (e.g., peptide structures, binding affinities) for comparison only, not as inputs. This part was used to generate the cross-validation results in the article.
 
 To do the evaluation on a pretrained model, run:
 
