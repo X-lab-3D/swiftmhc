@@ -70,7 +70,7 @@ Inference is the process of predicting binding affinity and optionally a structu
 
 Inference requires the following input files:
 - a trained model, this repository contains a pre-trained model for 9-mer peptides and the MHC allele HLA-A*02:01: [trained-models/8k-trained-model.pth](trained-models/8k-trained-model.pth)
-- a CSV file linking the peptides to MHC alleles, see for example: [data/example-data-table.csv](data/example-data-table.csv)
+- a CSV file linking the peptides to MHC alleles, see for example: [data/example-inference-data-table.csv](data/example-inference-data-table.csv)
 - a preprocessed HDF5 file containing MHC structures for every allele. For the allele HLA-A*02:01, such a file is pre-made and available at: [data/HLA-A0201-from-3MRD.hdf5](data/HLA-A0201-from-3MRD.hdf5)
 
 The input CSV file must have the following columns:
@@ -81,9 +81,9 @@ The input CSV file must have the following columns:
 
 To run inference, use the command `swiftmhc_predict`. Run `swiftmhc_predict --help` for details.
 
-For example, to predict binding affinity and structure for the peptides in `data/example-data-table.csv` with MHC allele `HLA-A*02:01`, run:
+For example, to predict binding affinity and structure for the peptides in `data/example-inference-data-table.csv` with MHC allele `HLA-A*02:01`, run:
 ```
-swiftmhc_predict --batch-size 1 --num-builders 1 trained-models/8k-trained-model.pth data/example-data-table.csv data/HLA-A0201-from-3MRD.hdf5 results/
+swiftmhc_predict --batch-size 1 --num-builders 1 trained-models/8k-trained-model.pth data/example-inference-data-table.csv data/HLA-A0201-from-3MRD.hdf5 results/
 ```
 
 Here, `results` must be a directory. If this directory doesn't exist it will be created.
@@ -95,7 +95,7 @@ If the flag `--with-energy-minimization` is used for the command `swiftmhc_predi
 
 To predict just the binding affinity without a structure. Run with no builders:
 ```
-swiftmhc_predict --num-builders 0 --batch-size 1 trained-models/8k-trained-model.pth data/example-data-table.csv data/HLA-A0201-from-3MRD.hdf5 results/
+swiftmhc_predict --num-builders 0 --batch-size 1 trained-models/8k-trained-model.pth data/example-inference-data-table.csv data/HLA-A0201-from-3MRD.hdf5 results/
 ```
 
 ## Preprocessing data
@@ -124,7 +124,7 @@ For the reference structure [data/structures/reference-from-3MRD.pdb](data/struc
 #### Input files
 
 Preprocessing training data requires the following files:
- - CSV table in IEDB format, see for an example: [data/example-data-table.csv](data/example-data-table.csv)
+ - CSV table in IEDB format, see for an example: [data/example-training-data-table.csv](data/example-training-data-table.csv)
  - a reference MHC structure in PDB format, for example: [data/structures/reference-from-3MRD.pdb](data/structures/reference-from-3MRD.pdb)
  - a directory containing all training pMHC structures in PDB format. The contents of this directory must be PDB files that are named corresponding to the ID column in the CSV table.
    Furthermore the PDB files must have the extension .pdb. For example: `BA-74141.pdb`, where BA-74141 corresponds to an ID in the table.
