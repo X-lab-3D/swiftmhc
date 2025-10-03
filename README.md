@@ -123,7 +123,7 @@ Three required input files are already included in this repository:
 
 A **reference structure** is provided at: [data/structures/reference-from-3MRD.pdb](data/structures/reference-from-3MRD.pdb)
 
-This structure has been tested with `HLA-A*02:01` but is likely suitable for other alleles as well. It is used to align and superpose all structures (using PyMOL).
+This structure has been tested with `HLA-A*02:01` but is likely suitable for other alleles as well. It is used to align and superpose all training structures (using PyMOL).
 
 In addition, two **mask files** are provided, which define the residues used for different attention mechanisms:
  - **MHC G-domain residues:** [data/HLA-A0201-GDOMAIN.mask](data/HLA-A0201-GDOMAIN.mask)
@@ -132,6 +132,8 @@ In addition, two **mask files** are provided, which define the residues used for
  These files correspond to the provided reference structure and are ready to use.
 
 ### Preprocessing training datasets
+
+If users want to retrain SwiftMHC on new training data, they need to run  preprocessing on the training data before running the training script. This section shows how.
 
 #### Input files
 
@@ -191,7 +193,7 @@ In case during the inference the user wants to use a different MHC structure oth
 
 #### Input files
 
-Only the MHC structures are required with chain ID as **M**.
+Only the MHC structures (with chain ID as **M**) are required.
 
 Preprocessing MHC structures for inference requires the following files:
 
