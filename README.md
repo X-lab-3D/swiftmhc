@@ -45,7 +45,13 @@ scripts/install_third_party_dependencies.sh
 
 #### 3. PyMOL
 
-For data preprocessing in SwiftMHC, pymol is required. Download and install it from https://pymol.org
+PyMOL is required for data preprocessing in SwiftMHC. You can install the open-source version via conda:
+
+```
+conda install -c conda-forge pymol-open-source
+```
+
+To install the proprietary version of PyMOL, please refer to the instructions on the website https://pymol.org.
 
 #### 4. Install SwiftMHC
 
@@ -119,13 +125,13 @@ In addition, two **mask files** are provided, which define the residues used for
 
 #### Input files
 
-### Preprocessing training data  
+### Preprocessing training data
 
-The following input files are required:  
+The following input files are required:
 
-1. **CSV table containing the binding affinity data in IEDB format**  
+1. **CSV table containing the binding affinity data in IEDB format**
    - Example: [`data/example-training-data-table.csv`](data/example-training-data-table.csv)
-  
+
      For preprocessing training datasets, the data CSV file must have the following columns:
  - `ID`: the id under which the row's data will be stored in the HDF5 file. This must correspond to the PDB file name (see below).
  - `allele`: the name of the MHC allele (e.g. HLA-A*02:01). This is added to the data for administrative puposes.
@@ -133,17 +139,17 @@ The following input files are required:
  - `measurement_value`: binding affinity data (IC50 or Kd in nM) or classification (BINDING/NONBINDING as string).
 
 
-2. **Directory of training pMHC structures (PDB format)**  
-   - The directory must contain PDB files named according to the **ID** column in the CSV table.  
-   - Filenames must end with `.pdb` (e.g., `BA-74141.pdb`, where `BA-74141` is an ID from the CSV table).  
-   - Each PDB file must contain:  
-     - the **MHC molecule** as chain **M**  
-     - the **peptide** as chain **P**  
-   - If your PDB files use different chain IDs, we recommend adjusting them using [pdb-tools](https://www.bonvinlab.org/pdb-tools/).  
-     Example:  
+2. **Directory of training pMHC structures (PDB format)**
+   - The directory must contain PDB files named according to the **ID** column in the CSV table.
+   - Filenames must end with `.pdb` (e.g., `BA-74141.pdb`, where `BA-74141` is an ID from the CSV table).
+   - Each PDB file must contain:
+     - the **MHC molecule** as chain **M**
+     - the **peptide** as chain **P**
+   - If your PDB files use different chain IDs, we recommend adjusting them using [pdb-tools](https://www.bonvinlab.org/pdb-tools/).
+     Example:
      ```bash
      python pdb_chain.py -M 1AKJ.pdb
-     ```  
+     ```
 
 
 #### Run preprocessing for training datasets
