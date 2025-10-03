@@ -562,6 +562,10 @@ def get_loss(
         backbone fape:              [*] backbone frame aligned point error, per batch entry
         sidechain fape:             [*] sidechain frame aligned point error, per batch entry
     """
+    torsion_loss = None
+    violation_losses = None
+    fape_losses = None
+
     # compute our own affinity-based loss
     affinity_loss = None
     non_binders_index = None
@@ -596,27 +600,14 @@ def get_loss(
     else:
         raise TypeError(f"unknown model type {model_type}")
 
-    # compute torsion losses
-    torsion_loss = _compute_torsion_angle_loss(
-        output["final_angles"],
-        batch["peptide_torsion_angles_mask"],
-        batch["peptide_torsion_angles_sin_cos"],
-        batch["peptide_alt_torsion_angles_sin_cos"],
-    )
-
     # mapping 14-atoms to 37-atoms format, because several openfold functions use the 37 format
+    # required by fape_loss and violation_loss
     peptide_data = openfold_make_atom14_masks({"aatype": batch["peptide_aatype"]})
     protein_data = openfold_make_atom14_masks({"aatype": batch["protein_aatype"]})
     batch["peptide_residx_atom37_to_atom14"] = peptide_data["residx_atom37_to_atom14"]
     batch["protein_residx_atom37_to_atom14"] = protein_data["residx_atom37_to_atom14"]
     batch["peptide_residx_atom14_to_atom37"] = peptide_data["residx_atom14_to_atom37"]
     batch["protein_residx_atom14_to_atom37"] = protein_data["residx_atom14_to_atom37"]
-
-    # compute fape loss, as in openfold
-    fape_losses = _compute_fape_loss(output, batch, openfold_config.loss.fape)
-
-    # compute violations loss, using an adjusted function
-    violation_losses = _compute_cross_violation_loss(output, batch, openfold_config.loss.violation)
 
     # init total loss at zero
     total_loss = torch.zeros(
@@ -625,45 +616,57 @@ def get_loss(
         device=batch["peptide_aatype"].device,
     )
 
-    # add fape loss (backbone, sidechain)
+    # compute fape loss (backbone, sidechain), as in openfold
     if fape_tune:
+        fape_losses = _compute_fape_loss(output, batch, openfold_config.loss.fape)
         total_loss += 1.0 * fape_losses["total"]
 
-    # add torsion loss
+    # compute torsion loss
     if torsion_tune:
+        torsion_loss = _compute_torsion_angle_loss(
+            output["final_angles"],
+            batch["peptide_torsion_angles_mask"],
+            batch["peptide_torsion_angles_sin_cos"],
+            batch["peptide_alt_torsion_angles_sin_cos"],
+        )
         total_loss += 1.0 * torsion_loss
-
-    # incorporate affinity loss
-    if affinity_tune:
-        total_loss += 1.0 * affinity_loss
 
     # add all fine tune losses (bond lengths, angles, torsions, clashes)
     if fine_tune:
+        # compute violations loss, using an adjusted function
+        violation_losses = _compute_cross_violation_loss(
+            output, batch, openfold_config.loss.violation
+        )
         total_loss += 1.0 * violation_losses["total"]
 
-    # for true non-binders, the total loss is simply affinity-based
+    # add affinity loss
     if affinity_tune:
+        total_loss += 1.0 * affinity_loss
         total_loss[non_binders_index] = 1.0 * affinity_loss[non_binders_index]
     else:
+        # for true non-binders, the total loss is simply affinity-based
         total_loss[non_binders_index] = 0.0
 
     # average losses over batch dimension
     result = TensorDict(
         {
             "total": total_loss.mean(dim=0),
-            "torsion": torsion_loss.mean(dim=0),
         }
     )
+    # add these separate components to the result too:
+    if fape_losses is not None:
+        for component_id, loss_tensor in fape_losses.items():
+            result[f"{component_id} fape"] = loss_tensor.mean(dim=0)
+
+    if torsion_loss is not None:
+        result["torsion"] = torsion_loss.mean(dim=0)
+
+    if violation_losses is not None:
+        for component_id, loss_tensor in violation_losses.items():
+            result[f"{component_id} violation"] = loss_tensor.mean(dim=0)
 
     if affinity_loss is not None:
         result["affinity"] = affinity_loss.mean(dim=0)
-
-    # add these separate components to the result too:
-    for component_id, loss_tensor in fape_losses.items():
-        result[f"{component_id} fape"] = loss_tensor.mean(dim=0)
-
-    for component_id, loss_tensor in violation_losses.items():
-        result[f"{component_id} violation"] = loss_tensor.mean(dim=0)
 
     for key in result:
         if "total" not in key and result[key].isnan():
