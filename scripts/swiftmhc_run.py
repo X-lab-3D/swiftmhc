@@ -1345,7 +1345,6 @@ if __name__ == "__main__":
 
     # Make sure we can use multiple workers:
     _log.debug(f"using {args.workers} workers")
-    torch.multiprocessing.set_start_method("spawn")
 
     # Init trainer object with given arguments
     trainer = Trainer(device, float_dtype, args.workers, model_type)
