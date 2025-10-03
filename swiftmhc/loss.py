@@ -562,6 +562,7 @@ def get_loss(
         backbone fape:              [*] backbone frame aligned point error, per batch entry
         sidechain fape:             [*] sidechain frame aligned point error, per batch entry
     """
+    torsion_loss = None
     violation_losses = None
     fape_losses = None
     # compute our own affinity-based loss
@@ -598,14 +599,6 @@ def get_loss(
     else:
         raise TypeError(f"unknown model type {model_type}")
 
-    # compute torsion losses
-    torsion_loss = _compute_torsion_angle_loss(
-        output["final_angles"],
-        batch["peptide_torsion_angles_mask"],
-        batch["peptide_torsion_angles_sin_cos"],
-        batch["peptide_alt_torsion_angles_sin_cos"],
-    )
-
     # mapping 14-atoms to 37-atoms format, because several openfold functions use the 37 format
     peptide_data = openfold_make_atom14_masks({"aatype": batch["peptide_aatype"]})
     protein_data = openfold_make_atom14_masks({"aatype": batch["protein_aatype"]})
@@ -626,8 +619,14 @@ def get_loss(
         fape_losses = _compute_fape_loss(output, batch, openfold_config.loss.fape)
         total_loss += 1.0 * fape_losses["total"]
 
-    # add torsion loss
+    # compute torsion loss
     if torsion_tune:
+        torsion_loss = _compute_torsion_angle_loss(
+            output["final_angles"],
+            batch["peptide_torsion_angles_mask"],
+            batch["peptide_torsion_angles_sin_cos"],
+            batch["peptide_alt_torsion_angles_sin_cos"],
+        )
         total_loss += 1.0 * torsion_loss
 
     # incorporate affinity loss
@@ -652,12 +651,14 @@ def get_loss(
     result = TensorDict(
         {
             "total": total_loss.mean(dim=0),
-            "torsion": torsion_loss.mean(dim=0),
         }
     )
 
     if affinity_loss is not None:
         result["affinity"] = affinity_loss.mean(dim=0)
+
+    if torsion_loss is not None:
+        result["torsion"] = torsion_loss.mean(dim=0)
 
     # add these separate components to the result too:
     if fape_losses is not None:
