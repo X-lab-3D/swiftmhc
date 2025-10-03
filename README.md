@@ -178,7 +178,7 @@ In case during the inference the user wants to use a different MHC structure oth
 
 #### Input files
 
-Only the MHC structures are required with chain ID as ** M**.
+Only the MHC structures are required with chain ID as **M**.
 
 Preprocessing MHC structures for inference requires the following files:
 
