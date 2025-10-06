@@ -1,5 +1,6 @@
 import logging
 import os
+from typing import Any
 import h5py
 import numpy
 import torch
@@ -93,6 +94,7 @@ class ProteinLoopDataset(Dataset):
 
     @property
     def entry_names(self) -> list[str]:
+        """Get the list of entry names in this dataset."""
         return self._entry_names
 
     def __len__(self) -> int:
@@ -146,6 +148,7 @@ class ProteinLoopDataset(Dataset):
 
     def _find_matching_entry(self, allele_name: str, peptide_sequence: str | None = None) -> str:
         """Find an entry that matches the given allele and returns its name.
+
         The peptide sequence is optional and will only be matched when there are multiple entries with the matching allele.
         """
         if peptide_sequence is not None:
@@ -261,8 +264,61 @@ class ProteinLoopDataset(Dataset):
 
         return result
 
+    def _read_hdf5_fields(self, group, field_names: list[str]) -> dict[str, Any]:
+        """Read multiple HDF5 fields and return as a dictionary.
+
+        Args:
+            group: HDF5 group containing the datasets
+            field_names: List of field names to read
+
+        Returns:
+            Dictionary mapping field names to their data arrays
+        """
+        data = {}
+        valid_names = set(group.keys())
+        for field_name in field_names:
+            if field_name in valid_names:
+                try:
+                    data[field_name] = group[field_name][:]
+                except Exception as e:
+                    _log.warning(f"Failed to read field '{field_name}': {e}")
+                    # Continue with other fields even if one fails
+        return data
+
+    def _get_required_fields_for_prefix(self, prefix: str, take_peptide: bool) -> list[str]:
+        """Get the list of required HDF5 fields for a given prefix (protein/peptide)."""
+        # Base fields needed for all prefixes
+        base_fields = [
+            "aatype",
+            "atom14_alt_gt_positions",
+            "atom14_gt_exists",
+            "atom14_gt_positions",
+            "backbone_rigid_tensor",
+            "blosum62",
+            "residue_numbers",
+            "sequence_onehot",
+        ]
+
+        # Additional fields specific to peptide
+        peptide_fields = [
+            "alt_torsion_angles_sin_cos",
+            "torsion_angles_mask",
+            "torsion_angles_sin_cos",
+        ]
+
+        # Mask fields
+        mask_fields = ["self_residues_mask", "cross_residues_mask"]
+
+        required_fields = base_fields + mask_fields
+
+        # Add peptide-specific fields if processing peptide
+        if prefix == PREPROCESS_PEPTIDE_NAME and take_peptide:
+            required_fields.extend(peptide_fields)
+
+        return required_fields
+
     def _get_structural_data(self, entry_name: str, take_peptide: bool) -> dict[str, torch.Tensor]:
-        """Takes structural data from the HDF5 file.
+        """Takes structural data from the HDF5 file using optimized batch reading.
 
         Args:
             entry_name:     name of the entry (case) to which the structure belongs
@@ -288,8 +344,14 @@ class ProteinLoopDataset(Dataset):
             residue_iteration.append((PREPROCESS_PEPTIDE_NAME, self._peptide_maxlen, 0))
 
         for prefix, max_length, start_index in residue_iteration:
-            # aatype, needed by openfold
-            aatype_data = entry_group[prefix]["aatype"][:]
+            required_fields = self._get_required_fields_for_prefix(prefix, take_peptide)
+            h5_data = self._read_hdf5_fields(entry_group[prefix], required_fields)
+
+            # Validate aatype data (must exist)
+            if "aatype" not in h5_data:
+                raise ValueError(f"{entry_name} {prefix} missing required 'aatype' field")
+
+            aatype_data = h5_data["aatype"]
             length = aatype_data.shape[0]
             if length < 3:
                 raise ValueError(f"{entry_name} {prefix} length is {length}")
@@ -303,6 +365,7 @@ class ProteinLoopDataset(Dataset):
             index = torch.zeros(max_length, device=self._device, dtype=torch.bool)
             index[:length] = True
 
+            # Process aatype
             result[f"{prefix}_aatype"] = torch.zeros(
                 max_length, device=self._device, dtype=torch.long
             )
@@ -310,14 +373,15 @@ class ProteinLoopDataset(Dataset):
                 aatype_data, device=self._device, dtype=torch.long
             )
 
+            # Process mask fields using batch data
             for interfix in ["self", "cross"]:
                 result[f"{prefix}_{interfix}_residues_mask"] = torch.zeros(
                     max_length, device=self._device, dtype=torch.bool
                 )
                 key = f"{interfix}_residues_mask"
 
-                if key in entry_group[prefix]:
-                    mask_data = entry_group[prefix][key][:]
+                if key in h5_data:
+                    mask_data = h5_data[key]
                     result[f"{prefix}_{interfix}_residues_mask"][index] = torch.tensor(
                         mask_data, device=self._device, dtype=torch.bool
                     )
@@ -337,58 +401,58 @@ class ProteinLoopDataset(Dataset):
             result[f"{prefix}_residue_numbers"] = torch.zeros(
                 max_length, dtype=torch.int, device=self._device
             )
-            result[f"{prefix}_residue_numbers"][index] = torch.tensor(
-                entry_group[prefix]["residue_numbers"][:], dtype=torch.int, device=self._device
-            )
+            if "residue_numbers" in h5_data:
+                result[f"{prefix}_residue_numbers"][index] = torch.tensor(
+                    h5_data["residue_numbers"], dtype=torch.int, device=self._device
+                )
 
             # one-hot encoded amino acid sequence
             result[f"{prefix}_sequence_onehot"] = torch.zeros(
                 (max_length, 32), device=self._device, dtype=self._float_dtype
             )
-            t = torch.tensor(
-                entry_group[prefix]["sequence_onehot"][:],
-                device=self._device,
-                dtype=self._float_dtype,
-            )
-            result[f"{prefix}_sequence_onehot"][index, : t.shape[1]] = t
+            if "sequence_onehot" in h5_data:
+                t = torch.tensor(
+                    h5_data["sequence_onehot"],
+                    device=self._device,
+                    dtype=self._float_dtype,
+                )
+                result[f"{prefix}_sequence_onehot"][index, : t.shape[1]] = t
 
             # blosum 62 encoded amino acid sequence
             result[f"{prefix}_blosum62"] = torch.zeros(
                 (max_length, 32), device=self._device, dtype=self._float_dtype
             )
-            t = torch.tensor(
-                entry_group[prefix]["blosum62"][:], device=self._device, dtype=self._float_dtype
-            )
-            result[f"{prefix}_blosum62"][index, : t.shape[1]] = t
+            if "blosum62" in h5_data:
+                t = torch.tensor(h5_data["blosum62"], device=self._device, dtype=self._float_dtype)
+                result[f"{prefix}_blosum62"][index, : t.shape[1]] = t
 
-            # backbone frames, used in IPA +
-            # atomic data, used in loss function
-            variable_iteration = [
+            # backbone frames, used in IPA + atomic data, used in loss function
+            structural_fields = [
                 ("backbone_rigid_tensor", self._float_dtype),
                 ("atom14_gt_positions", self._float_dtype),
                 ("atom14_alt_gt_positions", self._float_dtype),
                 ("atom14_gt_exists", torch.bool),
             ]
-            # to save memory,
-            # don't add what we don't use.
+            # to save memory, don't add what we don't use.
             # only add torsion data for the peptide
             if prefix == PREPROCESS_PEPTIDE_NAME:
-                variable_iteration += [
+                structural_fields += [
                     ("torsion_angles_sin_cos", self._float_dtype),
                     ("alt_torsion_angles_sin_cos", self._float_dtype),
                     ("torsion_angles_mask", torch.bool),
                 ]
-            # put variables in output dictionary
-            for field_name, dtype in variable_iteration:
-                data = entry_group[prefix][field_name][:]
-                t = torch.zeros(
-                    [max_length] + list(data.shape[1:]), device=self._device, dtype=dtype
-                )
-                t[index] = torch.tensor(data, device=self._device, dtype=dtype)
 
-                result[f"{prefix}_{field_name}"] = t
+            # Process structural fields using batch data
+            for field_name, dtype in structural_fields:
+                if field_name in h5_data:
+                    data = h5_data[field_name]
+                    t = torch.zeros(
+                        [max_length] + list(data.shape[1:]), device=self._device, dtype=dtype
+                    )
+                    t[index] = torch.tensor(data, device=self._device, dtype=dtype)
+                    result[f"{prefix}_{field_name}"] = t
 
-        # protein residue-residue proximity data
+        # protein residue-residue proximity data (large dataset - load conditionally)
         prox_data = entry_group[PREPROCESS_PROTEIN_NAME]["proximities"][:]
         result["protein_proximities"] = torch.zeros(
             self._protein_maxlen,
@@ -397,7 +461,6 @@ class ProteinLoopDataset(Dataset):
             device=self._device,
             dtype=self._float_dtype,
         )
-
         result["protein_proximities"][: prox_data.shape[0], : prox_data.shape[1], :] = torch.tensor(
             prox_data, device=self._device, dtype=self._float_dtype
         )
@@ -407,8 +470,8 @@ class ProteinLoopDataset(Dataset):
     def _set_zero_peptide_structure(
         self, result: dict[str, torch.Tensor]
     ) -> dict[str, torch.Tensor]:
-        """Make sure that for the peptide,
-        all frames, atom positions and angles are set to zero.
+        """Make sure that for the peptide, all frames, atom positions and angles are set to zero.
+
         This is just to assure that the variables aren't missing during a run and
         can still be included in loss term calculation.
         This is meant for nonbinder structures where the loss term is calculated but doesn't count in the end.
