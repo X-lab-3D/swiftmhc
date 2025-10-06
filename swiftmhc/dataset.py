@@ -22,6 +22,15 @@ from .preprocess import get_blosum_encoding
 _log = logging.getLogger(__name__)
 
 
+def get_entry_names(hdf5_path: str) -> list[str]:
+    """Get the list of entry names in the given HDF5 file."""
+    try:
+        with h5py.File(hdf5_path, "r") as hdf5_file:
+            return list(hdf5_file.keys())
+    except Exception as e:
+        raise RuntimeError(f"Failed to open HDF5 file {hdf5_path}: {str(e)}")
+
+
 class ProteinLoopDataset(Dataset):
     def __init__(
         self,
@@ -50,13 +59,13 @@ class ProteinLoopDataset(Dataset):
         self._peptide_maxlen = peptide_maxlen
         self._protein_maxlen = protein_maxlen
 
-        self._hdf5_file = self._get_hdf5_file()
-
         if entry_names is not None:
             self._entry_names = entry_names
         else:
             # list all entries in the file
-            self._entry_names = list(self._hdf5_file.keys())
+            self._entry_names = get_entry_names(self._hdf5_path)
+
+        self._hdf5_file = None
 
         self._pairs = pairs
 
@@ -69,7 +78,7 @@ class ProteinLoopDataset(Dataset):
         one file handle per worker process, avoiding the overhead of repeatedly
         opening and closing the file.
         """
-        if hasattr(self, "_hdf5_file"):
+        if self._hdf5_file is not None:
             return self._hdf5_file
         else:
             try:
