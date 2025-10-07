@@ -124,8 +124,7 @@ class ProteinLoopDataset(Dataset):
             try:
                 entry_name = self._find_matching_entry(allele, peptide)
                 result = self._get_structural_data(entry_name, False)
-                if "peptide_aatype" not in result:
-                    result.update(self._get_sequence_data(peptide))
+                result.update(self._get_sequence_data(peptide))
                 result["peptide"] = peptide
                 result["allele"] = allele
                 result["ids"] = f"{allele}-{peptide}"
