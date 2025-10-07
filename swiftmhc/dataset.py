@@ -24,11 +24,8 @@ _log = logging.getLogger(__name__)
 
 def get_entry_names(hdf5_path: str) -> list[str]:
     """Get the list of entry names in the given HDF5 file."""
-    try:
-        with h5py.File(hdf5_path, "r") as hdf5_file:
-            return list(hdf5_file.keys())
-    except Exception as e:
-        raise RuntimeError(f"Failed to open HDF5 file {hdf5_path}: {str(e)}")
+    with h5py.File(hdf5_path, "r") as hdf5_file:
+        return list(hdf5_file.keys())
 
 
 class ProteinLoopDataset(Dataset):
