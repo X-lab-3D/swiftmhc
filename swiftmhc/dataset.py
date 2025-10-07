@@ -148,10 +148,8 @@ class ProteinLoopDataset(Dataset):
     def _get_peptide_sequence(self, entry_name: str) -> str:
         """Gets the peptide sequence from the hdf5 file, under the given entry name"""
         hdf5_file = self._get_hdf5_file()
-        entry = hdf5_file[entry_name]
-        peptide = entry[PREPROCESS_PEPTIDE_NAME]
-        aatype = peptide["aatype"]
-        sequence = [residue_constants.restypes[i] for i in aatype]
+        aatype = hdf5_file[f"{entry_name}/{PREPROCESS_PEPTIDE_NAME}/aatype"][:]
+        sequence = "".join(residue_constants.restypes[i] for i in aatype)
 
         return sequence
 
