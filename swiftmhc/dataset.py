@@ -78,11 +78,8 @@ class ProteinLoopDataset(Dataset):
         if self._hdf5_file is not None:
             return self._hdf5_file
         else:
-            try:
-                # "stdio" driver is faster for many small reads (<64KB)
-                self._hdf5_file = h5py.File(self._hdf5_path, "r", driver="stdio")
-            except Exception as e:
-                raise RuntimeError(f"Failed to open HDF5 file {self._hdf5_path}: {str(e)}")
+            # "stdio" driver is faster for many small reads (<64KB)
+            self._hdf5_file = h5py.File(self._hdf5_path, "r", driver="stdio")
         return self._hdf5_file
 
     def _close_hdf5_file(self):
