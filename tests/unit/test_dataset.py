@@ -119,6 +119,7 @@ def test_getitem_with_structural_data():
         hdf5_protein_aatype = group["protein"]["aatype"][:]
         protein_length = len(hdf5_protein_aatype)
 
+        # ------- Verify tensor values for peptide -----------------------------
         # PEPTIDE BASE FIELDS
         result_peptide_aatype = result["peptide_aatype"][:peptide_length]
         expected_peptide_aatype = torch.from_numpy(hdf5_peptide_aatype).long()
@@ -175,7 +176,7 @@ def test_getitem_with_structural_data():
             assert torch.allclose(result_peptide_onehot, expected_peptide_onehot, atol=1e-6)
 
         # PEPTIDE MASK FIELDS
-        # Note: self_residues_mask and cross_residues_mask are generated fields, not stored in HDF5
+        # Note: peptide self_residues_mask and cross_residues_mask are generated fields, not stored in HDF5
         peptide_self_mask_padding = result["peptide_self_residues_mask"][:peptide_length]
         assert torch.all(peptide_self_mask_padding), (
             "Peptide self residues mask padding should be True"
@@ -209,6 +210,7 @@ def test_getitem_with_structural_data():
             expected_peptide_torsions = torch.from_numpy(hdf5_peptide_torsions).float()
             assert torch.allclose(result_peptide_torsions, expected_peptide_torsions, atol=1e-6)
 
+        # ------- Verify tensor values for protein  ----------------------------
         # PROTEIN BASE FIELDS
         result_protein_aatype = result["protein_aatype"][:protein_length]
         expected_protein_aatype = torch.from_numpy(hdf5_protein_aatype).long()
