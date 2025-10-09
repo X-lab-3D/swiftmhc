@@ -3,6 +3,7 @@ from math import log
 from tempfile import gettempdir
 from tempfile import mkstemp
 from uuid import uuid4
+import pytest
 import torch
 from Bio.PDB.Chain import Chain
 from Bio.PDB.PDBParser import PDBParser
@@ -15,6 +16,7 @@ from swiftmhc.preprocess import _get_masked_structure
 from swiftmhc.preprocess import _load_protein_data
 from swiftmhc.preprocess import _read_mask_data
 from swiftmhc.preprocess import _save_protein_data
+from swiftmhc.preprocess import get_blosum_encoding
 from swiftmhc.preprocess import preprocess
 
 
@@ -148,3 +150,69 @@ def test_alignment():
         assert any(
             [r[0] == "M" and r[1] == residue_number and r[2] == amino_acid for r in self_mask]
         )
+
+
+def test_get_blosum_encoding_basic_functionality():
+    """Test basic functionality of get_blosum_encoding with list input."""
+    device = torch.device("cpu")
+    aa_indexes = [0, 1, 2, 3, 4]  # A, R, N, D, C
+
+    result = get_blosum_encoding(aa_indexes, 62, device)
+
+    assert result.shape == (5, 20), f"Expected shape (5, 20), got {result.shape}"
+    assert result.device == device, f"Expected device {device}, got {result.device}"
+    assert result.dtype == torch.float32, f"Expected float32, got {result.dtype}"
+
+    # Check known BLOSUM62 values for Alanine (index 0)
+    # A should have score 4 with itself (A is at index 0)
+    assert result[0, 0] == 4.0, f"A-A score should be 4.0, got {result[0, 0]}"
+    # A should have score -1 with R (R is at index 1)
+    assert result[0, 1] == -1.0, f"A-R score should be -1.0, got {result[0, 1]}"
+
+
+def test_get_blosum_encoding_invalid_amino_acid():
+    """Test get_blosum_encoding with invalid amino acid indices."""
+    device = torch.device("cpu")
+
+    with pytest.raises(ValueError):
+        invalid_indexes = []  # empty list
+        get_blosum_encoding(invalid_indexes, 62, device)
+
+    with pytest.raises(ValueError):
+        invalid_indexes = [0, 1, 25]  # 25 is invalid
+        get_blosum_encoding(invalid_indexes, 62, device)
+
+    with pytest.raises(ValueError):
+        invalid_indexes = [0, 1, -1]  # -1 is invalid
+        get_blosum_encoding(invalid_indexes, 62, device)
+
+
+def test_get_blosum_encoding_caching():
+    """Test that caching works correctly and improves performance."""
+    import time
+    from swiftmhc.preprocess import _BLOSUM_CACHE
+
+    device = torch.device("cpu")
+    aa_indexes = list(range(20))
+
+    # Clear cache to ensure clean test
+    if 62 in _BLOSUM_CACHE:
+        del _BLOSUM_CACHE[62]
+
+    # First call should build cache
+    start_time = time.time()
+    result1 = get_blosum_encoding(aa_indexes, 62, device)
+    first_call_time = time.time() - start_time
+
+    # Verify cache was populated
+    assert 62 in _BLOSUM_CACHE, "Cache should contain BLOSUM62 matrix after first call"
+    assert _BLOSUM_CACHE[62].shape == (20, 20), "Cached matrix should be 20x20"
+
+    # Second call should use cache and be faster
+    start_time = time.time()
+    result2 = get_blosum_encoding(aa_indexes, 62, device)
+    second_call_time = time.time() - start_time
+
+    assert result1.shape == (20, 20)
+    assert torch.allclose(result1, result2), "Cached and non-cached results should be identical"
+    assert second_call_time - first_call_time < 0, "Second call should complete successfully"

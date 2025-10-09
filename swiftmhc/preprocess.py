@@ -35,6 +35,9 @@ from .tools.pdb import get_atom14_positions
 _log = logging.getLogger(__name__)
 
 
+# Module-level cache for BLOSUM lookup tables
+_BLOSUM_CACHE = {}
+
 # These strings represent the names under which data will be stored in the hdf5 file.
 # They don't include everything, because some names are defined in the openfold code.
 PREPROCESS_AFFINITY_LT_MASK_NAME = "affinity_lt_mask"
@@ -206,7 +209,7 @@ def _read_mask_data(path: str) -> list[ResidueMaskType]:
 def get_blosum_encoding(
     aa_indexes: list[int], blosum_index: int, device: torch.device
 ) -> torch.Tensor:
-    """Convert amino acids to BLOSUM encoding
+    """Convert amino acids to BLOSUM encoding.
 
     Arguments:
         aa_indexes: order of numbers 0 to 19, coding for the amino acids
@@ -215,22 +218,33 @@ def get_blosum_encoding(
     Returns:
         [len, 20] the amino acids encoded by their BLOSUM rows
     """
-    matrix = BLOSUM(blosum_index)
-    encoding = []
-    for aa_index in aa_indexes:
-        aa_letter = restypes[aa_index]
+    # verify aa indexes are in range [0, 19]
+    aa_indexes_array = numpy.asarray(aa_indexes)
+    if aa_indexes_array.size == 0 or aa_indexes_array.min() < 0 or aa_indexes_array.max() >= 20:
+        raise ValueError("amino acid indexes contain values out of range [0, 19]")
 
-        row = []
-        for other_aa_letter in restypes:
-            matrix_value = matrix[aa_letter][other_aa_letter]
-            if isinf(matrix_value):
-                raise ValueError(f"not found in blosum matrix: {aa_letter} & {other_aa_letter}")
-            else:
-                row.append(matrix_value)
+    # Check module-level cache first
+    if blosum_index not in _BLOSUM_CACHE:
+        # Build precomputed 20x20 lookup table
+        matrix = BLOSUM(blosum_index)
+        lookup_table = numpy.zeros((20, 20), dtype=numpy.float32)
 
-        encoding.append(row)
+        for i, aa_letter in enumerate(restypes):
+            for j, other_aa_letter in enumerate(restypes):
+                matrix_value = matrix[aa_letter][other_aa_letter]
+                if isinf(matrix_value):
+                    raise ValueError(f"not found in blosum matrix: {aa_letter} & {other_aa_letter}")
+                lookup_table[i, j] = matrix_value
 
-    return torch.tensor(encoding)
+        # Cache the lookup table
+        _BLOSUM_CACHE[blosum_index] = lookup_table
+
+    lookup_table = _BLOSUM_CACHE[blosum_index]
+
+    # Vectorized indexing
+    encoding = lookup_table[aa_indexes]
+
+    return torch.from_numpy(encoding).to(device)
 
 
 def _has_calpha(residue: Residue) -> bool:

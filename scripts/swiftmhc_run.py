@@ -597,10 +597,14 @@ class Trainer:
             profiler: Optional profiler instance to step
         """
         torch.cuda.reset_peak_memory_stats()
+        dataload_time = []
         batch_time = []
-        for batch_index, batch_data in enumerate(data_loader):
-            time_start = timer()
 
+        dataload_time_start = timer()
+        for batch_index, batch_data in enumerate(data_loader):
+            dataload_time.append(timer() - dataload_time_start)
+
+            batch_time_start = timer()
             # Transfer batch to device
             batch_data = {
                 k: v.to(self._device, non_blocking=True) if isinstance(v, torch.Tensor) else v
@@ -619,9 +623,7 @@ class Trainer:
             )
 
             # measure time taken
-            step_time = timer() - time_start
-            batch_time.append(step_time)
-            _log.info(f"batch time (s): {step_time:.6f}")
+            batch_time.append(timer() - batch_time_start)
 
             # make the snapshot, if requested
             if animated_data is not None and (batch_index + 1) % self._snap_period == 0:
@@ -639,6 +641,16 @@ class Trainer:
             if profiler is not None:
                 profiler.step()
 
+            dataload_time_start = timer()
+
+        for i in dataload_time:
+            _log.info(f"data load time (s): {i:.6f}")
+        _log.info(
+            f"data load time stat (s): mean {numpy.mean(dataload_time):.6f}, max {numpy.max(dataload_time):.6f}, min {numpy.min(dataload_time):.6f}"
+        )
+
+        for i in batch_time:
+            _log.info(f"batch time (s): {i:.6f}")
         _log.info(
             f"batch time stat (s): mean {numpy.mean(batch_time):.6f}, max {numpy.max(batch_time):.6f}, min {numpy.min(batch_time):.6f}"
         )
@@ -1333,7 +1345,6 @@ if __name__ == "__main__":
 
     # Make sure we can use multiple workers:
     _log.debug(f"using {args.workers} workers")
-    torch.multiprocessing.set_start_method("spawn")
 
     # Init trainer object with given arguments
     trainer = Trainer(device, float_dtype, args.workers, model_type)
