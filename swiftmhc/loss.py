@@ -678,7 +678,17 @@ def get_loss(
 def get_calpha_rmsd(
     output_data: dict[str, torch.Tensor], batch_data: dict[str, torch.Tensor]
 ) -> dict[str, float]:
-    """Returns: rmsd per binder id, nonbinders are ignored"""
+    """Calculate RMSD for the predicted peptide Ca atoms, for each binder in the batch.
+
+    Non-binders are ignored.
+
+    Args:
+        output_data: what came out of the model
+        batch_data: what came out of the dataset
+
+    Returns:
+        dict mapping binder ID to its Ca RMSD
+    """
     # take binders only
     if "class" in batch_data:
         binders_index = batch_data["class"] == 1
@@ -693,8 +703,13 @@ def get_calpha_rmsd(
     if not torch.any(binders_index):
         return {}
 
-    ids = [batch_data["ids"][i] for i in torch.nonzero(binders_index)]
-
+    # get binder IDs (string)
+    # .tolist() and .item() will move data to CPU in batch if necessary
+    binder_index_value = binders_index.nonzero().squeeze()
+    binder_ids_index = (
+        binder_index_value.tolist() if binder_index_value.dim() > 0 else [binder_index_value.item()]
+    )
+    binder_ids = [batch_data["ids"][i] for i in binder_ids_index]
     # [n_binders, peptide_maxlen, n_atoms, 3]
     output_positions = output_data["final_positions"][binders_index]
     true_positions = batch_data["peptide_atom14_gt_positions"][binders_index]
@@ -708,10 +723,14 @@ def get_calpha_rmsd(
     true_positions = true_positions[..., 1, :]
     squares = (output_positions - true_positions) ** 2
 
-    # [batch_size]
-    sum_of_squares = (squares * mask[..., None]).sum(dim=2).sum(dim=1)
-    counts = torch.sum(mask.int(), dim=1)
+    # Compute RMSD for all binders at once
+    # [n_binders]
+    sum_of_squares = (squares * mask[..., None]).sum(dim=(1, 2))
+    counts = mask.sum(dim=1)
 
     rmsd = torch.sqrt(sum_of_squares / counts)
 
-    return {ids[i]: rmsd[i].item() for i in range(len(ids))}
+    # move rmsd data to CPU in batch if necessary
+    rmsd_cpu = rmsd.tolist() if rmsd.dim() > 0 else [rmsd.item()]
+
+    return dict(zip(binder_ids, rmsd_cpu))
