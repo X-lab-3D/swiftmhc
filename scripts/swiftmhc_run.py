@@ -599,6 +599,7 @@ class Trainer:
         torch.cuda.reset_peak_memory_stats()
         dataload_time = []
         batch_time = []
+        overhead_time = []
 
         dataload_time_start = timer()
         for batch_index, batch_data in enumerate(data_loader):
@@ -625,6 +626,7 @@ class Trainer:
             # measure time taken
             batch_time.append(timer() - batch_time_start)
 
+            overhead_start_time = timer()
             # make the snapshot, if requested
             if animated_data is not None and (batch_index + 1) % self._snap_period == 0:
                 self._snapshot(
@@ -636,6 +638,7 @@ class Trainer:
 
             # Save to metrics
             record.add_batch(batch_loss, batch_output, batch_data)
+            overhead_time.append(timer() - overhead_start_time)
 
             # Step the profiler if provided
             if profiler is not None:
@@ -653,6 +656,12 @@ class Trainer:
             _log.info(f"batch time (s): {i:.6f}")
         _log.info(
             f"batch time stat (s): mean {numpy.mean(batch_time):.6f}, max {numpy.max(batch_time):.6f}, min {numpy.min(batch_time):.6f}"
+        )
+
+        for i in overhead_time:
+            _log.info(f"overhead time (s): {i:.6f}")
+        _log.info(
+            f"overhead time stat (s): mean {numpy.mean(overhead_time):.6f}, max {numpy.max(overhead_time):.6f}, min {numpy.min(overhead_time):.6f}"
         )
 
         peak_mem = torch.cuda.max_memory_allocated() / 1024**3
