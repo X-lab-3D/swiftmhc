@@ -107,7 +107,7 @@ class MetricsRecord:
     def save(self):
         """Call this when all batches have passed, to save the resulting metrics."""
         self._store_individual_rmsds(self._pass_name, self._directory_path)
-        self._store_inidividual_affinities(self._pass_name, self._directory_path)
+        self._store_individual_affinities(self._pass_name, self._directory_path)
         self._store_metrics_table(self._epoch_number, self._pass_name, self._directory_path)
 
     def _store_individual_rmsds(self, pass_name: str, directory_path: str):
@@ -132,7 +132,7 @@ class MetricsRecord:
             rmsds_path, sep=",", encoding="utf-8", index=False, quoting=csv.QUOTE_NONNUMERIC
         )
 
-    def _store_inidividual_affinities(self, pass_name: str, directory_path: str):
+    def _store_individual_affinities(self, pass_name: str, directory_path: str):
         """Store the binding affinity (true and/or predicted) per peptide."""
         affinities_path = os.path.join(directory_path, f"{pass_name}-affinities.csv")
 
