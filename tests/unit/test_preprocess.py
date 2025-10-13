@@ -14,6 +14,7 @@ from swiftmhc.metrics import get_sequence
 from swiftmhc.preprocess import _generate_structure_data
 from swiftmhc.preprocess import _get_masked_structure
 from swiftmhc.preprocess import _load_protein_data
+from swiftmhc.preprocess import _make_sequence_data
 from swiftmhc.preprocess import _read_mask_data
 from swiftmhc.preprocess import _save_protein_data
 from swiftmhc.preprocess import get_blosum_encoding
@@ -216,3 +217,103 @@ def test_get_blosum_encoding_caching():
     assert result1.shape == (20, 20)
     assert torch.allclose(result1, result2), "Cached and non-cached results should be identical"
     assert second_call_time - first_call_time < 0, "Second call should complete successfully"
+
+
+def test_make_sequence_data_basic_functionality():
+    """Test basic functionality of _make_sequence_data function."""
+    import numpy
+
+    device = torch.device("cpu")
+    sequence = "GVNNLEHGL"  # 9 amino acids
+
+    result = _make_sequence_data(sequence, device)
+
+    # Check that result is a dictionary
+    assert isinstance(result, dict), "Result should be a dictionary"
+
+    # Check expected keys are present
+    expected_keys = [
+        "residue_numbers",
+        "aatype",
+        "sequence_onehot",
+        "blosum62",
+        "torsion_angles_mask",
+        "atom14_gt_exists",
+        "sequence",
+    ]
+    for key in expected_keys:
+        assert key in result, f"Key '{key}' should be in result"
+
+    # Check the sequence field specifically (new functionality)
+    assert "sequence" in result, "Result should contain 'sequence' field"
+    assert isinstance(result["sequence"], numpy.ndarray), "Sequence should be numpy array"
+
+    # Decode the sequence and verify it matches the input
+    decoded_sequence = result["sequence"][()].decode("utf-8")
+    assert decoded_sequence == sequence, (
+        f"Decoded sequence '{decoded_sequence}' should match input '{sequence}'"
+    )
+
+    # Check shapes of tensor fields
+    length = len(sequence)
+    assert result["residue_numbers"].shape == (length,), (
+        f"residue_numbers shape should be ({length},)"
+    )
+    assert result["aatype"].shape == (length,), f"aatype shape should be ({length},)"
+    assert result["sequence_onehot"].shape[0] == length, (
+        f"sequence_onehot first dimension should be {length}"
+    )
+    assert result["blosum62"].shape == (length, 20), f"blosum62 shape should be ({length}, 20)"
+    assert result["torsion_angles_mask"].shape == (length, 7), (
+        f"torsion_angles_mask shape should be ({length}, 7)"
+    )
+    assert result["atom14_gt_exists"].shape == (length, 14), (
+        f"atom14_gt_exists shape should be ({length}, 14)"
+    )
+
+    # Check device placement for tensor fields
+    tensor_fields = [
+        "residue_numbers",
+        "aatype",
+        "sequence_onehot",
+        "blosum62",
+        "torsion_angles_mask",
+        "atom14_gt_exists",
+    ]
+    for field in tensor_fields:
+        if isinstance(result[field], torch.Tensor):
+            assert result[field].device == device, f"Field '{field}' should be on device {device}"
+
+
+def test_make_sequence_data_empty_sequence():
+    """Test _make_sequence_data with empty sequence - should raise an error."""
+    device = torch.device("cpu")
+    sequence = ""
+
+    # Empty sequences should raise an error since they can't be processed
+    with pytest.raises((RuntimeError, ValueError)):
+        _make_sequence_data(sequence, device)
+
+
+def test_make_sequence_data_long_sequence():
+    """Test _make_sequence_data with longer sequence."""
+    device = torch.device("cpu")
+    sequence = "MKTVRQERLKSIVRIA"  # 16 amino acids
+
+    result = _make_sequence_data(sequence, device)
+
+    # Check the sequence field
+    assert "sequence" in result, "Result should contain 'sequence' field"
+    decoded_sequence = result["sequence"].tobytes().decode("utf-8")
+    assert decoded_sequence == sequence, "Decoded sequence should match input sequence"
+
+    # Check that all shapes are correct for longer sequence
+    length = len(sequence)
+    assert result["residue_numbers"].shape == (length,), (
+        f"residue_numbers shape should be ({length},)"
+    )
+    assert result["aatype"].shape == (length,), f"aatype shape should be ({length},)"
+    assert result["sequence_onehot"].shape[0] == length, (
+        f"sequence_onehot first dimension should be {length}"
+    )
+    assert result["blosum62"].shape == (length, 20), f"blosum62 shape should be ({length}, 20)"

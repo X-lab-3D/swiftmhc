@@ -16,6 +16,7 @@ def test_getitem_with_structural_data():
 
     assert isinstance(result, dict)
     assert result["ids"] == "BA-99998"
+    assert result["peptide"] == "YLLGDSDSVA"
     assert "affinity" in result
     assert "class" in result
     assert "affinity_lt" in result

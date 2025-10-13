@@ -95,12 +95,9 @@ class MetricsRecord:
                 self._truth_data[key] += truth[key].cpu().tolist()
 
         # store the peptide sequences
-        peptide_aatype = truth["peptide_aatype"].cpu().tolist()
-        peptide_mask = truth["peptide_self_residues_mask"].cpu().tolist()
         for i in range(batch_size):
             id_ = truth["ids"][i]
-            peptide_sequence = get_sequence(peptide_aatype[i], peptide_mask[i])
-            self._peptide_sequences[id_] = peptide_sequence
+            self._peptide_sequences[id_] = truth["peptide"][i]
 
         self._batches_passed += 1
 
