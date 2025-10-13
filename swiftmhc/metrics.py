@@ -104,7 +104,6 @@ class MetricsRecord:
             peptide_sequence = get_sequence(peptide_aatype[i], peptide_mask[i])
             self._peptide_sequences[id_] = peptide_sequence
 
-        # remove this part
         self._batches_passed += 1
         if self._batches_passed % self.batch_write_interval == 0:
             self._store_individual_rmsds(self._pass_name, self._directory_path)
