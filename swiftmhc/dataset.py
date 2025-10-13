@@ -149,7 +149,7 @@ class ProteinLoopDataset(Dataset):
         if "sequence" in h5_peptide:
             sequence = h5_peptide["sequence"][()].decode("utf-8")
         else:
-            aatype = hdf5_file[f"{entry_name}/{PREPROCESS_PEPTIDE_NAME}/aatype"][:]
+            aatype = h5_peptide["aatype"][:]
             sequence = "".join(residue_constants.restypes[i] for i in aatype)
         return sequence
 
