@@ -35,8 +35,6 @@ def get_accuracy(truth: list[int], pred: list[int]) -> float:
 
 
 class MetricsRecord:
-    batch_write_interval = 25
-
     def __init__(self, epoch_number: int, pass_name: str, directory_path: str):
         """Args:
         epoch_number: to indicate at which epoch row it should be stored
@@ -105,9 +103,6 @@ class MetricsRecord:
             self._peptide_sequences[id_] = peptide_sequence
 
         self._batches_passed += 1
-        if self._batches_passed % self.batch_write_interval == 0:
-            self._store_individual_rmsds(self._pass_name, self._directory_path)
-            self._store_inidividual_affinities(self._pass_name, self._directory_path)
 
     def save(self):
         """Call this when all batches have passed, to save the resulting metrics."""
