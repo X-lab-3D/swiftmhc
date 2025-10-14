@@ -521,7 +521,7 @@ def _compute_torsion_angle_loss(
 
 
 # above this value, BA output is considered binding
-AFFINITY_BINDING_TRESHOLD = 1.0 - log(500) / log(50000)
+AFFINITY_BINDING_THRESHOLD = 1.0 - log(500) / log(50000)
 
 # BA loss functions
 _classification_loss_function = torch.nn.CrossEntropyLoss(reduction="none")
@@ -584,7 +584,7 @@ def get_loss(
                 torch.logical_and(output["affinity"] > batch["affinity"], batch["affinity_gt"])
             ] = 0.0
 
-            non_binders_index = batch["affinity"] < AFFINITY_BINDING_TRESHOLD
+            non_binders_index = batch["affinity"] < AFFINITY_BINDING_THRESHOLD
 
         elif "class" in batch and not affinity_tune:
             # needed for structural loss
@@ -694,7 +694,7 @@ def get_calpha_rmsd(
         binders_index = batch_data["class"] == 1
 
     elif "affinity" in batch_data:
-        binders_index = batch_data["affinity"] > AFFINITY_BINDING_TRESHOLD
+        binders_index = batch_data["affinity"] > AFFINITY_BINDING_THRESHOLD
 
     else:
         raise ValueError("Cannot compute RMSD without class or affinity output")

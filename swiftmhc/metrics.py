@@ -6,7 +6,7 @@ import torch
 from scipy.stats import pearsonr
 from sklearn.metrics import matthews_corrcoef
 from sklearn.metrics import roc_auc_score
-from .loss import AFFINITY_BINDING_TRESHOLD
+from .loss import AFFINITY_BINDING_THRESHOLD
 from .loss import get_calpha_rmsd
 
 
@@ -176,7 +176,7 @@ class MetricsRecord:
         r = pearsonr(self._output_data["affinity"], self._truth_data["affinity"]).statistic
         table.loc[row_mask, f"{pass_name} pearson correlation"] = round(r, 3)
 
-        output_class = numpy.array(self._output_data["affinity"]) > AFFINITY_BINDING_TRESHOLD
+        output_class = numpy.array(self._output_data["affinity"]) > AFFINITY_BINDING_THRESHOLD
 
         acc = get_accuracy(self._truth_data["class"], output_class)
         table.loc[row_mask, f"{pass_name} accuracy"] = round(acc, 3)
