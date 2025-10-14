@@ -4,7 +4,6 @@ import ml_collections
 import torch
 from openfold.config import config as openfold_config
 from openfold.data.data_transforms import atom37_to_frames as openfold_atom37_to_frames
-from openfold.data.data_transforms import make_atom14_masks as openfold_make_atom14_masks
 from openfold.np.residue_constants import atom_types as openfold_atom_types
 from openfold.np.residue_constants import (
     make_atom14_dists_bounds as openfold_make_atom14_dists_bounds,
@@ -599,15 +598,6 @@ def get_loss(
         non_binders_index = torch.logical_not(batch["class"])
     else:
         raise TypeError(f"unknown model type {model_type}")
-
-    # mapping 14-atoms to 37-atoms format, because several openfold functions use the 37 format
-    # required by fape_loss and violation_loss
-    peptide_data = openfold_make_atom14_masks({"aatype": batch["peptide_aatype"]})
-    protein_data = openfold_make_atom14_masks({"aatype": batch["protein_aatype"]})
-    batch["peptide_residx_atom37_to_atom14"] = peptide_data["residx_atom37_to_atom14"]
-    batch["protein_residx_atom37_to_atom14"] = protein_data["residx_atom37_to_atom14"]
-    batch["peptide_residx_atom14_to_atom37"] = peptide_data["residx_atom14_to_atom37"]
-    batch["protein_residx_atom14_to_atom37"] = protein_data["residx_atom14_to_atom37"]
 
     # init total loss at zero
     total_loss = torch.zeros(
