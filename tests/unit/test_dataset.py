@@ -41,6 +41,9 @@ def test_getitem_with_structural_data():
     assert result["peptide_torsion_angles_sin_cos"].shape == (peptide_maxlen, 7, 2)
     # Peptide generated fields
     assert result["peptide_residue_index"].shape == (peptide_maxlen,)
+    # Peptide atom mapping fields
+    assert result["peptide_residx_atom14_to_atom37"].shape == (peptide_maxlen, 14)
+    assert result["peptide_residx_atom37_to_atom14"].shape == (peptide_maxlen, 37)
 
     # Protein base fields
     assert result["protein_aatype"].shape == (protein_maxlen,)
@@ -57,6 +60,9 @@ def test_getitem_with_structural_data():
     # Protein generated fields
     assert result["protein_residue_index"].shape == (protein_maxlen,)
     assert result["protein_proximities"].shape == (protein_maxlen, protein_maxlen, 1)
+    # Protein atom mapping fields
+    assert result["protein_residx_atom14_to_atom37"].shape == (protein_maxlen, 14)
+    assert result["protein_residx_atom37_to_atom14"].shape == (protein_maxlen, 37)
 
     # ------- Verify tensor types ----------------------------------------------
     # Peptide base fields
@@ -77,6 +83,9 @@ def test_getitem_with_structural_data():
     assert result["peptide_torsion_angles_sin_cos"].dtype == torch.float32
     # Peptide generated fields
     assert result["peptide_residue_index"].dtype == torch.long
+    # Peptide atom mapping fields
+    assert result["peptide_residx_atom14_to_atom37"].dtype == torch.long
+    assert result["peptide_residx_atom37_to_atom14"].dtype == torch.long
 
     # Protein base fields
     assert result["protein_aatype"].dtype == torch.long
@@ -93,6 +102,9 @@ def test_getitem_with_structural_data():
     # Protein generated fields
     assert result["protein_residue_index"].dtype == torch.long
     assert result["protein_proximities"].dtype == torch.float32
+    # Protein atom mapping fields
+    assert result["protein_residx_atom14_to_atom37"].dtype == torch.long
+    assert result["protein_residx_atom37_to_atom14"].dtype == torch.long
 
     # -------- Verify tensor values against actual HDF5 data -------------------
     entry_name = "BA-99998"
@@ -211,6 +223,27 @@ def test_getitem_with_structural_data():
             expected_peptide_torsions = torch.from_numpy(hdf5_peptide_torsions).float()
             assert torch.allclose(result_peptide_torsions, expected_peptide_torsions, atol=1e-6)
 
+        # PEPTIDE ATOM MAPPING FIELDS
+        if "residx_atom14_to_atom37" in group["peptide"]:
+            hdf5_peptide_atom14_to_atom37 = group["peptide"]["residx_atom14_to_atom37"][:]
+            result_peptide_atom14_to_atom37 = result["peptide_residx_atom14_to_atom37"][
+                :peptide_length
+            ]
+            expected_peptide_atom14_to_atom37 = torch.from_numpy(
+                hdf5_peptide_atom14_to_atom37
+            ).long()
+            assert torch.equal(result_peptide_atom14_to_atom37, expected_peptide_atom14_to_atom37)
+
+        if "residx_atom37_to_atom14" in group["peptide"]:
+            hdf5_peptide_atom37_to_atom14 = group["peptide"]["residx_atom37_to_atom14"][:]
+            result_peptide_atom37_to_atom14 = result["peptide_residx_atom37_to_atom14"][
+                :peptide_length
+            ]
+            expected_peptide_atom37_to_atom14 = torch.from_numpy(
+                hdf5_peptide_atom37_to_atom14
+            ).long()
+            assert torch.equal(result_peptide_atom37_to_atom14, expected_peptide_atom37_to_atom14)
+
         # ------- Verify tensor values for protein  ----------------------------
         # PROTEIN BASE FIELDS
         result_protein_aatype = result["protein_aatype"][:protein_length]
@@ -286,6 +319,27 @@ def test_getitem_with_structural_data():
             result_proximities = result["protein_proximities"][:protein_length, :protein_length]
             expected_proximities = torch.from_numpy(hdf5_proximities).float()
             assert torch.allclose(result_proximities, expected_proximities, atol=1e-6)
+
+        # PROTEIN ATOM MAPPING FIELDS
+        if "residx_atom14_to_atom37" in group["protein"]:
+            hdf5_protein_atom14_to_atom37 = group["protein"]["residx_atom14_to_atom37"][:]
+            result_protein_atom14_to_atom37 = result["protein_residx_atom14_to_atom37"][
+                :protein_length
+            ]
+            expected_protein_atom14_to_atom37 = torch.from_numpy(
+                hdf5_protein_atom14_to_atom37
+            ).long()
+            assert torch.equal(result_protein_atom14_to_atom37, expected_protein_atom14_to_atom37)
+
+        if "residx_atom37_to_atom14" in group["protein"]:
+            hdf5_protein_atom37_to_atom14 = group["protein"]["residx_atom37_to_atom14"][:]
+            result_protein_atom37_to_atom14 = result["protein_residx_atom37_to_atom14"][
+                :protein_length
+            ]
+            expected_protein_atom37_to_atom14 = torch.from_numpy(
+                hdf5_protein_atom37_to_atom14
+            ).long()
+            assert torch.equal(result_protein_atom37_to_atom14, expected_protein_atom37_to_atom14)
 
         # SEQUENCE RECONSTRUCTION VALIDATION
         peptide_sequence = "".join([restypes[i] for i in hdf5_peptide_aatype])
@@ -379,6 +433,21 @@ def test_getitem_with_structural_data():
                 "Peptide residue index padding should be zeros"
             )
 
+            # PEPTIDE ATOM MAPPING FIELDS PADDING
+            peptide_atom14_to_atom37_padding = result["peptide_residx_atom14_to_atom37"][
+                peptide_length:
+            ]
+            assert torch.all(peptide_atom14_to_atom37_padding == 0), (
+                "Peptide atom14 to atom37 mapping padding should be zeros"
+            )
+
+            peptide_atom37_to_atom14_padding = result["peptide_residx_atom37_to_atom14"][
+                peptide_length:
+            ]
+            assert torch.all(peptide_atom37_to_atom14_padding == 0), (
+                "Peptide atom37 to atom14 mapping padding should be zeros"
+            )
+
         # Protein padding checks
         if protein_length < protein_maxlen:
             padding_values = result["protein_aatype"][protein_length:]
@@ -444,6 +513,21 @@ def test_getitem_with_structural_data():
             )
             assert torch.all(protein_proximities_col_padding == 0), (
                 "Protein proximities column padding should be zeros"
+            )
+
+            # PROTEIN ATOM MAPPING FIELDS PADDING
+            protein_atom14_to_atom37_padding = result["protein_residx_atom14_to_atom37"][
+                protein_length:
+            ]
+            assert torch.all(protein_atom14_to_atom37_padding == 0), (
+                "Protein atom14 to atom37 mapping padding should be zeros"
+            )
+
+            protein_atom37_to_atom14_padding = result["protein_residx_atom37_to_atom14"][
+                protein_length:
+            ]
+            assert torch.all(protein_atom37_to_atom14_padding == 0), (
+                "Protein atom37 to atom14 mapping padding should be zeros"
             )
 
 

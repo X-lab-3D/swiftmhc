@@ -297,6 +297,7 @@ class ProteinLoopDataset(Dataset):
             .contiguous()
         )
 
+        # "residx_atom14_to_atom37" and "residx_atom37_to_atom14" are from `make_atom14_masks`
         for key, value in make_atom14_masks({"aatype": result[f"{prefix}_aatype"]}).items():
             result[f"{prefix}_{key}"] = value
 
@@ -334,6 +335,8 @@ class ProteinLoopDataset(Dataset):
             "backbone_rigid_tensor",
             "blosum62",
             "residue_numbers",
+            "residx_atom14_to_atom37",
+            "residx_atom37_to_atom14",
             "sequence_onehot",
         ]
 
@@ -475,6 +478,8 @@ class ProteinLoopDataset(Dataset):
                 ("atom14_gt_positions", self._float_dtype),
                 ("atom14_alt_gt_positions", self._float_dtype),
                 ("atom14_gt_exists", torch.bool),
+                ("residx_atom14_to_atom37", torch.long),
+                ("residx_atom37_to_atom14", torch.long),
             ]
             # to save memory, don't add what we don't use.
             # only add torsion data for the peptide
@@ -492,6 +497,8 @@ class ProteinLoopDataset(Dataset):
                     # Create numpy array first
                     if dtype == torch.bool:
                         np_dtype = bool
+                    elif dtype == torch.long:
+                        np_dtype = numpy.int64
                     elif dtype == self._float_dtype:
                         np_dtype = numpy.float32
                     else:
