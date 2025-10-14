@@ -343,7 +343,9 @@ def _map_superposed(
     return pairs
 
 
-def _make_sequence_data(sequence: str, device: torch.device) -> dict[str, torch.Tensor]:
+def _make_sequence_data(
+    sequence: str, device: torch.device
+) -> dict[str, torch.Tensor | numpy.ndarray]:
     """Convert a sequence into a format that SwiftMHC can work with.
 
     Args:
@@ -356,15 +358,17 @@ def _make_sequence_data(sequence: str, device: torch.device) -> dict[str, torch.
         blosum62: [len, 20] sequence, BLOSUM62 encoded amino acids
         torsion_angles_mask: [len, 7] which torsion angles each residue should have (openfold format)
         atom14_gt_exists: [len, 14] which atom each residue should have (openfold 14 format)
+        sequence: the original amino acid sequence string
     """
     length = len(sequence)
     residue_numbers = torch.arange(length, device=device)
 
     # embed the sequence
     aas = [amino_acids_by_letter[letter] for letter in sequence]
+    aas_index = [aa.index for aa in aas]
     sequence_onehot = torch.stack([aa.one_hot_code for aa in aas]).to(device=device)
-    aatype = torch.tensor([aa.index for aa in aas], device=device)
-    blosum62 = get_blosum_encoding(aatype, 62, device)
+    aatype = torch.tensor(aas_index, device=device)
+    blosum62 = get_blosum_encoding(aas_index, 62, device)
 
     # torsion angles (used or not in AA)
     torsion_angles_mask = torch.ones((length, 7), device=device)
@@ -375,7 +379,7 @@ def _make_sequence_data(sequence: str, device: torch.device) -> dict[str, torch.
         numpy.array([restype_atom14_mask[i] for i in aatype]), device=device
     )
 
-    return make_atom14_masks(
+    result = make_atom14_masks(
         {
             "aatype": aatype,
             "sequence_onehot": sequence_onehot,
@@ -385,6 +389,11 @@ def _make_sequence_data(sequence: str, device: torch.device) -> dict[str, torch.
             "atom14_gt_exists": atom14_gt_exists,
         }
     )
+
+    # Add the sequence string for direct access during training
+    result["sequence"] = numpy.array(sequence.encode("utf-8"))
+
+    return result
 
 
 def _replace_residue_atom(
@@ -439,11 +448,12 @@ def _read_residue_data_from_structure(
 
     # embed the sequence
     aas = [amino_acids_by_code[r.get_resname()] if r is not None else None for r in residues]
+    aas_index = [aa.index if aa is not None else 0 for aa in aas]
     sequence_onehot = torch.stack(
         [aa.one_hot_code if aa is not None else torch.zeros(AMINO_ACID_DIMENSION) for aa in aas]
     ).to(device=device)
-    aatype = torch.tensor([aa.index if aa is not None else 0 for aa in aas], device=device)
-    blosum62 = get_blosum_encoding(aatype, 62, device)
+    aatype = torch.tensor(aas_index, device=device)
+    blosum62 = get_blosum_encoding(aas_index, 62, device)
 
     # get atom positions and mask
     atom14_positions = []

@@ -48,10 +48,17 @@ def test_metrics():
 
         aatype = (torch.rand(batch_size, 9) * 20).int()
 
+        # Generate peptide sequences from aatype for the metrics system
+        peptide_sequences = []
+        for b in range(batch_size):
+            sequence = "".join([rc.restypes[int(aatype[b, i])] for i in range(9)])
+            peptide_sequences.append(sequence)
+
         batch_datas.append(
             {
                 "ids": ids,
                 "class": torch.rand(batch_size) > 0.5,
+                "peptide": peptide_sequences,
                 "peptide_atom14_gt_positions": true_coord,
                 "peptide_atom14_gt_exists": torch.ones(batch_size, 9, 14),
                 "peptide_cross_residues_mask": mask,
@@ -137,10 +144,17 @@ def test_metrics_one_epoch():
 
         aatype = (torch.rand(batch_size, 9) * 20).int()
 
+        # Generate peptide sequences from aatype for the metrics system
+        peptide_sequences = []
+        for b in range(batch_size):
+            sequence = "".join([rc.restypes[int(aatype_for_peptide[b, i])] for i in range(9)])
+            peptide_sequences.append(sequence)
+
         batch_datas.append(
             {
                 "ids": ids,
                 "class": torch.rand(batch_size) > 0.5,
+                "peptide": peptide_sequences,
                 "peptide_atom14_gt_positions": true_coord,
                 "peptide_atom14_gt_exists": torch.ones(batch_size, 9, 14),
                 "peptide_cross_residues_mask": mask,

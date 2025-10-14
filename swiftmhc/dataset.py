@@ -131,7 +131,9 @@ class ProteinLoopDataset(Dataset):
             entry_name = self._entry_names[index]
 
             try:
-                return self.get_entry(entry_name)
+                result = self.get_entry(entry_name)
+                result["peptide"] = self._get_peptide_sequence(entry_name)
+                return result
             except Exception as e:
                 raise RuntimeError(f"in entry {entry_name}: {str(e)}")
 
@@ -142,9 +144,13 @@ class ProteinLoopDataset(Dataset):
     def _get_peptide_sequence(self, entry_name: str) -> str:
         """Gets the peptide sequence from the hdf5 file, under the given entry name"""
         hdf5_file = self._get_hdf5_file()
-        aatype = hdf5_file[f"{entry_name}/{PREPROCESS_PEPTIDE_NAME}/aatype"][:]
-        sequence = "".join(residue_constants.restypes[i] for i in aatype)
+        h5_peptide = hdf5_file[entry_name][PREPROCESS_PEPTIDE_NAME]
 
+        if "sequence" in h5_peptide:
+            sequence = h5_peptide["sequence"][()].decode("utf-8")
+        else:
+            aatype = h5_peptide["aatype"][:]
+            sequence = "".join(residue_constants.restypes[i] for i in aatype)
         return sequence
 
     def _find_matching_entry(self, allele_name: str, peptide_sequence: str | None = None) -> str:
@@ -224,7 +230,7 @@ class ProteinLoopDataset(Dataset):
 
         # blosum62 encoding
         blosum_data = numpy.zeros((max_length, 32), dtype=numpy.float32)
-        t = get_blosum_encoding([aa.index for aa in amino_acids], 62, device=torch.device("cpu"))
+        t = get_blosum_encoding(aa_indices, 62, device=torch.device("cpu"))
         blosum_data[:length, : t.shape[1]] = t.cpu().numpy()
         result[f"{prefix}_blosum62"] = (
             torch.from_numpy(blosum_data)
