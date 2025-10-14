@@ -25,10 +25,12 @@ def get_accuracy(truth: list[int], pred: list[int]) -> float:
 
 class MetricsRecord:
     def __init__(self, epoch_number: int, pass_name: str, directory_path: str):
-        """Args:
-        epoch_number: to indicate at which epoch row it should be stored
-        pass_name: can be train/valid/test or other
-        directory_path: a directory where to store the files
+        """Metrics calculation and logging.
+
+        Args:
+            epoch_number: to indicate at which epoch row it should be stored
+            pass_name: can be train/valid/test or other
+            directory_path: a directory where to store the files
         """
         self._data_len = 0
         self._losses_sum = {}
@@ -163,8 +165,9 @@ class MetricsRecord:
 
     @staticmethod
     def _has_distribution(values: list[float | int]) -> bool:
-        """If the values are all the same, returns False
-        if there's at least one value different from the others, returns True
+        """If the values are all the same, returns False.
+
+        If there's at least one value different from the others, returns True
         """
         return len(set(values)) > 1
 
