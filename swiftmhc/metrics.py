@@ -6,19 +6,8 @@ import torch
 from scipy.stats import pearsonr
 from sklearn.metrics import matthews_corrcoef
 from sklearn.metrics import roc_auc_score
-from .domain.amino_acid import amino_acids_by_one_hot_index
 from .loss import AFFINITY_BINDING_TRESHOLD
 from .loss import get_calpha_rmsd
-
-
-def get_sequence(aatype: list[int], mask: list[bool]) -> str:
-    """Converts aatype tensor to a one letter encoded sequence string."""
-    s = ""
-    for i, b in enumerate(mask):
-        if b:
-            s += amino_acids_by_one_hot_index[int(aatype[i])].one_letter_code
-
-    return s
 
 
 def get_accuracy(truth: list[int], pred: list[int]) -> float:
