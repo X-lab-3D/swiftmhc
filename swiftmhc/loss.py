@@ -604,8 +604,9 @@ def get_loss(
     # required by fape_loss and violation_loss
     peptide_data = openfold_make_atom14_masks({"aatype": batch["peptide_aatype"]})
     protein_data = openfold_make_atom14_masks({"aatype": batch["protein_aatype"]})
+    # only used in _compute_fape_loss
     batch["peptide_residx_atom37_to_atom14"] = peptide_data["residx_atom37_to_atom14"]
-    batch["protein_residx_atom37_to_atom14"] = protein_data["residx_atom37_to_atom14"]
+    # used in _compute_cross_violation_loss
     batch["peptide_residx_atom14_to_atom37"] = peptide_data["residx_atom14_to_atom37"]
     batch["protein_residx_atom14_to_atom37"] = protein_data["residx_atom14_to_atom37"]
 
