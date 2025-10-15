@@ -23,6 +23,7 @@ def test_predictor():
     protein_maxlen = 200
 
     data = {
+        "ids": [f"complex_{i}" for i in range(n_complexes)],
         "peptide_sequence_onehot": torch.rand(n_complexes, peptide_maxlen, 32),
         "peptide_self_residues_mask": torch.tensor(
             [random_mask(peptide_maxlen) for __ in range(n_complexes)]

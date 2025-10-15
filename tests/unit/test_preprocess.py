@@ -10,7 +10,6 @@ from Bio.PDB.PDBParser import PDBParser
 from Bio.PDB.Residue import Residue
 from swiftmhc.dataset import ProteinLoopDataset
 from swiftmhc.domain.amino_acid import amino_acids_by_code
-from swiftmhc.metrics import get_sequence
 from swiftmhc.preprocess import _generate_structure_data
 from swiftmhc.preprocess import _get_masked_structure
 from swiftmhc.preprocess import _load_protein_data
@@ -56,10 +55,7 @@ def test_preprocess_BA_67447():
         assert entry["affinity"] == (1.0 - log(6441.2) / log(50000))
 
         # sequence from the table
-        assert (
-            get_sequence(entry["peptide_aatype"], entry["peptide_self_residues_mask"])
-            == "GVNNLEHGL"
-        )
+        assert entry["peptide"] == "GVNNLEHGL"
 
         # Verify correct shapes for s and x
         assert (

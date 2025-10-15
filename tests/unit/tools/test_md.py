@@ -1,6 +1,6 @@
 import torch
 from Bio.PDB.PDBParser import PDBParser
-from swiftmhc.preprocess import _read_residue_data
+from swiftmhc.preprocess import _read_residue_data_from_structure
 from swiftmhc.tools.md import build_modeller
 
 
@@ -13,7 +13,7 @@ def test_modeller():
     chain = list(model.get_chains())[0]
     residues = list(chain.get_residues())
 
-    protein = _read_residue_data(residues, torch.device("cpu"))
+    protein = _read_residue_data_from_structure(residues, torch.device("cpu"))
 
     length = len(residues)
     max_length = 100
