@@ -4,7 +4,6 @@ from typing import Any
 import h5py
 import numpy
 import torch
-from openfold.data.data_transforms import make_atom14_masks
 from openfold.np import residue_constants
 from torch.utils.data import Dataset
 from .domain.amino_acid import AMINO_ACID_DIMENSION
@@ -296,9 +295,6 @@ class ProteinLoopDataset(Dataset):
             .to(device=self._device, dtype=torch.bool)
             .contiguous()
         )
-
-        for key, value in make_atom14_masks({"aatype": result[f"{prefix}_aatype"]}).items():
-            result[f"{prefix}_{key}"] = value
 
         return result
 
