@@ -602,12 +602,18 @@ def get_loss(
 
     # mapping 14-atoms to 37-atoms format, because several openfold functions use the 37 format
     # required by fape_loss and violation_loss
-    peptide_data = openfold_make_atom14_masks({"aatype": batch["peptide_aatype"]})
-    protein_data = openfold_make_atom14_masks({"aatype": batch["protein_aatype"]})
-    batch["peptide_residx_atom37_to_atom14"] = peptide_data["residx_atom37_to_atom14"]
-    batch["protein_residx_atom37_to_atom14"] = protein_data["residx_atom37_to_atom14"]
-    batch["peptide_residx_atom14_to_atom37"] = peptide_data["residx_atom14_to_atom37"]
-    batch["protein_residx_atom14_to_atom37"] = protein_data["residx_atom14_to_atom37"]
+    if fape_tune or fine_tune:
+        peptide_data = openfold_make_atom14_masks({"aatype": batch["peptide_aatype"]})
+
+        if fape_tune:
+            # used in _compute_fape_loss
+            batch["peptide_residx_atom37_to_atom14"] = peptide_data["residx_atom37_to_atom14"]
+
+        if fine_tune:
+            # used in _compute_cross_violation_loss
+            batch["peptide_residx_atom14_to_atom37"] = peptide_data["residx_atom14_to_atom37"]
+            protein_data = openfold_make_atom14_masks({"aatype": batch["protein_aatype"]})
+            batch["protein_residx_atom14_to_atom37"] = protein_data["residx_atom14_to_atom37"]
 
     # init total loss at zero
     total_loss = torch.zeros(
