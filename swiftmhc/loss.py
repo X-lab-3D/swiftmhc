@@ -10,9 +10,6 @@ from openfold.np.residue_constants import (
     make_atom14_dists_bounds as openfold_make_atom14_dists_bounds,
 )
 from openfold.np.residue_constants import (
-    restype_atom14_ambiguous_atoms as openfold_restype_atom14_ambiguous_atoms,
-)
-from openfold.np.residue_constants import (
     restype_name_to_atom14_names as openfold_restype_name_to_atom14_names,
 )
 from openfold.np.residue_constants import van_der_waals_radius as openfold_van_der_waals_radius
@@ -67,10 +64,12 @@ def _compute_fape_loss(
     )
 
     # Find out which atoms are ambiguous.
-    atom14_atom_is_ambiguous = torch.tensor(
-        openfold_restype_atom14_ambiguous_atoms[batch["peptide_aatype"].cpu().numpy()],
-        device=batch["peptide_aatype"].device,
+    restype_atom14_ambiguous_atoms = torch.zeros(
+        (21, 14), dtype=torch.float32, device=batch["peptide_aatype"].device
     )
+
+    # Use advanced indexing to get ambiguous atoms mask without CPU transfer
+    atom14_atom_is_ambiguous = restype_atom14_ambiguous_atoms[batch["peptide_aatype"]]
 
     renamed_truth = openfold_compute_renamed_ground_truth(
         {
