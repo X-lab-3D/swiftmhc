@@ -3,126 +3,278 @@
 [SwiftMHC: A High-Speed Attention Network for MHC-Bound Peptide Identification and 3D Modeling](https://doi.org/10.1101/2025.01.20.633893)
 
 SwiftMHC is a deep learning algorithm for predicting pMHC structure and binding affinity at the same time.
-It currently works for HLA-A*0201 9-mers only.
+It currently works for `HLA-A*02:01` 9-mers only.
 
-# Estimated speed
+## Speed performance
 
-When running on 1/4 A100 card with batch size 64:
+When running on one A100 card with batch size 64:
  * binding affinity (BA) prediction takes 0.01 seconds per pMHC case
  * 3D structure prediction without OpenMM (disabled) takes 0.9 seconds per pMHC case.
  * 3D structure prediction with OpenMM takes 2.2 seconds per case.
 
-## Dependencies
+## Requirements and installation
 
- - pip3
- - python >= 3.11.5
- - setuptools >= 75.5.0
- - openfold >= 1.0.0
- - position-encoding >= 1.0.0 (github.com/X-lab-3D/position-encoding)
- - PyTorch >= 2.0.1
- - pandas >= 1.5.3
- - numpy >= 1.26.4
- - h5py >= 3.10.0
- - ml-collections >= 0.1.1
- - scikit-learn >= 1.4.1
- - openmm >= 8.1.1 (SwiftMHC needs the cuda version if you were to run on a cuda platform)
- - blosum >= 2.0.3
- - modelcif >= 1.0
- - filelock >= 3.13.1
- - biopython >= 1.8.4
- - PyMol >= 3.1
+### Requirements
+- Linux only (due to restriction of OpenFold)
+- Python ≥3.11
+- [PyTorch](https://pytorch.org/get-started/locally/) ≥2.5
+    - CUDA is optional, but recommended for training and inference speed.
+- [OpenFold](https://github.com/aqlaboratory/openfold)
+- [PyMOL](https://pymol.org)
 
-CUDA is optional
+### Installation
 
-## Installation
+#### 1. Install PyTorch
+Follow the instructions from PyTorch website https://pytorch.org/get-started/locally/
 
-First install PyTorch. Follow the instructions from https://pytorch.org/get-started/locally/
-
-Then install openfold, clone this repo: https://github.com/aqlaboratory/openfold
-Then from inside that repo, run:
+#### 2. Install OpenFold
 
 ```
-pip install -e .
+# Clone OpenFold repository
+git clone https://github.com/aqlaboratory/openfold.git
 
+# Enter the OpenFold directory
+cd openfold
+
+# Install OpenFold
+pip install .
+
+# Install third party dependencies required by OpenFold
 scripts/install_third_party_dependencies.sh
 ```
 
-For preprocessing, pymol is required. Download and install from https://pymol.org
+#### 3. Install PyMOL
 
-Then clone the SwiftMHC repo (this repo)
-From this repositiry run:
+PyMOL is required for data preprocessing in SwiftMHC. You can install the open-source version via conda:
+
 ```
-pip install -e .
+conda install -c conda-forge pymol-open-source
+```
+
+To install the proprietary version of PyMOL, please refer to the instructions on the website https://pymol.org.
+
+#### 4. Install SwiftMHC
+
+```
+# Clone SwiftMHC repository
+git clone https://github.com/X-lab-3D/swiftmhc.git
+
+# Enter the SwiftMHC directory
+cd swiftmhc
+
+# Install SwiftMHC
+pip install .
 ```
 
 SwiftMHC is now installed.
 
+## Inference / Prediction
+
+Inference is the process of predicting binding affinity and optionally a structure of a peptide bound to a major histocompatibility complex (pMHC).
+
+### Input files
+
+Inference requires the following input files:
+- a trained model, this repository contains a pre-trained model for 9-mer peptides and the MHC allele `HLA-A*02:01`: [trained-models/8k-trained-model.pth](trained-models/8k-trained-model.pth)
+- a CSV file linking the peptides to MHC alleles, see for example: [data/example-inference-data-table.csv](data/example-inference-data-table.csv)
+- a preprocessed HDF5 file containing MHC structures for every allele. For the allele `HLA-A*02:01`, such a file is pre-made and available at: [data/HLA-A0201-from-3MRD.hdf5](data/HLA-A0201-from-3MRD.hdf5)
+
+The input CSV file must have the following columns:
+- `peptide` column: holding the sequence of the epitope peptide, e.g. `LAYYNSCML`
+- `allele` column: holding the name of the MHC allele, e.g. `HLA-A*02:01`
+
+### Run inference
+
+To run inference, use the command `swiftmhc_predict`. Run `swiftmhc_predict --help` for details.
+
+For example, to predict binding affinity and structure for the peptides in `data/example-inference-data-table.csv` with MHC allele `HLA-A*02:01`, run:
+```
+swiftmhc_predict --num-builders 1 \
+    --batch-size 1 \
+    trained-models/8k-trained-model.pth \
+    data/example-inference-data-table.csv \
+    data/HLA-A0201-from-3MRD.hdf5 \
+    results
+```
+
+Here, `results` must be a directory. If this directory doesn't exist it will be created.
+The output `results` directory will contain the binding affinity (BA) data and the structures for the peptides that were predicted to bind the MHC.
+The file `results/results.csv` will hold the BA and class values per MHC-peptide combination.
+Note that the affinities in this file are not IC50 or Kd. They correspond to `1 - log_50000(IC50)` or `1 - log_50000(Kd)`.
+
+If the flag `--with-energy-minimization` is used for the command `swiftmhc_predict`, SwiftMHC will run OpenMM with an amber99sb/tip3p forcefield to refine the final structure.
+
+To predict just the binding affinity without a structure, set `--num-builders` to 0, for example:
+```
+swiftmhc_predict --num-builders 0 \
+    --batch-size 1 \
+    trained-models/8k-trained-model.pth \
+    data/example-inference-data-table.csv \
+    data/HLA-A0201-from-3MRD.hdf5 \
+    results
+```
+
 ## Preprocessing data
 
-Preprocessing means to create a file in HDF5 format, containing info in the peptide and MHC protein.
-This is only needed if you want to use a new MHC structure or if you want to train a new network.
+Preprocessing is the process of creating a file in [HDF5](https://www.hdfgroup.org/solutions/hdf5/) format, containing info in the peptide and MHC protein.
+This is only needed if you want to 1) use a new MHC structure for inference or 2) retrain SwiftMHC.
 
-Preprocessing requires a CSV table in IEDB format. See the data directory for an example.
-This table must have the following columns:
-- ID (required) : the id under which the row's data will be stored in the HDF5 file. This must correspond to the name of a structure in PDB format.
-- allele (required): the name of the MHC allele. (example: HLA-A*02:01) SwiftMHC will use this to identify MHC structures when predicting unlabeled data.
-- peptide (optional): the sequence of the peptide. This is used in training, validation, test and not in predicting unlabeled data.
-- measurement_value (optional): binding affinity data or classification (BINDING/NONBINDING). This is used in training, validation, test and not in predicting unlabeled data.
+Three required input files are already included in this repository:
 
-Preprocessing requires a reference structure, to align all MHC molecules to.
-It also requires a directory containing all the other structures. These may have a peptide in them, but must always contain an MHC structure.
+A **reference structure** is provided at: [data/structures/reference-from-3MRD.pdb](data/structures/reference-from-3MRD.pdb)
 
-Preprocessing also requires two mask files: a G-domain and a CROSS mask (pocket residues only). See the data directory for examples.
-These masks have to be compatible to the reference structure.
+This structure has been tested with `HLA-A*02:01` but is likely suitable for other alleles as well. It is used to align and superpose all training structures (using PyMOL).
 
-To create training, validation, test sets, run:
+In addition, two **mask files** are provided, which define the residues used for different attention mechanisms:
+ - **MHC G-domain residues:** [data/HLA-A0201-GDOMAIN.mask](data/HLA-A0201-GDOMAIN.mask)
+ - **CROSS residues (MHC groove residues):** [data/HLA-A0201-CROSS.mask](data/HLA-A0201-CROSS.mask)
+
+ These files correspond to the provided reference structure and are ready to use.
+
+### Preprocessing training datasets
+
+If users want to retrain SwiftMHC on new training data, they need to run  preprocessing on the training data before running the training script. This section shows how.
+
+#### Input files
+
+The following input files are required:
+
+1. **CSV table containing the binding affinity data in IEDB format**
+   - Example: [`data/example-training-data-table.csv`](data/example-training-data-table.csv)
+
+     For preprocessing training datasets, the data CSV file must have the following columns:
+ - `ID`: the id under which the row's data will be stored in the HDF5 file. This must correspond to the PDB file name (see below).
+ - `allele`: the name of the MHC allele (e.g. `HLA-A*02:01`). This is added to the data for administrative puposes.
+ - `peptide`: the amino acid sequence of the peptide.
+ - `measurement_value`: binding affinity data (IC50 or Kd in nM) or classification (BINDING/NONBINDING as string).
+
+
+2. **Directory of training pMHC structures (PDB format)**
+   - The directory must contain PDB files named according to the **ID** column in the CSV table.
+   - Filenames must end with `.pdb` (e.g., `BA-74141.pdb`, where `BA-74141` is an ID from the CSV table).
+   - Each PDB file must contain:
+     - the **MHC molecule** as chain **M**
+     - the **peptide** as chain **P**
+   - If your PDB files use different chain IDs, we recommend adjusting them using [pdb-tools](https://www.bonvinlab.org/pdb-tools/).
+     Example:
+     ```bash
+     python pdb_chain.py -M 1AKJ.pdb
+     ```
+
+
+#### Run preprocessing for training datasets
+
+For preprocessing training datasets, let's take example data from DOI: https://doi.org/10.5281/zenodo.14968655.
+From the compressed tar file we use the following:
+ - a CSV table in IEDB format: `input-data/IEDB-BA-with-clusters.csv`. It has the required columns, but it also contains cluster ids so that the data can be separated by cluster.
+ - PANDORA models, representing pMHC structures: `input-data/swiftmhc/pandora-models-for-training-swiftmhc/`.
+
+The preprocessing command is `swiftmhc_preprocess`. Run `swiftmhc_preprocess --help` for details.
+
+To preprocess training data, in 32 simultaneous processes, run:
+
 ```
-swiftmhc_preprocess IEDB_table.csv ref_mhc.pdb mhcp_binder_models/ \
-  mhc_self_attention.mask mhc_cross_attention.mask preprocessed_data.hdf5
+swiftmhc_preprocess /path/to/extracted/input-data/IEDB-BA-with-clusters.csv \
+                    data/structures/reference-from-3MRD.pdb \
+                    /path/to/extracted/input-data/swiftmhc/pandora-models-for-training-swiftmhc/ \
+                    data/HLA-A0201-GDOMAIN.mask \
+                    data/HLA-A0201-CROSS.mask \
+                    example_preprocessed_training_data.hdf5
+                    --processes 32
 ```
 
-To preprocess just the MHC allele structures, for predicting unlabeled data, run:
+This process generates an HDF5 file `example_preprocessed_training_data.hdf5` which can be used for model training.
+The file contains structural information for both the peptide and the MHC, including the proximity matrix, transformation matrices, atom positions, amino acid types, and torsion angles.
+In addition, binding affinity values are stored for each pMHC complex.
+
+### Preprocessing MHC structures for inference
+
+In case during the inference the user wants to use a different MHC structure other than what we provided  [data/HLA-A0201-from-3MRD.hdf5](data/HLA-A0201-from-3MRD.hdf5), they can generate a preprocessed hdf5 for their MHC structure. This section shows how.
+
+#### Input files
+
+Only the MHC structures (with chain ID as **M**) are required.
+
+Preprocessing MHC structures for inference requires the following files:
+
+ - CSV table, with columns: `ID` and `allele`. The ID column will contain the user-defined identifiers, under which the MHC structures will be stored in the HDF5 file.
+   The allele column must contain allele names, which will be stored in the HDF5 file to be used to look up the MHC structure in the HDF5 file during inference.
+
+ - a directory containing all MHC structures in PDB format. The contents of this directory must be PDB files that are named corresponding to the allele column in the CSV table.
+   Furthermore the PDB files must have the extension .pdb. For example: `HLA-A0201.pdb`, where HLA-A0201 corresponde to a name under the allele column.
+
+
+#### Run preprocessing MHC structures for inference
+
+Let's take the the `HLA-A*02:01` structure [data/structures/example-preprocess-HLA-A0201/HLA-A0201.pdb](data/structures/example-preprocess-HLA-A0201/HLA-A0201.pdb) in this repo as an example.
+
+Then, to preprocess the MHC structure, run:
+
 ```
-swiftmhc_preprocess allele_table.csv ref_mhc.pdb mhc_models/ \
-  mhc_self_attention.mask mhc_cross_attention.mask preprocessed_mhcs.hdf5
+swiftmhc_preprocess data/example-preprocess-HLA-A0201.csv \
+                    data/structures/reference-from-3MRD.pdb \
+                    data/structures/example-preprocess-HLA-A0201/ \
+                    data/HLA-A0201-GDOMAIN.mask \
+                    data/HLA-A0201-CROSS.mask \
+                    example-preprocessed-HLA-A0201.hdf5
 ```
 
-Run `swiftmhc_preprocess --help` for details.
-
-Preprocessing requires data tables, 3D structures and mask files. Check the data directory in this repo for examples.
+This will generate a HDF5 file `preprocessed-HLA-A0201.hdf5`, that can be used for predicting pMHC structures and binding affinities on the user-specified `HLA-A*02:01` structure.
 
 ## Training
 
-This requires preprocessed HDF5 files, containing structures of the MHC protein, peptide and binding affinity or classification data.
+### Input files
 
-Run
+Training a new network from scratch requires the following input files:
+- a training set in HDF5 format (e.g. `train.hdf5`)
+- a validation set in HDF5 format (e.g. `valid.hdf5`), this is optional
+- a test set in HDF5 format (e.g. `test.hdf5`), this is also optional
+
+These files can be created using the preprocessing step above.
+
+### Run training
+
+For preprocessing training datasets, lets take example data from DOI: https://doi.org/10.5281/zenodo.14968655.
+From the compressed tar file we use the following:
+ - A training HDF5 dataset: `preprocessed/train_fold0.hdf5`
+ - A validation HDF5 dataset: `preprocessed/valid_fold0.hdf5`
+ - A test HDF5 dataset: `preprocessed/BA_cluster0.hdf5`
+
+We will train based on a 10-fold cross validation. `preprocessed/BA_cluster0.hdf5` contains the data from cluster 0. The data from the remaining 9 clusters is in `preprocessed/train_fold0.hdf5` (90%) and `preprocessed/valid_fold0.hdf5` (10%).
+The dataset `preprocessed/train_fold0.hdf5` will be used for training and the dataset `preprocessed/valid_fold0.hdf5` will be used for selecting the best model.
+
+To perform training and evaluation, run:
+
 ```
-swiftmhc_run -r example train.hdf5 valid.hdf5 test.hdf5
+swiftmhc_run -r example \
+    /path/to/extracted/preprocessed/train_fold0.hdf5 \
+    /path/to/extracted/preprocessed/valid_fold0.hdf5 \
+    /path/to/extracted/preprocessed/BA_cluster0.hdf5
 ```
-
-Run `swiftmhc_run --help` for details.
-
 
 This will save the network model to `example/best-predictor.pth`
 
-## Predicting unlabelled data
+Run `swiftmhc_run --help` for details and options.
 
-Do this after training a model (pth format).
-Alternatively, there are pretrained models in this repository under the directory named `trained-models`.
+### Run evaluation on a pretrained model
 
-Prediction requires preprocessed HDF5 files, containing structures of the MHC protein, for every allele.
-The data directory contains a preprocessed hdf5 file for the HLA-A*02:01 allele only.
-Prediction also requires a table, linking the peptides to MHC alleles.
+Evaluation runs the same script as training but does not update model weights. Unlike inference, which uses a single MHC structure per allele and no target values, evaluation uses  one HDF5 file that includes target values (e.g., peptide structures, binding affinities) for comparison only, not as inputs. This part was used to generate the cross-validation results in the article.
 
-Run
+To do the evaluation on a pretrained model, run:
+
 ```
-swiftmhc_predict -B1 trained-models/8k-trained-model.pth table.csv preprocessed_mhcs.hdf5 results/
+swiftmhc_run --num-builders 1 -r evaluation \
+    -p /path/to/extracted/network-models/swiftmhc/swiftmhc-default/model-for-fold-0.pth \
+    -t /path/to/extracted/preprocessed/BA_cluster0.hdf5
 ```
 
-The output `results` directory will contain the BA data and the structures.
-The file results/results.csv will hold the BA and class values per MHC,peptide combination.
-Note that the affinities in this file are not IC50 or Kd. They correspond to 1 - log_50000(IC50) or 1 - log_50000(Kd).
+This will output binding affinity data to `evaluation/BA_cluster0-affinities.csv`
+and it will output all structures to a single file in compressed format: `evaluation/BA_cluster0-predicted.hdf5`.
 
-If the flag --with-energy-minimization is included, SwiftMHC runs OpenMM with an amber99sb/tip3p forcefield to refine the final structure.
+To extract the output structures from the HDF5 file, run:
 
-Run `swiftmhc_predict --help` for details.
+```
+swiftmhc_hdf5_to_pdb evaluation/BA_cluster0-predicted.hdf5
+```
+
+This will output all PDB files to a directory named `evaluation/BA_cluster0-predicted`.

@@ -1038,9 +1038,6 @@ def preprocess(
         # MHC allele name
         allele = row["allele"]
 
-        # peptide sequence
-        peptide_sequence = row["peptide"]
-
         # find the pdb file
         # for binders a target structure is needed, that contains both MHC and peptide
         # for nonbinders, the MHC structure is sufficient for prediction
@@ -1087,8 +1084,16 @@ def preprocess(
                     )
                     _save_protein_data(tmp_hdf5_path, allele, protein_data)
 
-                # generate the peptide sequence data, even if the structural data is not used
-                peptide_data = _make_sequence_data(peptide_sequence, device)
+                if "peptide" in row:
+
+                    # peptide sequence
+                    peptide_sequence = row["peptide"]
+
+                    # generate the peptide sequence data, even if the structural data is not used
+                    peptide_data = _make_sequence_data(peptide_sequence, device)
+
+                else:  # it's optional
+                    peptide_data = None
 
             # write the data that we found, to the hdf5 file
             _write_preprocessed_data(
