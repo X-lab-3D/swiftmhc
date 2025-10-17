@@ -85,11 +85,11 @@ The input CSV file must have the following columns:
 
 ### Run inference
 
-To run inference, use the command `swiftmhc_predict`. Run `swiftmhc_predict --help` for details.
+To run inference, use the command `swiftmhc_predict.py`. Run `swiftmhc_predict.py --help` for details.
 
 For example, to predict binding affinity and structure for the peptides in `data/example-inference-data-table.csv` with MHC allele `HLA-A*02:01`, run:
 ```
-swiftmhc_predict --num-builders 1 \
+swiftmhc_predict.py --num-builders 1 \
     --batch-size 1 \
     trained-models/8k-trained-model.pth \
     data/example-inference-data-table.csv \
@@ -102,11 +102,11 @@ The output `results` directory will contain the binding affinity (BA) data and t
 The file `results/results.csv` will hold the BA and class values per MHC-peptide combination.
 Note that the affinities in this file are not IC50 or Kd. They correspond to `1 - log_50000(IC50)` or `1 - log_50000(Kd)`.
 
-If the flag `--with-energy-minimization` is used for the command `swiftmhc_predict`, SwiftMHC will run OpenMM with an amber99sb/tip3p forcefield to refine the final structure.
+If the flag `--with-energy-minimization` is used for the command `swiftmhc_predict.py`, SwiftMHC will run OpenMM with an amber99sb/tip3p forcefield to refine the final structure.
 
 To predict just the binding affinity without a structure, set `--num-builders` to 0, for example:
 ```
-swiftmhc_predict --num-builders 0 \
+swiftmhc_predict.py --num-builders 0 \
     --batch-size 1 \
     trained-models/8k-trained-model.pth \
     data/example-inference-data-table.csv \
@@ -169,12 +169,12 @@ From the compressed tar file we use the following:
  - a CSV table in IEDB format: `input-data/IEDB-BA-with-clusters.csv`. It has the required columns, but it also contains cluster ids so that the data can be separated by cluster.
  - PANDORA models, representing pMHC structures: `input-data/swiftmhc/pandora-models-for-training-swiftmhc/`.
 
-The preprocessing command is `swiftmhc_preprocess`. Run `swiftmhc_preprocess --help` for details.
+The preprocessing command is `swiftmhc_preprocess.py`. Run `swiftmhc_preprocess.py --help` for details.
 
 To preprocess training data, in 32 simultaneous processes, run:
 
 ```
-swiftmhc_preprocess /path/to/extracted/input-data/IEDB-BA-with-clusters.csv \
+swiftmhc_preprocess.py /path/to/extracted/input-data/IEDB-BA-with-clusters.csv \
                     data/structures/reference-from-3MRD.pdb \
                     /path/to/extracted/input-data/swiftmhc/pandora-models-for-training-swiftmhc/ \
                     data/HLA-A0201-GDOMAIN.mask \
@@ -211,7 +211,7 @@ Let's take the the `HLA-A*02:01` structure [data/structures/example-preprocess-H
 Then, to preprocess the MHC structure, run:
 
 ```
-swiftmhc_preprocess data/example-preprocess-HLA-A0201.csv \
+swiftmhc_preprocess.py data/example-preprocess-HLA-A0201.csv \
                     data/structures/reference-from-3MRD.pdb \
                     data/structures/example-preprocess-HLA-A0201/ \
                     data/HLA-A0201-GDOMAIN.mask \
@@ -246,7 +246,7 @@ The dataset `preprocessed/train_fold0.hdf5` will be used for training and the da
 To perform training and evaluation, run:
 
 ```
-swiftmhc_run -r example \
+swiftmhc_run.py -r example \
     /path/to/extracted/preprocessed/train_fold0.hdf5 \
     /path/to/extracted/preprocessed/valid_fold0.hdf5 \
     /path/to/extracted/preprocessed/BA_cluster0.hdf5
@@ -254,7 +254,7 @@ swiftmhc_run -r example \
 
 This will save the network model to `example/best-predictor.pth`
 
-Run `swiftmhc_run --help` for details and options.
+Run `swiftmhc_run.py --help` for details and options.
 
 ### Run evaluation on a pretrained model
 
@@ -263,7 +263,7 @@ Evaluation runs the same script as training but does not update model weights. U
 To do the evaluation on a pretrained model, run:
 
 ```
-swiftmhc_run --num-builders 1 -r evaluation \
+swiftmhc_run.py --num-builders 1 -r evaluation \
     -p /path/to/extracted/network-models/swiftmhc/swiftmhc-default/model-for-fold-0.pth \
     -t /path/to/extracted/preprocessed/BA_cluster0.hdf5
 ```
