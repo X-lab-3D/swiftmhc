@@ -14,6 +14,7 @@ from openfold.np.residue_constants import (
 )
 from openfold.np.residue_constants import van_der_waals_radius as openfold_van_der_waals_radius
 from openfold.utils.loss import between_residue_bond_loss as openfold_between_residue_bond_loss
+from openfold.utils.loss import between_residue_clash_loss as openfold_between_residue_clash_loss
 from openfold.utils.loss import compute_fape as openfold_compute_fape
 from openfold.utils.loss import (
     compute_renamed_ground_truth as openfold_compute_renamed_ground_truth,
@@ -397,7 +398,7 @@ def _compute_cross_violation_loss(
     # [*, peptide_maxlen + protein_maxlen]
     residue_index = torch.cat((peptide_residue_index, protein_residue_index), dim=1)
 
-    between_residue_clashes = _between_residue_clash_loss(
+    between_residue_clashes = openfold_between_residue_clash_loss(
         atom14_pred_positions=atom14_pred_positions,
         atom14_atom_exists=atom14_atom_exists,
         atom14_atom_radius=atom14_atom_radius,
