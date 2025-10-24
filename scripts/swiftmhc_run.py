@@ -431,6 +431,8 @@ class Trainer:
 
         self.workers_count = workers_count
 
+        self._get_loss = get_loss
+
     def get_device_count(self) -> int:
         """Counts the number of devices set"""
         if self._device.type == "cuda":
@@ -540,7 +542,7 @@ class Trainer:
 
         # calculate losses
         with record_function("LOSS"):
-            losses = get_loss(
+            losses = self._get_loss(
                 self.config.model_type,
                 output,
                 data,
@@ -821,7 +823,7 @@ class Trainer:
                 batch_output = model(batch_data)
 
                 # calculate the losses, for monitoring only
-                batch_loss = get_loss(
+                batch_loss = self._get_loss(
                     self.config.model_type,
                     batch_output,
                     batch_data,
@@ -1085,9 +1087,10 @@ class Trainer:
 
         _log.info(f"begin with training phase: {training_phases[0]}")
 
-        # Compile the model
+        # Compile the model and loss function
         if enable_compile:
             model.compile()
+            self._get_loss = torch.compile(get_loss)
 
         # do the actual learning iteration
         total_epoch_count = 0
