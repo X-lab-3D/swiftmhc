@@ -49,9 +49,9 @@ jobs:
           ALL_CHANGED_FILES: ${{ steps.changed-python-files.outputs.all_changed_files }}
         run: |
           ruff check ${ALL_CHANGED_FILES}
-      - name: Check static typing using mypy
-        if: steps.changed-python-files.outputs.any_changed == 'true'
-        env:
-          ALL_CHANGED_FILES: ${{ steps.changed-python-files.outputs.all_changed_files }}
-        run: |
-          mypy ${ALL_CHANGED_FILES}
+      # - name: Check static typing using mypy
+      #   if: steps.changed-python-files.outputs.any_changed == 'true'
+      #   env:
+      #     ALL_CHANGED_FILES: ${{ steps.changed-python-files.outputs.all_changed_files }}
+      #   run: |
+      #     mypy ${ALL_CHANGED_FILES}

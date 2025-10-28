@@ -236,8 +236,8 @@ def recreate_structure_to_hdf5(
             with h5py.File(hdf5_path, "a") as hdf5_file:
                 name_group = hdf5_file.require_group(name)
                 save_structure_to_hdf5(structure, name_group)
-    except:
-        _log.exception("on recreating structure")
+    except Exception as e:
+        _log.exception(f"on recreating structure {name}: {e}")
 
 
 def minimize_structure_to_hdf5(
@@ -275,8 +275,8 @@ def minimize_structure_to_hdf5(
             with h5py.File(hdf5_path, "a") as hdf5_file:
                 group = hdf5_file.require_group(name)
                 group.create_dataset("structure", data=structure_data, compression="lzf")
-    except:
-        _log.exception(f"on recreating structure {name}")
+    except Exception as e:
+        _log.exception(f"on recreating structure {name}: {e}")
 
 
 def output_structures_to_directory(
@@ -298,7 +298,6 @@ def output_structures_to_directory(
         minimize_energy: minimize structure or not
     """
     # define paths
-    truth_path = os.path.join(output_directory, f"{filename_prefix}-true.hdf5")
     pred_path = os.path.join(output_directory, f"{filename_prefix}-predicted.hdf5")
 
     # don't need more processes than structures
@@ -405,6 +404,8 @@ def remove_module_prefix(state: dict[str, torch.Tensor]) -> dict[str, torch.Tens
 
 
 class Trainer:
+    """Class to handle training and evaluation of the SwiftMHC model."""
+
     def __init__(
         self,
         device: torch.device,
@@ -430,6 +431,8 @@ class Trainer:
         self._snap_period = 20
 
         self.workers_count = workers_count
+
+        self._get_loss = get_loss
 
     def get_device_count(self) -> int:
         """Counts the number of devices set"""
@@ -540,7 +543,7 @@ class Trainer:
 
         # calculate losses
         with record_function("LOSS"):
-            losses = get_loss(
+            losses = self._get_loss(
                 self.config.model_type,
                 output,
                 data,
@@ -821,7 +824,7 @@ class Trainer:
                 batch_output = model(batch_data)
 
                 # calculate the losses, for monitoring only
-                batch_loss = get_loss(
+                batch_loss = self._get_loss(
                     self.config.model_type,
                     batch_output,
                     batch_data,
@@ -991,7 +994,7 @@ class Trainer:
         profile_memory: bool = True,
         with_stack: bool = True,
     ):
-        """Call this method for training a model
+        """Call this method for training a model.
 
         Args:
             train_loader: dataset for training
@@ -1004,6 +1007,7 @@ class Trainer:
             pretrained_model_path: an optional pretrained model file to start from
             animated_complex_ids: names of complexes to animate during the run. their structure snapshots will be stored in an HDF5
             patience: early stopping patience
+            enable_compile: whether to enable PyTorch compile for model and loss function
             enable_profiling: whether to enable PyTorch profiler during training
             profile_wait: profiler schedule wait steps
             profile_warmup: profiler schedule warmup steps
@@ -1085,9 +1089,10 @@ class Trainer:
 
         _log.info(f"begin with training phase: {training_phases[0]}")
 
-        # Compile the model
+        # Compile the model and loss function
         if enable_compile:
             model.compile()
+            self._get_loss = torch.compile(get_loss)
 
         # do the actual learning iteration
         total_epoch_count = 0
