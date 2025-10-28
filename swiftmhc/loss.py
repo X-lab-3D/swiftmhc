@@ -263,6 +263,7 @@ def _compute_torsion_angle_loss(
     a_alt_gt: torch.Tensor,
 ) -> torch.Tensor:
     """Torsion angle loss, according to alphafold Algorithm 27
+
     This code was copied from openfold and modified.
     The original torsion_angle_loss function is at:
     https://github.com/aqlaboratory/openfold/blob/main/openfold/utils/loss.py
