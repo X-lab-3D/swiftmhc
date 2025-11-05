@@ -630,9 +630,6 @@ class ProteinLoopDataset(Dataset):
         if not data_entries:
             return {}
 
-        if len(data_entries) == 1:
-            return data_entries[0]
-
         # Get common keys more efficiently - start with first entry's keys
         # then filter out keys that don't exist in all entries
         common_keys = set(data_entries[0].keys())
