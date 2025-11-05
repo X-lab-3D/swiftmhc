@@ -1,12 +1,12 @@
 from glob import glob
 
-from setuptools import find_packages, setup
+from setuptools import find_namespace_packages, setup
 
 setup(
     name="swiftmhc",
     description="A deep learning algorithm for predicting MHC-p structure and binding affinity at the same time",
     version="1.0.0",
-    packages=find_packages("swiftmhc"),
+    packages=find_namespace_packages(include=["swiftmhc*"]),
     scripts=glob("scripts/swiftmhc_*"),
     python_requires=">=3.11",
     install_requires=[
