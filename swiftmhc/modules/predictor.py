@@ -115,15 +115,9 @@ class Predictor(torch.nn.Module):
         else:
             s_peptide = batch["peptide_sequence_onehot"].clone()
 
-        # Ignore residues that are masked all over the batch.
-        peptide_slice = batch["peptide_self_residues_mask"].sum(dim=0).bool()
-        peptide_mask = peptide_slice.view(1, -1, 1)
-
         # self attention on the peptide
-        s_peptide = s_peptide.masked_fill(~peptide_mask, 0)
         for peptide_encoder in self.peptide_transform:
             s_peptide, _ = peptide_encoder(s_peptide, batch["peptide_self_residues_mask"])
-            s_peptide = s_peptide.masked_fill(~peptide_mask, 0)
 
         # [*, protein_maxlen, c_s]
         if self.blosum:
