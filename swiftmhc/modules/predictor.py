@@ -125,6 +125,7 @@ class Predictor(torch.nn.Module):
         else:
             s_protein = batch["protein_sequence_onehot"].clone()
 
+        # TODO: LayerNorm should consider mask here
         z_protein = self.protein_dist_norm(batch["protein_proximities"])
         for _ in range(self.n_ipa_repeat):
             protein_upd, _ = self.protein_ipa(
