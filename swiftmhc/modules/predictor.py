@@ -125,18 +125,12 @@ class Predictor(torch.nn.Module):
         else:
             s_protein = batch["protein_sequence_onehot"].clone()
 
-        protein_slice = batch["protein_self_residues_mask"].sum(dim=0).bool()
-        protein_mask = protein_slice.view(1, -1, 1)
-
-        s_protein = s_protein.masked_fill(~protein_mask, 0)
         z_protein = self.protein_dist_norm(batch["protein_proximities"])
         for _ in range(self.n_ipa_repeat):
             protein_upd, _ = self.protein_ipa(
                 s_protein, z_protein, batch["protein_self_residues_mask"]
             )
-            protein_upd = protein_upd.masked_fill(~protein_mask, 0)
             s_protein = self.protein_norm(s_protein + protein_upd)
-            s_protein = s_protein.masked_fill(~protein_mask, 0)
 
         # structure-based self-attention on the protein
         T_protein = Rigid.from_tensor_4x4(batch["protein_backbone_rigid_tensor"])
