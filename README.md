@@ -278,3 +278,33 @@ swiftmhc_hdf5_to_pdb evaluation/BA_cluster0-predicted.hdf5
 ```
 
 This will output all PDB files to a directory named `evaluation/BA_cluster0-predicted`.
+
+## Data Evaluation
+
+### Point Mutations
+
+The script `scripts/evaluation/find_mutations.py` can be used to identify single point mutations in IEDB CSV tables.
+It will create an output file, containing data on the wild type (wt) and mutant (mut).
+The script `scripts/evaluation/get_ddG.py` can be used to calculate the corresponding energy changes (ΔΔG) from the predicted and true affinity values
+
+### Structures
+
+On X-ray or predicted structures:
+The script `scripts/evaluation/measure_clashes.py` can be used to find clashes.
+The script `scripts/evaluation/measure_chirality.py` evaluates whether the amino acids are L or D form.
+The script `scripts/evaluation/measure_omega_angles.py` measures backbone ω angles.
+The script `scripts/evaluation/measure_ramachandran_angles.py` measures backbone φ and ψ angles.
+
+To compare Cα positions between a predicted and X-ray structure, RMSD can be calculated using the script `scripts/evaluation/rmsd-calpha-mhc-9mer-peptides.bash`.
+This script will superpose the MHC structures and output the RMSD between the peptides.
+
+### Finding overlap between Datasets.
+
+To find the overlap between MHCfold & AlphaFold2-FineTune training sets and a test set, use the script `scripts/evaluation/find_train_test_overlap_mmcif.py`.
+This requires a copy of the RCSB mmCIF database [https://www.wwpdb.org/ftp/pdb-ftp-sites](https://www.wwpdb.org/ftp/pdb-ftp-sites) and
+a copy of the AlphaFold2-FineTune pMHC templates dataset [https://www.wwpdb.org/ftp/pdb-ftp-sites](https://www.wwpdb.org/ftp/pdb-ftp-sites).
+
+### BA avaluation
+
+The script `scripts/evaluation/auc.py` can be used to calculate the AUC values for assessing BA prediction quality.
+It requires one table, holding the SwiftMHC `output affinity` and the ground truth binary value `true class` (binding=1, non binding=0).
