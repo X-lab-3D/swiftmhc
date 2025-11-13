@@ -302,7 +302,7 @@ This script will superpose the MHC structures and output the RMSD between the pe
 
 To find the overlap between MHCfold & AlphaFold2-FineTune training sets and a test set, use the script `scripts/evaluation/find_train_test_overlap_mmcif.py`.
 This requires a copy of the RCSB mmCIF database [https://www.wwpdb.org/ftp/pdb-ftp-sites](https://www.wwpdb.org/ftp/pdb-ftp-sites) and
-a copy of the AlphaFold2-FineTune pMHC templates dataset [https://www.wwpdb.org/ftp/pdb-ftp-sites](https://www.wwpdb.org/ftp/pdb-ftp-sites).
+a copy of the AlphaFold2-FineTune pMHC templates dataset [https://files.ipd.uw.edu/pub/alphafold_finetune_motmaen_pnas_2023/datasets_alphafold_finetune_v2_2023-02-20.tgz](https://files.ipd.uw.edu/pub/alphafold_finetune_motmaen_pnas_2023/datasets_alphafold_finetune_v2_2023-02-20.tgz).
 
 ### BA avaluation
 
