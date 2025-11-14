@@ -3,7 +3,7 @@
 # this script requires profit to work.
 
 if [ $# -ne 2 ] ; then
-    echo "Usage: $0 re:wqference_directory mobile_directory"
+    echo "Usage: $0 reference_directory mobile_directory"
     exit 0
 fi
 
