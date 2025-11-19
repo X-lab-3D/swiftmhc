@@ -996,7 +996,7 @@ if __name__ == "__main__":
         # We do a test, no training
         test_loaders = [trainer.get_data_loader(test_path, args.batch_size, shuffle=False)
                         for test_path in args.data_path]
-        trainer.test(test_loaders, run_id, args.animate, pretrained_model_path, args.builders,
+        trainer.test(test_loaders, run_id, args.animate, pretrained_model_path, args.num_builders,
                      args.with_energy_minimization)
 
     else:  # train, validate, test
