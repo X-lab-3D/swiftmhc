@@ -263,9 +263,9 @@ Evaluation runs the same script as training but does not update model weights. U
 To do the evaluation on a pretrained model, run:
 
 ```
-swiftmhc_run --num-builders 1 -r evaluation \
+swiftmhc_run -t -r evaluation \
     -p /path/to/extracted/network-models/swiftmhc/swiftmhc-default/model-for-fold-0.pth \
-    -t /path/to/extracted/preprocessed/BA_cluster0.hdf5
+    /path/to/extracted/preprocessed/BA_cluster0.hdf5
 ```
 
 This will output binding affinity data to `evaluation/BA_cluster0-affinities.csv`
