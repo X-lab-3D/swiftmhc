@@ -419,7 +419,6 @@ class CrossStructureModule(torch.nn.Module):
 
         # [*, N_res - 1]
         mask = torch.logical_and(res_mask[..., :-1], res_mask[..., 1:])
-        masked_out = torch.logical_not(mask)
 
         # make directional vectors for the 3 bonds: C-alpha---C---N---C-alpha
 
