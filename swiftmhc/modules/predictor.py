@@ -32,9 +32,6 @@ class Predictor(torch.nn.Module):
         )
 
         # modules for self attention on protein, updating {s_j}
-        # (likely to be removed in future updates)
-        self.protein_dist_norm = torch.nn.LayerNorm((self.protein_maxlen, self.protein_maxlen, 1))
-
         self.protein_ipa = SelfIPA(config)
 
         self.protein_norm = torch.nn.Sequential(
@@ -75,7 +72,6 @@ class Predictor(torch.nn.Module):
         """Turns gradient on/off for structure modules."""
         for module in [
             self.peptide_transform,
-            self.protein_dist_norm,
             self.protein_ipa,
             self.protein_norm,
             self.cross_sm,
@@ -116,20 +112,9 @@ class Predictor(torch.nn.Module):
         else:
             s_peptide = batch["peptide_sequence_onehot"].clone()
 
-        # Ignore residues that are masked all over the batch.
-        peptide_slice = batch["peptide_self_residues_mask"].sum(dim=0).bool()
-        peptide_mask = peptide_slice.view(1, -1, 1)
-
         # self attention on the peptide
-
-        # redundant: likely to be removed in future version
-        s_peptide = s_peptide.masked_fill(~peptide_mask, 0)
-
         for peptide_encoder in self.peptide_transform:
             s_peptide, _ = peptide_encoder(s_peptide, batch["peptide_self_residues_mask"])
-
-            # redundant: likely to be removed in future version
-            s_peptide = s_peptide.masked_fill(~peptide_mask, 0)
 
         # [*, protein_maxlen, c_s]
         if self.blosum:
@@ -137,23 +122,11 @@ class Predictor(torch.nn.Module):
         else:
             s_protein = batch["protein_sequence_onehot"].clone()
 
-        protein_slice = batch["protein_self_residues_mask"].sum(dim=0).bool()
-        protein_mask = protein_slice.view(1, -1, 1)
-
-        s_protein = s_protein.masked_fill(~protein_mask, 0)
-        z_protein = self.protein_dist_norm(batch["protein_proximities"])
         for _ in range(self.n_ipa_repeat):
             protein_upd, _ = self.protein_ipa(
-                s_protein, z_protein, batch["protein_self_residues_mask"]
+                s_protein, batch["protein_proximities"], batch["protein_self_residues_mask"]
             )
-
-            # redundant: likely to be removed in future version
-            protein_upd = protein_upd.masked_fill(~protein_mask, 0)
-
             s_protein = self.protein_norm(s_protein + protein_upd)
-
-            # redundant: likely to be removed in future version
-            s_protein = s_protein.masked_fill(~protein_mask, 0)
 
         # structure-based self-attention on the protein
         T_protein = Rigid.from_tensor_4x4(batch["protein_backbone_rigid_tensor"])
