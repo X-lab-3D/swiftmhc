@@ -44,8 +44,8 @@ class Rigid(openfold.utils.rigid_utils.Rigid):
         # compose new transformation:
         new_q = multiply_quat(self.get_rots().get_quats(), q_upd)
 
+        # this operation is questionable, it doesn't seem to happen inside AlphaFold2
         trans_update = rotate_vec_by_quat(self.get_rots().get_quats(), t_vec)
-
         new_translation = self.get_trans() + trans_update
 
         return Rigid(

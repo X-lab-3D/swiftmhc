@@ -32,6 +32,7 @@ class Predictor(torch.nn.Module):
         )
 
         # modules for self attention on protein, updating {s_j}
+        # (likely to be removed in future updates)
         self.protein_dist_norm = torch.nn.LayerNorm((self.protein_maxlen, self.protein_maxlen, 1))
 
         self.protein_ipa = SelfIPA(config)
@@ -120,9 +121,14 @@ class Predictor(torch.nn.Module):
         peptide_mask = peptide_slice.view(1, -1, 1)
 
         # self attention on the peptide
+
+        # redundant: likely to be removed in future version
         s_peptide = s_peptide.masked_fill(~peptide_mask, 0)
+
         for peptide_encoder in self.peptide_transform:
             s_peptide, _ = peptide_encoder(s_peptide, batch["peptide_self_residues_mask"])
+
+            # redundant: likely to be removed in future version
             s_peptide = s_peptide.masked_fill(~peptide_mask, 0)
 
         # [*, protein_maxlen, c_s]
@@ -140,8 +146,13 @@ class Predictor(torch.nn.Module):
             protein_upd, _ = self.protein_ipa(
                 s_protein, z_protein, batch["protein_self_residues_mask"]
             )
+
+            # redundant: likely to be removed in future version
             protein_upd = protein_upd.masked_fill(~protein_mask, 0)
+
             s_protein = self.protein_norm(s_protein + protein_upd)
+
+            # redundant: likely to be removed in future version
             s_protein = s_protein.masked_fill(~protein_mask, 0)
 
         # structure-based self-attention on the protein
