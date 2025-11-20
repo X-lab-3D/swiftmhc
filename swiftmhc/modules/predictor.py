@@ -32,8 +32,6 @@ class Predictor(torch.nn.Module):
         )
 
         # modules for self attention on protein, updating {s_j}
-        self.protein_dist_norm = torch.nn.LayerNorm((self.protein_maxlen, self.protein_maxlen, 1))
-
         self.protein_ipa = SelfIPA(config)
 
         self.protein_norm = torch.nn.Sequential(
@@ -74,7 +72,6 @@ class Predictor(torch.nn.Module):
         """Turns gradient on/off for structure modules."""
         for module in [
             self.peptide_transform,
-            self.protein_dist_norm,
             self.protein_ipa,
             self.protein_norm,
             self.cross_sm,
@@ -125,11 +122,9 @@ class Predictor(torch.nn.Module):
         else:
             s_protein = batch["protein_sequence_onehot"].clone()
 
-        # TODO: LayerNorm should consider mask here
-        z_protein = self.protein_dist_norm(batch["protein_proximities"])
         for _ in range(self.n_ipa_repeat):
             protein_upd, _ = self.protein_ipa(
-                s_protein, z_protein, batch["protein_self_residues_mask"]
+                s_protein, batch["protein_proximities"], batch["protein_self_residues_mask"]
             )
             s_protein = self.protein_norm(s_protein + protein_upd)
 
