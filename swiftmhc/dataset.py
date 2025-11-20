@@ -268,6 +268,8 @@ class ProteinLoopDataset(Dataset):
         )
         atom14_mask_data[:length] = atom14_masks
 
+        # TODO: the mask of omega angle of the last residue isn't supposed to
+        #       be True. Fix this by setting the corresponding mask to False.
         # Vectorized torsion angle masks
         torsion_mask_data[:length, :3] = True  # First 3 are always True
         for i, aa_idx in enumerate(aa_indices):
