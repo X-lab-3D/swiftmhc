@@ -298,7 +298,7 @@ The script `scripts/evaluation/measure_omega_angles.py` measures backbone ω ang
 The script `scripts/evaluation/measure_ramachandran_angles.py` measures backbone φ and ψ angles.
 
 To compare Cα positions between a predicted and X-ray structure, RMSD can be calculated using the script `scripts/evaluation/rmsd-calpha-mhc-9mer-peptides.bash`.
-This script will use profit to superpose the MHC structures and output the RMSD between the peptides.
+This script will use [profit](http://www.bioinf.org.uk/software/profit/) to superpose the MHC structures and output the RMSD between the peptides.
 
 ### Finding overlap between Datasets.
 
