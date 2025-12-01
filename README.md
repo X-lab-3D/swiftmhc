@@ -10,8 +10,8 @@ It currently works for `HLA-A*02:01` 9-mers only.
 ## Speed performance
 
 When running on one A100 card with batch size 64:
- * binding affinity (BA) prediction takes 0.01 seconds per pMHC case
- * 3D structure prediction without OpenMM (disabled) takes 0.9 seconds per pMHC case.
+ * binding affinity (BA) prediction takes 0.009 seconds per pMHC case (file writing time ignored)
+ * 3D structure prediction with file writing takes 0.9 seconds per pMHC case.
  * 3D structure prediction with OpenMM takes 2.2 seconds per case.
 
 ## Requirements and installation
