@@ -38,10 +38,7 @@ git clone https://github.com/aqlaboratory/openfold.git
 # Enter the OpenFold directory
 cd openfold
 
-# Install OpenFold
-pip install .
-
-# Install third party dependencies required by OpenFold
+# Install OpenFold and its third party dependencies
 scripts/install_third_party_dependencies.sh
 ```
 
