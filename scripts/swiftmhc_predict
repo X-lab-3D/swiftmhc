@@ -46,7 +46,7 @@ def remove_module_prefix(state: Dict[str, torch.Tensor]) -> Dict[str, torch.Tens
     Remove those prefixes here.
     """
 
-    d = {} 
+    d = {}
     for key, value in state.items():
         if key.startswith("module."):
             new_key = key[7:]
@@ -116,8 +116,7 @@ def store_output(
         protein_atom14_positions = batch["protein_atom14_gt_positions"].cpu()
         protein_atom14_exists = batch["protein_atom14_gt_exists"].cpu()
 
-        if pool is not None and ("class" in output and output["class"][index] > 0 or \
-                                 "affinity" in output and output["affinity"][index] > affinity_binding_threshold):
+        if pool is not None:
 
             _log.info(f"add to build pool: {pdb_path}")
 
