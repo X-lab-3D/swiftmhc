@@ -7,6 +7,13 @@
 SwiftMHC is a deep learning algorithm for predicting pMHC structure and binding affinity at the same time.
 It currently works for `HLA-A*02:01` 9-mers only.
 
+
+
+You can run SwiftMHC in Google Colab to get started quickly:
+
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/X-lab-3D/swiftmhc/blob/main/colab/SwiftMHC-colab.ipynb)
+
+
 ## Speed performance
 
 When running on one A100 card with batch size 64:
