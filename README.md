@@ -1,11 +1,13 @@
-# Overview
+<img src="https://github.com/x-lab-3D/swiftmhc/blob/main/logo.png?raw=true" alt="logo is missing" width="70" height="50" /> # SwiftMHC: A High-Speed Attention Network for MHC-Bound Peptide Identification and 3D Modeling
 
-[SwiftMHC: A High-Speed Attention Network for MHC-Bound Peptide Identification and 3D Modeling](https://doi.org/10.1101/2025.01.20.633893)
-
-![alt text](https://github.com/x-lab-3D/swiftmhc/blob/main/logo.png?raw=true)
+![Data Flow Image is missing here](https://github.com/x-lab-3D/swiftmhc/blob/main/flow.png?raw=true)
 
 SwiftMHC is a deep learning algorithm for predicting pMHC structure and binding affinity at the same time.
 It currently works for `HLA-A*02:01` 9-mers only.
+
+## Publication
+
+[https://doi.org/10.1101/2025.01.20.633893](https://doi.org/10.1101/2025.01.20.633893)
 
 ## Speed performance
 
