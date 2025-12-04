@@ -1,7 +1,5 @@
-<div style="text-align:center;">
-  <img src="https://github.com/x-lab-3D/swiftmhc/blob/main/logo.png?raw=true" alt="logo is missing" width="70" height="50" />
-  <h1>SwiftMHC: A High-Speed Attention Network for MHC-Bound Peptide Identification and 3D Modeling</h1>
-</div>
+| <img src="https://github.com/x-lab-3D/swiftmhc/blob/main/logo.png?raw=true" alt="logo is missing" /> | <h1>SwiftMHC: A High-Speed Attention Network for MHC-Bound Peptide Identification and 3D Modeling</h1> |
+|-----------------------------------------------------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------|
 
 ![Data Flow Image is missing here](https://github.com/x-lab-3D/swiftmhc/blob/main/flow.png?raw=true)
 
