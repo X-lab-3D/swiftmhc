@@ -3,6 +3,11 @@
 SwiftMHC is a deep learning algorithm for predicting pMHC structure and binding affinity at the same time.
 It currently works for `HLA-A*02:01` 9-mers only.
 
+
+You can run SwiftMHC in Google Colab to get started quickly:
+
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/X-lab-3D/swiftmhc/blob/main/colab/SwiftMHC-colab.ipynb)
+
 ## Publication
 
 [https://doi.org/10.1101/2025.01.20.633893](https://doi.org/10.1101/2025.01.20.633893)
@@ -38,10 +43,7 @@ git clone https://github.com/aqlaboratory/openfold.git
 # Enter the OpenFold directory
 cd openfold
 
-# Install OpenFold
-pip install .
-
-# Install third party dependencies required by OpenFold
+# Install OpenFold and its third party dependencies
 scripts/install_third_party_dependencies.sh
 ```
 
