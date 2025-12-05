@@ -34,6 +34,7 @@ arg_parser.add_argument("model_path", help="pretrained model")
 arg_parser.add_argument("table_path", help="table containing the columns: 'peptide' and 'allele'")
 arg_parser.add_argument("hdf5_path", help="an hdf5 file containing the preprocessed mhc structures, identified by allele")
 arg_parser.add_argument("output_directory", help="directory for the output files: *.pdb and *.csv")
+arg_parser.add_argument("--output-nonbinder-structure", help="indicate whether to output also non-binder structures", action="store_const", const=True, default=False)
 arg_parser.add_argument("--with-energy-minimization", help="include structure OpenMM energy minimization", action="store_const", const=True, default=False)
 arg_parser.add_argument("--batch-size", "-b", type=int, default=64, help="number of simultaneous complexes to predict in one batch")
 arg_parser.add_argument("--num-workers", "-w", type=int, default=5, help="number of simulteneous data readers")
@@ -94,6 +95,7 @@ def store_output(
     batch: Dict[str, torch.Tensor],
     output: Dict[str, torch.Tensor],
     minimize_energy: bool,
+    output_nonbinder_structure: bool,
 ):
     if not os.path.isdir(directory_path):
         os.mkdir(directory_path)
@@ -117,20 +119,22 @@ def store_output(
         protein_atom14_exists = batch["protein_atom14_gt_exists"].cpu()
 
         if pool is not None:
+            is_binder = ("class" in output and output["class"][index] > 0 or "affinity" in output and output["affinity"][index] > affinity_binding_threshold)
+            if output_nonbinder_structure or (not output_nonbinder_structure and is_binder):
 
-            _log.info(f"add to build pool: {pdb_path}")
+                _log.info(f"add to build pool: {pdb_path}")
 
-            # found a binder case, store the model
-            pool.apply_async(
-                output_structure,
-                (
-                    pdb_path,
-                    [("P", peptide_residue_numbers[index], peptide_aatype[index], peptide_atom14_positions[index], peptide_atom14_mask[index]),
-                     ("M", protein_residue_numbers[index], protein_aatype[index], protein_atom14_positions[index], protein_atom14_exists[index])],
-                    minimize_energy,
-                ),
-                error_callback=lambda e: _log.exception(f"on {pdb_path}"),
-            )
+                # found a binder case, store the model
+                pool.apply_async(
+                    output_structure,
+                    (
+                        pdb_path,
+                        [("P", peptide_residue_numbers[index], peptide_aatype[index], peptide_atom14_positions[index], peptide_atom14_mask[index]),
+                        ("M", protein_residue_numbers[index], protein_aatype[index], protein_atom14_positions[index], protein_atom14_exists[index])],
+                        minimize_energy,
+                    ),
+                    error_callback=lambda e: _log.exception(f"on {pdb_path}"),
+                )
 
     # save affinity/class
     table_path = os.path.join(directory_path, "results.csv")
@@ -192,7 +196,7 @@ if __name__ == "__main__":
                 for batch in data_loader:
                     output = model(batch)
 
-                    store_output(builder_pool, args.output_directory, batch, output, args.with_energy_minimization)
+                    store_output(builder_pool, args.output_directory, batch, output, args.with_energy_minimization, args.output_nonbinder_structure)
 
             builder_pool.close()
             builder_pool.join()
@@ -201,4 +205,4 @@ if __name__ == "__main__":
             for batch in data_loader:
                 output = model(batch)
 
-                store_output(None, args.output_directory, batch, output, False)
+                store_output(None, args.output_directory, batch, output, False, args.output_nonbinder_structure)
