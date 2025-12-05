@@ -6,7 +6,7 @@ It currently works for `HLA-A*02:01` 9-mers only.
 
 You can run SwiftMHC in Google Colab to get started quickly:
 
-[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/X-lab-3D/swiftmhc/blob/main/colab/SwiftMHC-colab.ipynb)
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/X-lab-3D/swiftmhc/blob/main/colab/SwiftMHC_colab.ipynb)
 
 ## Publication
 
